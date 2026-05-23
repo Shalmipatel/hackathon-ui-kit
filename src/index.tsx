@@ -4,14 +4,16 @@ import { TabPage, ConnectionGate, AppRoot } from '@/features/app/layouts';
 import { Toaster } from '@/features/toast';
 import { AddToHomeScreenBanner } from '@/features/app/components/AddToHomeScreenBanner';
 import { initSuperProperties } from '@/features/analytics';
-import { OAUTH_CALLBACK_PATH, handleOAuthCallback } from '@/features/travel/google-connect';
+import { handleOAuthCallback, isOAuthCallback } from '@/features/travel/google-connect';
 
-/* If this load is the Gmail OAuth popup landing on the callback URL,
+/* If this load is the Gmail OAuth popup landing back from Google,
  * branch BEFORE mounting the React tree — the popup just needs to
  * post the code to the server, notify the opener, and close. Booting
  * the full app shell here would briefly flash the trips view in the
- * popup, which looks broken. */
-if (window.location.pathname === OAUTH_CALLBACK_PATH) {
+ * popup, which looks broken. Redirect URI is the bare origin, so we
+ * detect by query params + matching localStorage CSRF state instead
+ * of a specific path. */
+if (isOAuthCallback()) {
   document.body.innerHTML = `
     <div style="font-family: 'Inter', system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #fbfaf9; color: #242424;">
       <div style="text-align: center; padding: 32px;">

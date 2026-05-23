@@ -28,13 +28,13 @@ const CLIENT_ID =
   '775904840598-iu85tvlej2suq1op7tbr2qvv3db8hpcd.apps.googleusercontent.com';
 
 /* Must EXACTLY match an authorized redirect URI on the Google OAuth
-   client — user has both http://localhost:5173 and the callback path
-   registered. Using the path so the app shell doesn't re-mount on the
-   main window if a user somehow lands here directly. */
+   client. The user registered the bare origin (http://localhost:5173)
+   so we use that — Google does string-equality on this value, so any
+   trailing path / slash would fail with redirect_uri_mismatch. The
+   callback is detected in index.tsx by sniffing query params for
+   `code` + `state` + a matching localStorage CSRF token. */
 const REDIRECT_URI =
-  typeof window !== 'undefined'
-    ? `${window.location.origin}/oauth/google/callback`
-    : 'http://localhost:5173/oauth/google/callback';
+  typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
 
 const AUTH_URI = 'https://accounts.google.com/o/oauth2/auth';
 
@@ -53,7 +53,23 @@ const STATE_KEY = 'gog-oauth-state';
 const PENDING_EMAIL_KEY = 'gog-oauth-pending-email';
 const CONNECTED_EMAIL_KEY = 'gog-connected-email';
 const POSTMESSAGE_TYPE = 'gog-oauth-result';
-export const OAUTH_CALLBACK_PATH = '/oauth/google/callback';
+
+/** True when this page load is the Google OAuth redirect landing —
+ *  query has both `code` and `state`, AND the state matches a
+ *  pending value we wrote before opening the popup. The state-match
+ *  guard prevents a user who lands on the app with random `?code=` in
+ *  the URL from being treated as a callback. */
+export function isOAuthCallback(): boolean {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  const state = params.get('state');
+  if (!state || !params.get('code')) return false;
+  try {
+    return localStorage.getItem(STATE_KEY) === state;
+  } catch {
+    return false;
+  }
+}
 
 interface ConnectResult {
   success: boolean;
