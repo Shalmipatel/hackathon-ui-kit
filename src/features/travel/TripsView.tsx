@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import styled from 'styled-components';
 import { useIsMobile } from '@/components/useIsMobile';
 import { useSendMessage } from '@/features/chat/useSendMessage';
+import { toast } from '@/features/toast';
 import TripList from './TripList';
 import Itinerary from './Itinerary';
 import TripMap from './TripMap';
@@ -11,6 +12,8 @@ import { useBookingIngestion } from './useBookingIngestion';
 import { BOOKING_CONTRACT_PROMPT } from './parser';
 import { selectActiveTrip, useTravelStore } from './travel-store';
 import { formatTripRange } from './format';
+import { useGoogleAuth } from './google-auth';
+import { scanGmail, emailsToChatPayload } from './gmail-scan';
 
 const Page = styled.div`
   display: flex;
@@ -207,6 +210,7 @@ interface TripsViewProps {
 export const TripsView: React.FC<TripsViewProps> = ({ onNavigateToChat }) => {
   const [focusedBookingId, setFocusedBookingId] = useState<string | null>(null);
   const sendMessage = useSendMessage();
+  const google = useGoogleAuth();
   /* Listen for agent-emitted booking blocks in the chat and merge them
      into the travel store. Mounting here is fine: trips is the default
      landing view, so by the time the agent might reply this hook is
@@ -218,16 +222,55 @@ export const TripsView: React.FC<TripsViewProps> = ({ onNavigateToChat }) => {
   const showRightRail = !useIsMobile(1100);
   const showCompactMap = !showRightRail;
 
-  const handleScanInbox = useCallback(() => {
+  const handleScanInbox = useCallback(async () => {
     const trip = selectActiveTrip(useTravelStore.getState());
     const tripCtx = trip
       ? `Active trip: ${trip.title} (${trip.destination}) — ${formatTripRange(trip)}. Trip id: ${trip.id}.`
       : 'No specific trip selected; group by destination if you find multiple.';
-    sendMessage(
-      `Please scan my Gmail for travel confirmations (flights, hotels, activities, restaurants, ground transport). ${tripCtx}\n\n${BOOKING_CONTRACT_PROMPT}`,
-    );
-    onNavigateToChat();
-  }, [onNavigateToChat, sendMessage]);
+
+    const token = google.getAccessToken();
+    if (!token) {
+      /* No Gmail token — fall back to telling the agent to use its own
+         Gmail tool (e.g. OpenClaw gog skill). The contract prompt
+         primes the response shape either way. */
+      sendMessage(
+        `Please scan my Gmail for travel confirmations (flights, hotels, activities, restaurants, ground transport). ${tripCtx}\n\n${BOOKING_CONTRACT_PROMPT}`,
+      );
+      onNavigateToChat();
+      return;
+    }
+
+    /* Connected via direct OAuth: pull the actual messages, embed them
+       in the chat turn so the agent can extract bookings without
+       needing its own Gmail access. */
+    const scanToastId = toast({
+      title: 'Scanning Gmail…',
+      description: 'Fetching travel confirmations from your inbox',
+      duration: 0,
+    });
+    try {
+      const emails = await scanGmail(token, { maxResults: 25 });
+      toast.dismiss(scanToastId);
+      if (emails.length === 0) {
+        toast({
+          title: 'No travel emails found',
+          description: 'Tried the last year for confirmation/itinerary/booking keywords.',
+        });
+        return;
+      }
+      const payload = emailsToChatPayload(emails);
+      sendMessage(
+        `Here are ${emails.length} travel-related emails from my Gmail inbox. Extract every flight/hotel/activity/restaurant/transport booking you can identify and emit them as a wanderbot bookings block.\n\n${tripCtx}\n\n${BOOKING_CONTRACT_PROMPT}\n\nEmails:\n\n${payload}`,
+      );
+      onNavigateToChat();
+    } catch (err) {
+      toast.dismiss(scanToastId);
+      toast({
+        title: 'Gmail scan failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  }, [google, onNavigateToChat, sendMessage]);
 
   return (
     <Page>

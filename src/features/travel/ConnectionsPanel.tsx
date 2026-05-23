@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import styled from 'styled-components';
-import { useIntegrations } from '@/features/connections';
+import { useGoogleAuth } from './google-auth';
 
 const Panel = styled.section`
   display: flex;
@@ -198,56 +198,14 @@ interface ConnectionsPanelProps {
 }
 
 export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ onScanInbox }) => {
-  const gmail = useIntegrations(true, 'Gmail');
-  const gcal = useIntegrations(true, 'Gcal');
+  const google = useGoogleAuth();
 
   const [siteConn, setSiteConn] = useState<Record<string, boolean>>({});
   useEffect(() => {
     setSiteConn(loadSiteConnections());
   }, []);
 
-  const gmailConnected = useMemo(
-    () => gmail.services.some((s) => s.accounts && s.accounts.length > 0),
-    [gmail.services],
-  );
-  const gmailAccount = useMemo(
-    () => gmail.services.flatMap((s) => s.accounts ?? [])[0] ?? null,
-    [gmail.services],
-  );
-  const gcalConnected = useMemo(
-    () => gcal.services.some((s) => s.accounts && s.accounts.length > 0),
-    [gcal.services],
-  );
-
-  const [gmailPending, setGmailPending] = useState(false);
-  const [gcalPending, setGcalPending] = useState(false);
-
-  async function handleGmail() {
-    if (gmailConnected && gmailAccount) {
-      await gmail.disconnect(gmailAccount.accountId);
-      return;
-    }
-    setGmailPending(true);
-    try {
-      await gmail.connect();
-    } finally {
-      setGmailPending(false);
-    }
-  }
-
-  async function handleGcal() {
-    if (gcalConnected) {
-      const acct = gcal.services.flatMap((s) => s.accounts ?? [])[0];
-      if (acct) await gcal.disconnect(acct.accountId);
-      return;
-    }
-    setGcalPending(true);
-    try {
-      await gcal.connect();
-    } finally {
-      setGcalPending(false);
-    }
-  }
+  const gmailConnected = Boolean(google.token);
 
   function toggleSite(id: string) {
     setSiteConn((prev) => {
@@ -284,7 +242,7 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ onScanInbox 
       <div>
         <SectionHead>
           <SectionTitle>Google</SectionTitle>
-          <SectionHint>OAuth · email + calendar</SectionHint>
+          <SectionHint>OAuth · Gmail readonly</SectionHint>
         </SectionHead>
         <Grid style={{ marginTop: 8 }}>
           <Row $connected={gmailConnected}>
@@ -292,45 +250,25 @@ export const ConnectionsPanel: React.FC<ConnectionsPanelProps> = ({ onScanInbox 
             <RowMain>
               <RowTitle>Gmail</RowTitle>
               <RowSub>
-                {gmail.error
-                  ? gmail.error
-                  : gmailConnected && gmailAccount
-                    ? `Connected as ${gmailAccount.email}`
-                    : 'Read flight, hotel, and activity confirmations.'}
+                {!google.available
+                  ? 'Set VITE_GOOGLE_CLIENT_ID in .env.local to enable.'
+                  : google.error
+                    ? google.error
+                    : gmailConnected && google.profile
+                      ? `Connected as ${google.profile.email}`
+                      : gmailConnected
+                        ? 'Connected'
+                        : 'Read flight, hotel, and activity confirmations.'}
               </RowSub>
             </RowMain>
             <ActionBtn
               $variant={gmailConnected ? 'connected' : 'primary'}
-              onClick={handleGmail}
-              disabled={gmail.loading || gmailPending}
+              onClick={() => (gmailConnected ? google.disconnect() : google.connect())}
+              disabled={!google.available || !google.ready || google.pending}
             >
-              {gmailPending
+              {google.pending
                 ? 'Opening…'
                 : gmailConnected
-                  ? 'Disconnect'
-                  : 'Connect'}
-            </ActionBtn>
-          </Row>
-          <Row $connected={gcalConnected}>
-            <Avatar $bg="#1a73e8">📅</Avatar>
-            <RowMain>
-              <RowTitle>Google Calendar</RowTitle>
-              <RowSub>
-                {gcal.error
-                  ? gcal.error
-                  : gcalConnected
-                    ? 'Connected · trips can be pushed to your calendar.'
-                    : 'Sync itineraries to your calendar.'}
-              </RowSub>
-            </RowMain>
-            <ActionBtn
-              $variant={gcalConnected ? 'connected' : 'ghost'}
-              onClick={handleGcal}
-              disabled={gcal.loading || gcalPending}
-            >
-              {gcalPending
-                ? 'Opening…'
-                : gcalConnected
                   ? 'Disconnect'
                   : 'Connect'}
             </ActionBtn>

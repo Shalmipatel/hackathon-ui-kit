@@ -54,7 +54,12 @@ export class IntegrationClient implements IIntegrationClient {
   ) {}
 
   private async fetchLinkedAccounts(signal?: AbortSignal): Promise<LinkedAccount[]> {
-    const resp = await this.directTransport.request(
+    /* Use proxyTransport (relative path → Vite/edge proxy) instead of
+       directTransport: the integration server's OPTIONS preflight
+       redirects, which the browser refuses on a CORS preflight
+       (ERR_INVALID_REDIRECT). Routing through the gateway proxy avoids
+       CORS entirely. */
+    const resp = await this.proxyTransport.request(
       EXTERNAL_ENDPOINTS.INTEGRATION.STATUS,
       {
         method: 'POST',

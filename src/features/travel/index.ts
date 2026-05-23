@@ -1,5 +1,7 @@
 export { default as TripsView } from './TripsView';
 export { useTravelStore } from './travel-store';
 export { useBookingIngestion } from './useBookingIngestion';
+export { useGoogleAuth } from './google-auth';
+export { scanGmail, emailsToChatPayload } from './gmail-scan';
 export { parseBookingsFromMessage, BOOKING_CONTRACT_PROMPT } from './parser';
 export type { Trip, Booking, BookingType } from './types';
