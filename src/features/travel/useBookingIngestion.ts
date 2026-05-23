@@ -147,6 +147,51 @@ export function useBookingIngestion(): void {
   }, []);
 }
 
+/** Content fingerprint for booking dedup / enrichment. Confirmation
+ *  number is the most reliable handle when present (PNRs are
+ *  globally unique); fall back to type+title+date for things like
+ *  agent-added activities or manual entries. tripId is in the key
+ *  so the same flight number repeated across two trips stays
+ *  distinct. */
+function bookingFingerprint(b: Booking): string {
+  if (b.confirmation && b.confirmation.trim()) {
+    return `${b.tripId}|${b.type}|conf:${b.confirmation.trim().toLowerCase()}`;
+  }
+  return `${b.tripId}|${b.type}|${b.title.trim().toLowerCase()}|${b.start.slice(0, 10)}`;
+}
+
+/** Enrichment merge: prefer incoming non-empty values, fall back to
+ *  existing for anything the rescan didn't fill in. Keeps the existing
+ *  id so the trip's booking list reference stays stable. Nested
+ *  objects (place / from / to / cost) get shallow-merged so partial
+ *  coords don't blow away a complete address. */
+function enrichBooking(existing: Booking, incoming: Booking): Booking {
+  const isEmpty = (v: unknown) =>
+    v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+  const merged: Record<string, unknown> = { ...existing };
+  for (const [k, v] of Object.entries(incoming)) {
+    if (k === 'id' || k === 'tripId') continue;
+    if (isEmpty(v)) continue;
+    if (
+      v &&
+      typeof v === 'object' &&
+      !Array.isArray(v) &&
+      typeof merged[k] === 'object' &&
+      merged[k] !== null
+    ) {
+      merged[k] = { ...(merged[k] as object), ...(v as object) };
+    } else {
+      merged[k] = v;
+    }
+  }
+  /* Preserve provenance: a manually-created booking that gets
+     enriched from an email shouldn't lose its "manual" badge unless
+     the user-facing source changes meaningfully. Keep existing source
+     if the incoming didn't specify. */
+  if (!incoming.source) merged.source = existing.source;
+  return merged as Booking;
+}
+
 function applyBookings(bookings: Booking[], sessionId: string): void {
   if (bookings.length === 0) return;
   const store = useTravelStore.getState();
@@ -157,21 +202,66 @@ function applyBookings(bookings: Booking[], sessionId: string): void {
   const final = bookings.map((b) =>
     b.tripId ? b : { ...b, tripId: activeTripId ?? b.tripId },
   );
+
+  /* Build an index of existing bookings by fingerprint so a rescan
+     can update an existing booking (filling in missing fields) rather
+     than blindly inserting a duplicate under a new id. */
+  const existingByFp = new Map<string, Booking>();
+  for (const b of store.bookings) {
+    existingByFp.set(bookingFingerprint(b), b);
+  }
+
+  let added = 0;
+  let updated = 0;
   for (const b of final) {
     if (!b.tripId) continue;
-    store.upsertBooking(b);
+    const fp = bookingFingerprint(b);
+    const existing = existingByFp.get(fp);
+    if (existing) {
+      const merged = enrichBooking(existing, b);
+      /* Skip the upsert if literally nothing changed — avoids spamming
+         Firebase mirror writes on no-op rescans. */
+      if (JSON.stringify(merged) === JSON.stringify(existing)) continue;
+      store.upsertBooking(merged);
+      updated++;
+    } else {
+      store.upsertBooking(b);
+      added++;
+    }
   }
-  toast({
-    title:
-      final.length === 1
-        ? `Added booking · ${final[0].title}`
-        : `Added ${final.length} bookings to your trip`,
-    description:
-      final.length === 1
-        ? bookingSubtitle(final[0])
-        : final.map((b) => b.title).slice(0, 3).join(' · '),
-    duration: 4500,
-  });
+
+  if (added === 0 && updated === 0) {
+    toast({
+      title: 'No booking changes',
+      description: 'Everything the scan returned was already up to date.',
+    });
+  } else if (added > 0 && updated === 0) {
+    toast({
+      title:
+        added === 1
+          ? `Added booking · ${final[0].title}`
+          : `Added ${added} bookings to your trip`,
+      description:
+        added === 1
+          ? bookingSubtitle(final[0])
+          : final.map((b) => b.title).slice(0, 3).join(' · '),
+      duration: 4500,
+    });
+  } else if (updated > 0 && added === 0) {
+    toast({
+      title:
+        updated === 1
+          ? `Filled in details for 1 booking`
+          : `Filled in details for ${updated} bookings`,
+      description: 'Rescan added missing fields to existing entries.',
+      duration: 4500,
+    });
+  } else {
+    toast({
+      title: `Added ${added}, updated ${updated} booking${added + updated === 1 ? '' : 's'}`,
+      duration: 4500,
+    });
+  }
   /* Mark session for analytics consumer if desired — out of scope here. */
   void sessionId;
 }

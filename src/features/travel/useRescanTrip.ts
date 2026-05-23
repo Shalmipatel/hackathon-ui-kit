@@ -67,30 +67,50 @@ export function useRescanTrip(): {
 
       sendMessage('/reset');
 
-      /* Compact fingerprint so the agent can skip duplicates without
-         us shipping the whole booking object. Use confirmation if
-         present, else title — both stable enough for dedup. */
+      /* Send the agent a compact picture of what we currently have for
+         each booking — including which fields are missing — so it
+         knows what to fill in. The client merges by fingerprint
+         (confirmation or type+title+date), so re-emitting an existing
+         booking with more details is exactly what we want. */
       const knownBookings = bookings.length
         ? bookings
             .map((b) => {
-              const tag = b.confirmation ? `#${b.confirmation}` : b.title;
-              return `- [${b.type}] ${tag} (${b.start.slice(0, 10)})`;
+              const tag = b.confirmation ? `#${b.confirmation}` : '(no confirmation)';
+              const missing: string[] = [];
+              if (!b.confirmation) missing.push('confirmation');
+              if (!b.cost) missing.push('cost');
+              if (b.type === 'flight' || b.type === 'transport') {
+                if (!b.from?.lat || !b.from?.lng) missing.push('from coords');
+                if (!b.to?.lat || !b.to?.lng) missing.push('to coords');
+              } else {
+                if (!b.place?.lat || !b.place?.lng) missing.push('place coords');
+                if (!b.place?.address) missing.push('place address');
+              }
+              if (!b.end) missing.push('end time');
+              const missingNote = missing.length
+                ? ` — MISSING: ${missing.join(', ')}`
+                : ' — looks complete';
+              return `- [${b.type}] ${b.title} ${tag} (${b.start.slice(0, 10)})${missingNote}`;
             })
             .join('\n')
-        : '_(none yet)_';
+        : '_(no bookings yet — this is a brand new trip, find everything you can)_';
 
       const prompt = [
-        `RESCAN — scoped to ONE existing trip. Do NOT emit a trips/v1 block; the trip already exists. Only emit bookings/v1 entries with tripId="${trip.id}" for any NEW bookings you find.`,
+        `RESCAN — goal is to FILL IN MISSING DATA for one existing trip. Do NOT emit a trips/v1 block; the trip already exists. Emit bookings/v1 entries with tripId="${trip.id}".`,
         '',
         `Trip: ${trip.title}`,
         `Destination: ${trip.destination}`,
         `Dates: ${formatTripRange(trip)}`,
         `Trip id: ${trip.id}`,
         '',
-        'Already-known bookings (skip these, do NOT re-emit):',
+        'Current bookings on this trip (with what\'s missing):',
         knownBookings,
         '',
-        'Look across ALL my connected sources for new bookings for THIS trip:',
+        'TASK — both at once:',
+        '1. For each EXISTING booking above with "MISSING:" notes, find the missing fields from the sources below and re-emit the booking with the complete data. Use the same confirmation number / title / date so the client merges with the existing entry instead of duplicating it.',
+        '2. Look for any NEW bookings for this trip you haven\'t added yet.',
+        '',
+        'Sources to check (all of them, not just Gmail):',
         '- Gmail: search for confirmations dated within the trip window',
         '- Airbnb: https://www.airbnb.com/trips/v1',
         '- Booking.com: https://secure.booking.com/myreservations.html',
@@ -98,7 +118,10 @@ export function useRescanTrip(): {
         '- Google Calendar events overlapping the trip dates',
         '- OpenTable / Resy reservations during the trip',
         '',
-        'For each new booking, emit it with tripId set to the value above. Skip anything that matches an already-known confirmation or title+date pair.',
+        'Matching rules so the client can merge correctly:',
+        '- If a booking has a confirmation number, keep using the SAME confirmation when re-emitting (this is how the client identifies the same booking).',
+        '- If no confirmation, the client matches on (type, title-lowercased, start-date). Keep the title + start date stable.',
+        '- Always include lat/lng — without them the booking can\'t appear on the map.',
         '',
         BOOKING_CONTRACT_PROMPT,
       ].join('\n');
