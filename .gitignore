@@ -8,7 +8,6 @@ build/
 
 # Environment (local overrides — never commit secrets)
 .env
-.env.local
 .env.*.local
 
 # IDE
