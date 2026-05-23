@@ -89,6 +89,9 @@ export interface Trip {
   /** Chat-store session id dedicated to this trip. Created at trip
    *  creation time (or lazily on first selection for seeded trips). */
   chatSessionId?: string;
+  /** Manually archived by the user. Past-by-date trips show in the
+   *  same folded section without needing this flag. */
+  archived?: boolean;
 }
 
 export interface ScanStatus {

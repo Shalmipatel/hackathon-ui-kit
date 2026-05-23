@@ -194,17 +194,30 @@ async function applyTrips(incoming: Trip[]): Promise<void> {
   const store = useTravelStore.getState();
   const existingIds = new Set(store.trips.map((t) => t.id));
   const existingFingerprints = new Set(store.trips.map(tripFingerprint));
+  /* Tombstones — trips the user explicitly deleted should never come
+     back via a future scan, even under a fresh agent-generated id. */
+  const deletedFingerprints = new Set(store.deletedTripFingerprints);
   /* Also dedupe within the incoming batch — the agent has been known to
      emit the same trip twice in a single block. Keep the first hit. */
   const seenFingerprints = new Set<string>();
+  let suppressedByTombstone = 0;
   const fresh = incoming.filter((t) => {
     if (existingIds.has(t.id)) return false;
     const fp = tripFingerprint(t);
     if (existingFingerprints.has(fp)) return false;
     if (seenFingerprints.has(fp)) return false;
+    if (deletedFingerprints.has(fp)) {
+      suppressedByTombstone++;
+      return false;
+    }
     seenFingerprints.add(fp);
     return true;
   });
+  if (suppressedByTombstone > 0) {
+    console.warn(
+      `[wanderbot] suppressed ${suppressedByTombstone} previously-deleted trip(s) from re-ingestion.`,
+    );
+  }
   if (fresh.length === 0) {
     toast({
       title: 'No new trips found',

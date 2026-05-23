@@ -76,11 +76,16 @@ interface TravelState {
   /** True while a trip-discovery scan request is in flight. UI uses
    *  this to disable the scan button and show progress. */
   scanInFlight: boolean;
+  /** Tombstones for trips the user explicitly deleted — fingerprints
+   *  so rescans can't resurrect them under a fresh id. */
+  deletedTripFingerprints: string[];
 
   setActiveTrip: (id: string | null) => void;
   addTrip: (trip: Trip) => void;
   updateTrip: (id: string, patch: Partial<Trip>) => void;
   deleteTrip: (id: string) => void;
+  archiveTrip: (id: string) => void;
+  unarchiveTrip: (id: string) => void;
 
   addBooking: (booking: Booking) => void;
   upsertBooking: (booking: Booking) => void;
@@ -106,6 +111,7 @@ export const useTravelStore = create<TravelState>()(
       scan: null,
       tripChatSessions: {},
       scanInFlight: false,
+      deletedTripFingerprints: [],
 
       setActiveTrip: (id) => set({ activeTripId: id }),
       addTrip: (trip) =>
@@ -128,6 +134,17 @@ export const useTravelStore = create<TravelState>()(
       deleteTrip: (id) =>
         set((s) => {
           const { [id]: _removed, ...remainingChat } = s.tripChatSessions;
+          /* Record the fingerprint as a tombstone so the next scan
+             can't bring this trip back under a different id. */
+          const victim = s.trips.find((t) => t.id === id);
+          const tombstones = victim
+            ? Array.from(
+                new Set([
+                  ...s.deletedTripFingerprints,
+                  tripFingerprint(victim),
+                ]),
+              )
+            : s.deletedTripFingerprints;
           return {
             trips: s.trips.filter((t) => t.id !== id),
             bookings: s.bookings.filter((b) => b.tripId !== id),
@@ -136,8 +153,20 @@ export const useTravelStore = create<TravelState>()(
                 ? s.trips.find((t) => t.id !== id)?.id ?? null
                 : s.activeTripId,
             tripChatSessions: remainingChat,
+            deletedTripFingerprints: tombstones,
           };
         }),
+
+      archiveTrip: (id) =>
+        set((s) => ({
+          trips: s.trips.map((t) => (t.id === id ? { ...t, archived: true } : t)),
+        })),
+      unarchiveTrip: (id) =>
+        set((s) => ({
+          trips: s.trips.map((t) =>
+            t.id === id ? { ...t, archived: false } : t,
+          ),
+        })),
 
       addBooking: (booking) =>
         set((s) => ({ bookings: [...s.bookings, booking] })),
@@ -183,6 +212,7 @@ export const useTravelStore = create<TravelState>()(
         bookings: state.bookings,
         activeTripId: state.activeTripId,
         tripChatSessions: state.tripChatSessions,
+        deletedTripFingerprints: state.deletedTripFingerprints,
       }),
       /* Run the dedupe pass once per app start so dupes that landed
          before the ingestion-level fix get collapsed automatically. */
