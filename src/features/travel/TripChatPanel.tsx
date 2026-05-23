@@ -299,9 +299,14 @@ function useTripChatSync(): void {
       const sessionId = await ensureTripChatSession(activeTripId);
       if (cancelled || !sessionId) return;
       const chat = getChatStore();
-      chat.getState().setActiveSession(sessionId);
       try {
+        /* Load BEFORE activating — otherwise activeSessionId briefly
+           points at a session not in sessions{}, the messages
+           selector falls back to its empty array, and any
+           non-stabilised fallback causes a render loop. */
         await chat.getState().loadSession(sessionId);
+        if (cancelled) return;
+        chat.getState().setActiveSession(sessionId);
       } catch (err) {
         /* Stale id (cache cleared, etc.) — drop it and let the next
            tick recreate. */

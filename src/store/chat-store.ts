@@ -1042,8 +1042,14 @@ export function createChatStore(deps: StoreDependencies) {
 export const selectActiveSession = (state: ChatStore): SessionState | null =>
   state.activeSessionId ? state.sessions[state.activeSessionId] ?? null : null;
 
+/* Stable empty array — `?? []` would create a fresh reference each
+   call, which trips zustand's getSnapshot caching check
+   ("getSnapshot should be cached") and lands the app in a render
+   loop when activeSessionId points at a session whose messages
+   aren't loaded yet. */
+const EMPTY_MESSAGES: ChatMessage[] = Object.freeze([]) as ChatMessage[];
 export const selectActiveMessages = (state: ChatStore): ChatMessage[] =>
-  selectActiveSession(state)?.messages ?? [];
+  selectActiveSession(state)?.messages ?? EMPTY_MESSAGES;
 
 export const selectIsStreaming =
   (sessionId: string) =>
