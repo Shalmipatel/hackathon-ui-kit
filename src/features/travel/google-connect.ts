@@ -227,10 +227,18 @@ async function runCallback(): Promise<ConnectResult> {
      hand it straight to `gog auth add ... --auth-url ...`. */
   const fullAuthUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
 
+  /* The /api proxy forwards to the OpenClaw gateway which requires
+     `Authorization: Bearer <gateway api key>`. The popup window
+     reads it from import.meta.env just like the main app does. */
+  const apiKey = (import.meta.env as Record<string, string | undefined>)
+    .VITE_NEOCLAW_API_KEY;
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+
   try {
     const resp = await fetch('/api/gog/auth/complete', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify({
         code,
         state,
