@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { useSendMessage } from '@/features/chat/useSendMessage';
 import { selectActiveTrip, selectBookingsForTrip, useTravelStore } from './travel-store';
 import { formatTripRange, formatDayLabel, formatTimeOfDay } from './format';
+import { BOOKING_CONTRACT_PROMPT } from './parser';
 
 const Composer = styled.form`
   display: flex;
@@ -116,8 +117,8 @@ export const TripChatButton: React.FC<TripChatButtonProps> = ({ onNavigateToChat
       if (!trimmed) return;
       const ctx = buildTripContext();
       const composed = ctx
-        ? `Context — my current trip:\n${ctx}\n\nMy question: ${trimmed}`
-        : trimmed;
+        ? `Context — my current trip:\n${ctx}\n\n${BOOKING_CONTRACT_PROMPT}\n\nMy question: ${trimmed}`
+        : `${BOOKING_CONTRACT_PROMPT}\n\nMy question: ${trimmed}`;
       sendMessage(composed);
       setText('');
       onNavigateToChat();

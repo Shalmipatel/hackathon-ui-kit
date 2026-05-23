@@ -16,17 +16,16 @@ const MONTHS = [
   'Dec',
 ];
 
-/** Returns YYYY-MM-DD for a Date in its local-time-of-the-stamp parts.
- *  Important: we use the *string* date portion, not UTC conversion, so a
- *  flight stamped 11:25 PT and a hotel stamped 15:00 JST on the same trip
- *  day still group correctly. */
+/** Returns YYYY-MM-DD for a booking timestamp, preserving the *stamp's*
+ *  timezone rather than the viewer's. A JST 9:00 AM stays on its JST
+ *  calendar day even when viewed from PT — otherwise booking like
+ *  `2026-06-15T09:00:00+09:00` would render under Jun 14 for a US user
+ *  because `new Date(...).toISOString()` normalizes to UTC. The date
+ *  portion of an ISO 8601 string is already in the stamp's offset, so
+ *  slicing the leading 10 chars is correct. */
 export function localDateKey(iso: string): string {
-  // ISO strings carry their own offset; slice off the date+time portion and
-  // re-build using the local components.
-  const d = new Date(iso);
-  const tzOffset = d.getTimezoneOffset();
-  const local = new Date(d.getTime() - tzOffset * 60_000);
-  return local.toISOString().slice(0, 10);
+  const match = iso.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : iso.slice(0, 10);
 }
 
 /** "Sat, Jun 13" */

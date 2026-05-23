@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import styled from 'styled-components';
 import { useIsMobile } from '@/components/useIsMobile';
+import { useSendMessage } from '@/features/chat/useSendMessage';
 import TripList from './TripList';
 import Itinerary from './Itinerary';
 import TripMap from './TripMap';
 import ConnectionsPanel from './ConnectionsPanel';
 import TripChatButton from './TripChatButton';
+import { useBookingIngestion } from './useBookingIngestion';
+import { BOOKING_CONTRACT_PROMPT } from './parser';
+import { selectActiveTrip, useTravelStore } from './travel-store';
+import { formatTripRange } from './format';
 
 const Page = styled.div`
   display: flex;
@@ -201,11 +206,28 @@ interface TripsViewProps {
 
 export const TripsView: React.FC<TripsViewProps> = ({ onNavigateToChat }) => {
   const [focusedBookingId, setFocusedBookingId] = useState<string | null>(null);
+  const sendMessage = useSendMessage();
+  /* Listen for agent-emitted booking blocks in the chat and merge them
+     into the travel store. Mounting here is fine: trips is the default
+     landing view, so by the time the agent might reply this hook is
+     already armed. */
+  useBookingIngestion();
   /* Threshold matches the @media break for RightCol so we only mount one
      leaflet map at a time. Two maps + a 0×0 container causes wasted work
      and a stale fitBounds against an undersized container. */
   const showRightRail = !useIsMobile(1100);
   const showCompactMap = !showRightRail;
+
+  const handleScanInbox = useCallback(() => {
+    const trip = selectActiveTrip(useTravelStore.getState());
+    const tripCtx = trip
+      ? `Active trip: ${trip.title} (${trip.destination}) — ${formatTripRange(trip)}. Trip id: ${trip.id}.`
+      : 'No specific trip selected; group by destination if you find multiple.';
+    sendMessage(
+      `Please scan my Gmail for travel confirmations (flights, hotels, activities, restaurants, ground transport). ${tripCtx}\n\n${BOOKING_CONTRACT_PROMPT}`,
+    );
+    onNavigateToChat();
+  }, [onNavigateToChat, sendMessage]);
 
   return (
     <Page>
@@ -246,7 +268,7 @@ export const TripsView: React.FC<TripsViewProps> = ({ onNavigateToChat }) => {
             />
             {showCompactMap && (
               <ConnectionsCompact>
-                <ConnectionsPanel onScanInbox={onNavigateToChat} />
+                <ConnectionsPanel onScanInbox={handleScanInbox} />
               </ConnectionsCompact>
             )}
           </CenterScroll>
@@ -262,7 +284,7 @@ export const TripsView: React.FC<TripsViewProps> = ({ onNavigateToChat }) => {
             </MapBox>
             <SideScroll>
               <TripChatButton onNavigateToChat={onNavigateToChat} />
-              <ConnectionsPanel onScanInbox={onNavigateToChat} />
+              <ConnectionsPanel onScanInbox={handleScanInbox} />
             </SideScroll>
           </RightCol>
         )}
