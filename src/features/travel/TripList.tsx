@@ -142,40 +142,35 @@ const CountChip = styled.span`
   color: rgba(36, 36, 36, 0.65);
 `;
 
-/* "..." button always visible — keeping it hover-only made the
-   affordance invisible on narrow trip cards. Subtle by default so it
-   doesn't compete with the title, but persistent enough to discover. */
+/* Persistent ... button. Previous near-white background blended into
+   the card and looked invisible — switched to a contrasting dark chip
+   so the affordance reads even at a glance. */
 const MenuBtn = styled.button`
   position: absolute;
-  top: 8px;
-  right: 6px;
-  background: rgba(255, 255, 255, 0.6);
+  top: 10px;
+  right: 8px;
+  background: #242424;
   border: none;
   cursor: pointer;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(36, 36, 36, 0.5);
+  color: #fff;
   transition: all 0.12s;
   z-index: 2;
+  box-shadow: 0 1px 2px rgba(36, 36, 36, 0.15);
 
   &:hover {
-    background: rgba(36, 36, 36, 0.1);
-    color: #242424;
+    background: #111;
+    transform: translateY(-1px);
   }
 `;
 
 const CardWithMenu = styled.div`
   position: relative;
-
-  &:hover ${MenuBtn},
-  &[data-menu-open='true'] ${MenuBtn} {
-    background: rgba(36, 36, 36, 0.08);
-    color: rgba(36, 36, 36, 0.8);
-  }
 `;
 
 const Popover = styled.div`
