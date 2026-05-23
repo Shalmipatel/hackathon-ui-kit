@@ -367,10 +367,22 @@ export const TripChatPanel: React.FC<TripChatPanelProps> = () => {
 
   const resetSession = async () => {
     if (!activeTripId) return;
-    const chat = getChatStore();
-    const newId = await chat.getState().createSession();
-    useTravelStore.getState().setTripChatSession(activeTripId, newId);
-    chat.getState().setActiveSession(newId);
+    const trip = useTravelStore.getState().trips.find((t) => t.id === activeTripId);
+    if (!trip) return;
+    /* Generate a unique id so chat-store.createSession doesn't dedup
+       us into another empty session (general or a sibling trip).
+       Same isAiTitled flip pattern as ensureTripChatSession. */
+    const newId = `trip-${activeTripId}-${Date.now()}`;
+    try {
+      const chat = getChatStore();
+      await chat.getState().createSession(newId);
+      await getChatRepo().updateTitle(newId, trip.title);
+      await chat.getState().refreshSessions();
+      useTravelStore.getState().updateTrip(activeTripId, { chatSessionId: newId });
+      chat.getState().setActiveSession(newId);
+    } catch (err) {
+      console.warn('[trip-chat] reset failed', err);
+    }
   };
 
   return (
