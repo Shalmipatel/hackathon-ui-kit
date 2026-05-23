@@ -7,7 +7,15 @@
 import React, { useEffect, useState } from 'react';
 import styled from 'styled-components';
 import { toast } from '@/features/toast';
-import { connectGmail, disconnectGmail, getConnectedGmail } from './google-connect';
+import { getChatStore } from '@/features/app/bootstrap';
+import { GENERAL_SESSION_ID } from '@/types/chat-session';
+import { useSendMessage } from '@/features/chat/useSendMessage';
+import {
+  buildGogCommandPrompt,
+  connectGmail,
+  disconnectGmail,
+  getConnectedGmail,
+} from './google-connect';
 
 const Card = styled.div<{ $connected?: boolean }>`
   display: flex;
@@ -143,6 +151,7 @@ export const GoogleConnectCard: React.FC = () => {
   const [connected, setConnected] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const sendMessage = useSendMessage();
 
   useEffect(() => {
     setConnected(getConnectedGmail());
@@ -155,16 +164,52 @@ export const GoogleConnectCard: React.FC = () => {
     setPending(true);
     const result = await connectGmail(email);
     setPending(false);
-    if (result.success && result.email) {
-      setConnected(result.email);
-      setEmail('');
-      toast({
-        title: 'Gmail connected',
-        description: `${result.email} is now linked to your assistant.`,
-      });
-    } else {
+    if (!result.success || !result.email || !result.authUrl) {
       setError(result.error ?? 'Connection failed.');
+      return;
     }
+
+    /* Route the gog command into the general chat session so it
+       doesn't pollute trip-specific transcripts. Switch back to
+       whatever was active after, so the user's view doesn't jump. */
+    let previousSession: string | null = null;
+    try {
+      const chat = getChatStore();
+      previousSession = chat.getState().activeSessionId;
+      chat.getState().setActiveSession(GENERAL_SESSION_ID);
+    } catch (err) {
+      console.warn('[gog-connect] chat store unavailable', err);
+    }
+
+    const prompt = buildGogCommandPrompt({
+      email: result.email,
+      authUrl: result.authUrl,
+      redirectUri: result.redirectUri!,
+    });
+    sendMessage(prompt);
+
+    /* Restore prior session next tick so the message has been
+       dispatched to GENERAL first. */
+    setTimeout(() => {
+      if (previousSession && previousSession !== GENERAL_SESSION_ID) {
+        try {
+          getChatStore().getState().setActiveSession(previousSession);
+        } catch { /* non-fatal */ }
+      }
+    }, 50);
+
+    /* Persist optimistically — the user can confirm via the agent's
+       chat reply, and disconnect from here if anything went wrong. */
+    try {
+      localStorage.setItem('gog-connected-email', result.email);
+    } catch { /* non-fatal */ }
+    setConnected(result.email);
+    setEmail('');
+    toast({
+      title: 'Gmail handoff sent',
+      description: `Asked the assistant to finish linking ${result.email} via gog. Check the chat for the agent's reply.`,
+      duration: 5500,
+    });
   }
 
   function onDisconnect() {

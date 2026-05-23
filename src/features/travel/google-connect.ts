@@ -1,27 +1,27 @@
 /**
  * Google OAuth → OpenClaw gog skill integration.
  *
+ * gog is a CLI tool installed on the OpenClaw server, exposed as a
+ * skill the agent can invoke from chat. There is no REST endpoint
+ * to POST the auth code to — instead we ask the agent to run the
+ * `gog auth add --remote --step 2` command via the chat session.
+ *
  * Flow:
  *  1. User enters their Gmail address and clicks Connect.
  *  2. We generate a CSRF state token, stash it + the email in
- *     localStorage (sessionStorage doesn't reliably propagate to
- *     popups across all browsers), and open a Google OAuth popup.
- *  3. Popup goes through Google consent, then Google redirects back
- *     to http://localhost:5173/oauth/google/callback?code=...&state=...
- *  4. index.tsx detects the callback path BEFORE booting the React
- *     tree, runs handleOAuthCallback() which:
- *       - validates the state against the stashed value,
- *       - POSTs {code, state, email, redirectUri} to
- *         /api/gog/auth/complete (proxied to the OpenClaw server),
- *       - postMessage's success/failure back to the opener,
- *       - closes the popup.
- *  5. The opener resolves the connect() promise, persists the
- *     connected email, surfaces a toast.
- *
- * Why not exchange the code client-side: the spec says the server
- * runs `gog auth add <email> --remote --step 2 --auth-url ... --redirect-uri ...`,
- * which calls into Google itself with the client secret. The client
- * secret can't ship to the browser.
+ *     localStorage, and open a Google OAuth popup.
+ *  3. Popup → Google consent → redirect back to http://localhost:5173
+ *     (the bare origin matches what the user registered on the
+ *     OAuth client).
+ *  4. index.tsx detects the callback (code + state in query + state
+ *     matches our stashed value) BEFORE booting the React tree,
+ *     runs handleOAuthCallback() which postMessages
+ *     { code, state, email, authUrl } back to the opener and closes.
+ *  5. The opener (connectGmail) builds the gog command string and
+ *     sends it as a chat message — the agent invokes the gog skill,
+ *     runs the command, and reports back in the chat. We mark the
+ *     email as connected optimistically since the user can verify
+ *     in the chat transcript.
  */
 
 const CLIENT_ID =
@@ -75,6 +75,12 @@ interface ConnectResult {
   success: boolean;
   email?: string;
   error?: string;
+  /** Available when success === true — fields the opener uses to
+   *  build the gog command it asks the agent to run. */
+  code?: string;
+  state?: string;
+  authUrl?: string;
+  redirectUri?: string;
 }
 
 interface PostMessageBody extends ConnectResult {
@@ -223,46 +229,47 @@ async function runCallback(): Promise<ConnectResult> {
     return { success: false, error: 'Missing email — restart the flow.' };
   }
 
-  /* Reconstruct the full callback URL gog expects so the server can
-     hand it straight to `gog auth add ... --auth-url ...`. */
+  /* Reconstruct the full callback URL gog's --auth-url flag expects. */
   const fullAuthUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
 
-  /* The /api proxy forwards to the OpenClaw gateway which requires
-     `Authorization: Bearer <gateway api key>`. The popup window
-     reads it from import.meta.env just like the main app does. */
-  const apiKey = (import.meta.env as Record<string, string | undefined>)
-    .VITE_NEOCLAW_API_KEY;
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+  /* gog is a CLI skill on the OpenClaw server, not a REST endpoint —
+     return the params to the opener, which sends the actual gog
+     command to the agent via chat. */
+  return {
+    success: true,
+    email: pendingEmail,
+    code,
+    state,
+    authUrl: fullAuthUrl,
+    redirectUri: REDIRECT_URI,
+  };
+}
 
-  try {
-    const resp = await fetch('/api/gog/auth/complete', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        code,
-        state,
-        email: pendingEmail,
-        redirectUri: REDIRECT_URI,
-        authUrl: fullAuthUrl,
-      }),
-    });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => '');
-      return {
-        success: false,
-        error: `Server returned ${resp.status}${body ? ` — ${body.slice(0, 240)}` : ''}`,
-      };
-    }
-    /* Persist the connected email so the UI can render "Connected as …"
-       on the next render and survive reloads. */
-    try {
-      localStorage.setItem(CONNECTED_EMAIL_KEY, pendingEmail);
-    } catch { /* non-fatal */ }
-    return { success: true, email: pendingEmail };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
+/** The chat prompt that asks the agent to run the gog auth command.
+ *  Wraps the command in a strict "execute, don't interpret" frame so
+ *  the agent's default "Gmail isn't connected" template can't fire. */
+export function buildGogCommandPrompt(args: {
+  email: string;
+  authUrl: string;
+  redirectUri: string;
+}): string {
+  /* Shell-escape values via single quotes — gog runs server-side so
+     we don't have to worry about Windows quoting. */
+  const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+  const cmd =
+    `gog auth add ${sq(args.email)} --remote --step 2 ` +
+    `--auth-url ${sq(args.authUrl)} ` +
+    `--redirect-uri ${sq(args.redirectUri)} ` +
+    `--services gmail`;
+  return [
+    'Execute this gog CLI command EXACTLY as written, using the gog skill installed on this OpenClaw instance. This command IS the Gmail authentication step — do NOT ask me to connect Gmail, do NOT prompt me to log in, just run it.',
+    '',
+    '```bash',
+    cmd,
+    '```',
+    '',
+    `When the command finishes, report the stdout / stderr verbatim so I can confirm. If it succeeds the account ${args.email} is now linked for gmail.`,
+  ].join('\n');
 }
 
 function setStatus(text: string) {
