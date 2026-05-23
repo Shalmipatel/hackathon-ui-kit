@@ -447,6 +447,6 @@ Rules:
 - destination is the primary country / region.
 - startDate / endDate are ISO YYYY-MM-DD strings.
 - color is optional; pick a memorable hex per trip if you can.
-- id is optional; if omitted I'll synthesise one from the title + dates.
-- If you also want to populate bookings for any of these trips, follow up with one or more bookings/v1 blocks using the same trip id as tripId.
-- If you find no trips at all, emit \`{ "wanderbot": "trips/v1", "trips": [] }\` so I know the scan ran.`;
+- id is REQUIRED if you also emit bookings (so they can reference the trip via tripId). Pick a stable slug like "trip-tokyo-2026".
+- **Every trip MUST have at least one booking attached in the same response** — emit a bookings/v1 block whose entries reference the trip via tripId. A trip with no events is just a placeholder and will be dropped client-side. If you can't find any concrete bookings (flights, hotels, activities) for a candidate trip, do NOT include the trip at all.
+- If you find no trips with concrete bookings, emit \`{ "wanderbot": "trips/v1", "trips": [] }\` so the user knows the scan ran.`;

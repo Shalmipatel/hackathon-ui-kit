@@ -54,10 +54,18 @@ export function useBookingIngestion(): void {
       }).__wanderbot = {
         async simulateAgentReply(content: string) {
           const trips = parseTripsFromMessage(content);
-          if (trips.trips.length > 0) {
-            await applyTrips(trips.trips);
-          }
           const parsed = parseBookingsFromMessage(content);
+          if (trips.trips.length > 0) {
+            const referenced = new Set(parsed.bookings.map((b) => b.tripId).filter(Boolean));
+            const tripsWithEvents = trips.trips.filter((t) => referenced.has(t.id));
+            if (tripsWithEvents.length > 0) {
+              await applyTrips(tripsWithEvents);
+            }
+            const dropped = trips.trips.length - tripsWithEvents.length;
+            if (dropped > 0) {
+              console.warn(`[wanderbot] simulate: dropped ${dropped} trip(s) with no bookings`);
+            }
+          }
           if (parsed.bookings.length > 0) {
             applyBookings(parsed.bookings, 'dev-sim');
           } else if (trips.trips.length === 0) {
@@ -78,31 +86,47 @@ export function useBookingIngestion(): void {
           /* Mark as seen *before* we run the parser so a parser throw
              can't lead to repeated re-processing. */
           processed.add(m.id);
-          /* Trip discovery first — agent may emit trips/v1 + bookings/v1
-             in the same message. Trips need to exist before bookings
-             can attach to them by tripId. Run in an async chain so
-             session creation finishes before bookings upsert. */
+          /* Trips and bookings get parsed together from the same
+             message — a trip with no events isn't a real trip, just
+             an LLM placeholder, so we drop any trip whose id isn't
+             referenced by at least one booking in this same payload. */
           const content = m.content;
           void (async () => {
             const tripResult = parseTripsFromMessage(content);
-            if (tripResult.trips.length > 0) {
-              await applyTrips(tripResult.trips);
-            }
+            const bookingResult = parseBookingsFromMessage(content);
             if (tripResult.errors.length > 0) {
               console.warn(
                 '[wanderbot] trip payload had invalid entries:',
                 tripResult.errors,
               );
             }
-            const result = parseBookingsFromMessage(content);
-            if (result.bookings.length > 0) {
-              applyBookings(result.bookings, sessionId);
-            }
-            if (result.errors.length > 0) {
+            if (bookingResult.errors.length > 0) {
               console.warn(
                 '[wanderbot] booking payload had invalid entries:',
-                result.errors,
+                bookingResult.errors,
               );
+            }
+
+            if (tripResult.trips.length > 0) {
+              const referencedTripIds = new Set(
+                bookingResult.bookings.map((b) => b.tripId).filter(Boolean),
+              );
+              const tripsWithEvents = tripResult.trips.filter((t) =>
+                referencedTripIds.has(t.id),
+              );
+              const dropped = tripResult.trips.length - tripsWithEvents.length;
+              if (dropped > 0) {
+                console.warn(
+                  `[wanderbot] dropped ${dropped} trip(s) with no associated bookings — ignoring placeholder trips.`,
+                );
+              }
+              if (tripsWithEvents.length > 0) {
+                await applyTrips(tripsWithEvents);
+              }
+            }
+
+            if (bookingResult.bookings.length > 0) {
+              applyBookings(bookingResult.bookings, sessionId);
             }
           })();
         }
