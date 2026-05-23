@@ -22,6 +22,7 @@ import {
   selectStreamingMessageId,
 } from '@/store/chat-store';
 import { useChatStore, getChatStore } from '@/features/app/bootstrap';
+import { getChatRepo } from '@/features/app/bootstrap/providers';
 import { useSendMessage } from '@/features/chat/useSendMessage';
 import { ChatBubble } from '@/features/chat';
 import { TypingIndicator } from '@/components';
@@ -249,26 +250,71 @@ function buildTripContextString(): string | null {
   return lines.join('\n');
 }
 
-/* Per-trip session sync remains DISABLED.
+/** Lazily create a chat-store session bound to a trip.
  *
- * Attempts so far:
- *  1) No explicit id → createSession dedups to an existing empty session
- *     (often GENERAL_SESSION_ID) → trips alias the general chat →
- *     TabPage.initGeneralSession effect loops with our sync.
- *  2) Explicit UUID → session is created cleanly, BUT syncWithBackend
- *     iterates all sessions and calls generateTaskTitle on each non-AI-
- *     titled one. The new trip session never resolves a title (LLM round-
- *     trip failing or fast retries), so subsequent syncs keep retrying.
- *     End result is the same "Maximum update depth" symptom in TabPage.
+ *  Key trick: right after creating the session we call
+ *  chatRepo.updateTitle which (per chat-repository.ts:145) sets
+ *  isAiTitled=true on the session-index entry. That flag is what
+ *  syncWithBackend / reconcileOnResume look at to decide whether to
+ *  re-run the LLM title generator. With isAiTitled=true from the very
+ *  first moment, the sync paths skip our trip sessions entirely — no
+ *  retry storms, no Maximum-update-depth loops in TabPage.
  *
- * Proper fix needs deeper chat-store work: either an "ephemeral / no
- * sync" flag on createSession, or trip messages live in the travel
- * store entirely (no chat-store session at all) with the agent reached
- * via a single shared session under the hood. For now, the inline chat
- * uses whatever session is active and we prepend trip context to every
- * user message. */
+ *  Session id is deterministic (`trip-<tripId>`) so:
+ *   - Reloads find the same session via chatRepo.createSession's
+ *     idempotent id path.
+ *   - Stale Trip.chatSessionId values self-heal on next access.
+ */
+async function ensureTripChatSession(tripId: string): Promise<string | null> {
+  const trip = useTravelStore.getState().trips.find((t) => t.id === tripId);
+  if (!trip) return null;
+  if (trip.chatSessionId) return trip.chatSessionId;
+
+  const sessionId = `trip-${tripId}`;
+  try {
+    const chat = getChatStore();
+    await chat.getState().createSession(sessionId);
+    /* Set the title up-front so isAiTitled flips to true. This is the
+       crucial step that prevents the sync loop. */
+    await getChatRepo().updateTitle(sessionId, trip.title);
+    await chat.getState().refreshSessions();
+    useTravelStore.getState().updateTrip(tripId, { chatSessionId: sessionId });
+    return sessionId;
+  } catch (err) {
+    console.warn('[trip-chat] ensure failed', err);
+    return null;
+  }
+}
+
+/** Activate the trip's session in chat-store. Creates one on first
+ *  selection for trips that don't have one (seeded mocks). */
 function useTripChatSync(): void {
-  // intentionally no-op — see comment above
+  const activeTripId = useTravelStore((s) => s.activeTripId);
+
+  useEffect(() => {
+    if (!activeTripId) return;
+    let cancelled = false;
+
+    (async () => {
+      const sessionId = await ensureTripChatSession(activeTripId);
+      if (cancelled || !sessionId) return;
+      const chat = getChatStore();
+      chat.getState().setActiveSession(sessionId);
+      try {
+        await chat.getState().loadSession(sessionId);
+      } catch (err) {
+        /* Stale id (cache cleared, etc.) — drop it and let the next
+           tick recreate. */
+        if (cancelled) return;
+        console.warn('[trip-chat] loadSession failed, recreating', err);
+        useTravelStore.getState().updateTrip(activeTripId, { chatSessionId: undefined });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTripId]);
 }
 
 interface TripChatPanelProps {

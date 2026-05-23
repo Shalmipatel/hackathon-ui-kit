@@ -88,17 +88,32 @@ const Body = styled.div`
   }
 `;
 
+/* Center is a vertical stack: map on top, itinerary scroll below.
+   They're SIBLINGS, not overlapping — the map isn't sticky, it just
+   sits as the upper section of the pane and stays put because nothing
+   moves it. The itinerary scrolls independently below it. */
 const Center = styled.div`
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: rgba(255, 255, 255, 0.55);
+  background: #fff;
   border: 1px solid rgba(36, 36, 36, 0.06);
   border-radius: 18px;
   overflow: hidden;
 `;
 
-const CenterScroll = styled.div`
+const MapStrip = styled.div`
+  height: 220px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(36, 36, 36, 0.06);
+  background: #e6e7eb;
+
+  @media (max-width: 768px) {
+    height: 180px;
+  }
+`;
+
+const ItineraryScroll = styled.div`
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -114,44 +129,6 @@ const CenterScroll = styled.div`
 
   @media (max-width: 768px) {
     padding: 16px 16px 24px;
-  }
-`;
-
-/* Shell is the sticky container — full-width with a solid page-bg so
-   nothing scrolls through the rounded-corner gaps of the inner map.
-   Inner MapStrip carries the rounded corners + leaflet. */
-const MapShell = styled.div`
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: #fbfaf9;
-  padding: 0 0 12px 0;
-  margin-left: -28px;
-  margin-right: -28px;
-  margin-top: -24px;
-  padding-left: 28px;
-  padding-right: 28px;
-  padding-top: 24px;
-
-  @media (max-width: 768px) {
-    margin-left: -16px;
-    margin-right: -16px;
-    margin-top: -16px;
-    padding: 16px 16px 8px;
-  }
-`;
-
-const MapStrip = styled.div`
-  height: 200px;
-  border-radius: 14px;
-  overflow: hidden;
-  border: 1px solid rgba(36, 36, 36, 0.06);
-  background: #e6e7eb;
-  box-shadow: 0 8px 24px -16px rgba(36, 36, 36, 0.45);
-
-  @media (max-width: 768px) {
-    height: 180px;
-    border-radius: 12px;
   }
 `;
 
@@ -209,21 +186,19 @@ export const TripsView: React.FC<TripsViewProps> = () => {
 
       <Body>
         <Center>
-          <CenterScroll>
-            <MapShell>
-              <MapStrip>
-                <TripMap
-                  focusedBookingId={mapFocusId}
-                  onBookingClick={setSelectedBookingId}
-                />
-              </MapStrip>
-            </MapShell>
+          <MapStrip>
+            <TripMap
+              focusedBookingId={mapFocusId}
+              onBookingClick={setSelectedBookingId}
+            />
+          </MapStrip>
+          <ItineraryScroll>
             <Itinerary
               focusedBookingId={selectedBookingId}
               onBookingClick={setSelectedBookingId}
               onScrollFocus={setScrollFocusedBookingId}
             />
-          </CenterScroll>
+          </ItineraryScroll>
         </Center>
 
         {showChatCol && (

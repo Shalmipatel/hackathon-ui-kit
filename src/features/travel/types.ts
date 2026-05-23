@@ -86,6 +86,9 @@ export interface Trip {
   summary?: string;
   /** Optional cover photo URL. */
   cover?: string;
+  /** Chat-store session id dedicated to this trip. Created at trip
+   *  creation time (or lazily on first selection for seeded trips). */
+  chatSessionId?: string;
 }
 
 export interface ScanStatus {
