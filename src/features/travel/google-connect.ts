@@ -251,30 +251,42 @@ async function runCallback(): Promise<ConnectResult> {
   };
 }
 
-/** The chat prompt that asks the agent to run the gog auth command.
- *  Wraps the command in a strict "execute, don't interpret" frame so
- *  the agent's default "Gmail isn't connected" template can't fire. */
+/** The chat prompt that asks the agent to run the gog auth command
+ *  and write the result back to the same Firebase RTDB path. The
+ *  RTDB write is the canonical "did it work" signal — chat output
+ *  is just for the user to read along. */
 export function buildGogCommandPrompt(args: {
+  requestId: string;
   email: string;
   authUrl: string;
   redirectUri: string;
 }): string {
-  /* Shell-escape values via single quotes — gog runs server-side so
-     we don't have to worry about Windows quoting. */
   const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
   const cmd =
     `gog auth add ${sq(args.email)} --remote --step 2 ` +
     `--auth-url ${sq(args.authUrl)} ` +
     `--redirect-uri ${sq(args.redirectUri)} ` +
     `--services gmail`;
+  const rtdbPath = `/wanderbot/auth_requests/${args.requestId}`;
   return [
-    'Execute this gog CLI command EXACTLY as written, using the gog skill installed on this OpenClaw instance. This command IS the Gmail authentication step — do NOT ask me to connect Gmail, do NOT prompt me to log in, just run it.',
+    'Execute this gog CLI command EXACTLY as written using the gog skill. This command IS the Gmail authentication step — do NOT ask me to connect Gmail, do NOT prompt me to log in, just run it.',
     '',
     '```bash',
     cmd,
     '```',
     '',
-    `When the command finishes, report the stdout / stderr verbatim so I can confirm. If it succeeds the account ${args.email} is now linked for gmail.`,
+    `After the command finishes, write the result back to the Firebase Realtime Database at path \`${rtdbPath}\` so the frontend can pick up the outcome. Merge these fields into the existing record:`,
+    '',
+    '- On success:',
+    '  ```json',
+    '  { "status": "success", "stdout": "<command stdout>", "completedAt": <unix ms> }',
+    '  ```',
+    '- On failure:',
+    '  ```json',
+    '  { "status": "error", "stderr": "<command stderr or error message>", "completedAt": <unix ms> }',
+    '  ```',
+    '',
+    `The full pending record is already written at that path with the email, code, authUrl, and redirectUri. Just update status + stdout/stderr + completedAt. Once written, also paste the stdout/stderr here so I can read it.`,
   ].join('\n');
 }
 

@@ -50,6 +50,7 @@ import type { Booking, Trip } from './types';
 const ROOT = 'wanderbot';
 const TRIPS_PATH = `${ROOT}/trips`;
 const BOOKINGS_PATH = `${ROOT}/bookings`;
+const AUTH_REQUESTS_PATH = `${ROOT}/auth_requests`;
 
 interface FirebaseConfig {
   apiKey: string;
@@ -236,6 +237,53 @@ export function subscribeToRemote(
     off(tripsRef, 'value', tripsHandler);
     off(bookingsRef, 'value', bookingsHandler);
   };
+}
+
+/* ─────────────── gog auth requests ─────────────── */
+
+export interface AuthRequest {
+  id: string;
+  email: string;
+  code: string;
+  state: string;
+  authUrl: string;
+  redirectUri: string;
+  services: string;
+  /** "pending" when waiting on the agent; "success" / "error" after
+   *  it processes. Agent writes status + result back to the same
+   *  path; the UI listens via subscribeToAuthRequest. */
+  status: 'pending' | 'success' | 'error';
+  createdAt: number;
+  completedAt?: number;
+  stdout?: string;
+  stderr?: string;
+  message?: string;
+}
+
+export async function writeAuthRequest(req: AuthRequest): Promise<void> {
+  const database = getDb();
+  if (!database) {
+    console.warn('[firebase] writeAuthRequest skipped — Firebase not configured.');
+    return;
+  }
+  try {
+    await set(ref(database, `${AUTH_REQUESTS_PATH}/${req.id}`), stripUndefined(req));
+  } catch (err) {
+    console.warn('[firebase] writeAuthRequest failed', req.id, err);
+  }
+}
+
+export function subscribeToAuthRequest(
+  id: string,
+  cb: (req: AuthRequest | null) => void,
+): () => void {
+  const database = getDb();
+  if (!database) return () => undefined;
+  const path = ref(database, `${AUTH_REQUESTS_PATH}/${id}`);
+  const handler = onValue(path, (snap) => {
+    cb(snap.val() as AuthRequest | null);
+  });
+  return () => off(path, 'value', handler);
 }
 
 /** RTDB rejects `undefined` values silently in some SDK paths and

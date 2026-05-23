@@ -4,7 +4,7 @@
  * in google-connect.ts.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { toast } from '@/features/toast';
 import { getChatStore } from '@/features/app/bootstrap';
@@ -16,6 +16,11 @@ import {
   disconnectGmail,
   getConnectedGmail,
 } from './google-connect';
+import {
+  subscribeToAuthRequest,
+  writeAuthRequest,
+  type AuthRequest,
+} from './firebase';
 
 const Card = styled.div<{ $connected?: boolean }>`
   display: flex;
@@ -146,32 +151,104 @@ const ErrorText = styled.div`
   font-size: 12px;
 `;
 
+const StatusRow = styled.div<{ $tone: ProcessStatus }>`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 17px;
+  color: ${(p) =>
+    p.$tone === 'success'
+      ? '#15803d'
+      : p.$tone === 'error'
+        ? '#b91c1c'
+        : 'rgba(36, 36, 36, 0.78)'};
+  background: ${(p) =>
+    p.$tone === 'success'
+      ? 'rgba(34, 197, 94, 0.1)'
+      : p.$tone === 'error'
+        ? 'rgba(220, 38, 38, 0.08)'
+        : 'rgba(36, 36, 36, 0.04)'};
+  border: 1px solid
+    ${(p) =>
+      p.$tone === 'success'
+        ? 'rgba(34, 197, 94, 0.3)'
+        : p.$tone === 'error'
+          ? 'rgba(220, 38, 38, 0.35)'
+          : 'rgba(36, 36, 36, 0.1)'};
+
+  pre {
+    margin: 4px 0 0;
+    font-family: ui-monospace, monospace;
+    font-size: 11.5px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 120px;
+    overflow-y: auto;
+    color: inherit;
+  }
+`;
+
+type ProcessStatus = 'idle' | 'processing' | 'success' | 'error';
+
 export const GoogleConnectCard: React.FC = () => {
   const [email, setEmail] = useState('');
   const [connected, setConnected] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [processStatus, setProcessStatus] = useState<ProcessStatus>('idle');
+  const [processMessage, setProcessMessage] = useState<string | null>(null);
+  const subRef = useRef<(() => void) | null>(null);
   const sendMessage = useSendMessage();
 
   useEffect(() => {
     setConnected(getConnectedGmail());
   }, []);
 
+  /* Cleanup RTDB subscription on unmount so a stale subscription
+     doesn't keep firing if the user navigates away mid-handoff. */
+  useEffect(() => () => {
+    if (subRef.current) subRef.current();
+  }, []);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (pending) return;
     setError(null);
+    setProcessStatus('idle');
+    setProcessMessage(null);
     setPending(true);
     const result = await connectGmail(email);
     setPending(false);
-    if (!result.success || !result.email || !result.authUrl) {
+    if (!result.success || !result.email || !result.authUrl || !result.code || !result.state || !result.redirectUri) {
       setError(result.error ?? 'Connection failed.');
       return;
     }
 
+    /* Persist the auth request to RTDB so the backend / agent has a
+       durable record to operate on instead of relying on the chat
+       message body alone. */
+    const requestId =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const authRequest: AuthRequest = {
+      id: requestId,
+      email: result.email,
+      code: result.code,
+      state: result.state,
+      authUrl: result.authUrl,
+      redirectUri: result.redirectUri,
+      services: 'gmail',
+      status: 'pending',
+      createdAt: Date.now(),
+    };
+    await writeAuthRequest(authRequest);
+
     /* Route the gog command into the general chat session so it
-       doesn't pollute trip-specific transcripts. Switch back to
-       whatever was active after, so the user's view doesn't jump. */
+       doesn't pollute trip-specific transcripts. */
     let previousSession: string | null = null;
     try {
       const chat = getChatStore();
@@ -182,14 +259,13 @@ export const GoogleConnectCard: React.FC = () => {
     }
 
     const prompt = buildGogCommandPrompt({
+      requestId,
       email: result.email,
       authUrl: result.authUrl,
-      redirectUri: result.redirectUri!,
+      redirectUri: result.redirectUri,
     });
     sendMessage(prompt);
 
-    /* Restore prior session next tick so the message has been
-       dispatched to GENERAL first. */
     setTimeout(() => {
       if (previousSession && previousSession !== GENERAL_SESSION_ID) {
         try {
@@ -198,16 +274,38 @@ export const GoogleConnectCard: React.FC = () => {
       }
     }, 50);
 
-    /* Persist optimistically — the user can confirm via the agent's
-       chat reply, and disconnect from here if anything went wrong. */
-    try {
-      localStorage.setItem('gog-connected-email', result.email);
-    } catch { /* non-fatal */ }
-    setConnected(result.email);
-    setEmail('');
+    /* Subscribe to the RTDB record so we flip from Processing →
+       Connected / Error the moment the agent writes status back. */
+    setProcessStatus('processing');
+    setProcessMessage('Waiting for the assistant to finish the gog handoff…');
+    if (subRef.current) subRef.current();
+    subRef.current = subscribeToAuthRequest(requestId, (req) => {
+      if (!req) return;
+      if (req.status === 'success') {
+        setProcessStatus('success');
+        setProcessMessage(req.stdout?.trim() || 'gog reported success.');
+        try { localStorage.setItem('gog-connected-email', authRequest.email); } catch { /* non-fatal */ }
+        setConnected(authRequest.email);
+        setEmail('');
+        toast({
+          title: 'Gmail connected',
+          description: `${authRequest.email} is linked via gog.`,
+        });
+        if (subRef.current) { subRef.current(); subRef.current = null; }
+      } else if (req.status === 'error') {
+        setProcessStatus('error');
+        setProcessMessage(req.stderr?.trim() || req.message || 'gog reported an error.');
+        toast({
+          title: 'gog handoff failed',
+          description: req.stderr?.slice(0, 240) || 'See the chat for the agent\'s reply.',
+        });
+        if (subRef.current) { subRef.current(); subRef.current = null; }
+      }
+    });
+
     toast({
       title: 'Gmail handoff sent',
-      description: `Asked the assistant to finish linking ${result.email} via gog. Check the chat for the agent's reply.`,
+      description: `Asked the assistant to run gog auth for ${authRequest.email}. The result will appear here when it finishes.`,
       duration: 5500,
     });
   }
@@ -259,6 +357,16 @@ export const GoogleConnectCard: React.FC = () => {
             browser.
           </Hint>
           {error && <ErrorText>{error}</ErrorText>}
+          {processStatus !== 'idle' && (
+            <StatusRow $tone={processStatus}>
+              <strong>
+                {processStatus === 'processing' && 'Linking via gog…'}
+                {processStatus === 'success' && 'gog linked the account.'}
+                {processStatus === 'error' && 'gog reported an error.'}
+              </strong>
+              {processMessage && <pre>{processMessage}</pre>}
+            </StatusRow>
+          )}
         </>
       )}
     </Card>
