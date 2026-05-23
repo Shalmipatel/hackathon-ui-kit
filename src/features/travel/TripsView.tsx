@@ -5,8 +5,8 @@ import Itinerary from './Itinerary';
 import TripMap from './TripMap';
 import TripChatPanel from './TripChatPanel';
 import BookingDetailModal from './BookingDetailModal';
-import NewTripModal from './NewTripModal';
 import { useBookingIngestion } from './useBookingIngestion';
+import { useScanForTrips } from './useScanForTrips';
 import { useTravelStore } from './travel-store';
 
 const Page = styled.div`
@@ -197,7 +197,8 @@ const EmptyCta = styled.button`
   transition: transform 0.12s;
   box-shadow: 0 6px 16px -10px rgba(36, 36, 36, 0.45);
 
-  &:hover { transform: translateY(-1px); }
+  &:hover:not(:disabled) { transform: translateY(-1px); }
+  &:disabled { opacity: 0.65; cursor: progress; }
 `;
 
 interface TripsViewProps {
@@ -220,9 +221,7 @@ export const TripsView: React.FC<TripsViewProps> = () => {
 
   const trips = useTravelStore((s) => s.trips);
   const bookings = useTravelStore((s) => s.bookings);
-  const newTripModalOpen = useTravelStore((s) => s.newTripModalOpen);
-  const closeNewTripModal = useTravelStore((s) => s.closeNewTripModal);
-  const openNewTripModal = useTravelStore((s) => s.openNewTripModal);
+  const { scan: scanForTrips, scanInFlight } = useScanForTrips();
   const hasTrips = trips.length > 0;
 
   const selectedBooking = useMemo(
@@ -277,15 +276,16 @@ export const TripsView: React.FC<TripsViewProps> = () => {
               </EmptyIllustration>
               <EmptyTitle>No trips yet</EmptyTitle>
               <EmptyBody>
-                Add your first trip to start planning. Each trip gets its
-                own day-by-day itinerary, map, and chat.
+                Connect Gmail or your calendar — the assistant will scan
+                your inbox for confirmations and surface trips here
+                automatically.
               </EmptyBody>
-              <EmptyCta onClick={openNewTripModal}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
+              <EmptyCta onClick={scanForTrips} disabled={scanInFlight}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
-                Create your first trip
+                {scanInFlight ? 'Scanning…' : 'Scan for trips'}
               </EmptyCta>
             </EmptyCenter>
           )}
@@ -304,7 +304,6 @@ export const TripsView: React.FC<TripsViewProps> = () => {
           onClose={() => setSelectedBookingId(null)}
         />
       )}
-      {newTripModalOpen && <NewTripModal onClose={closeNewTripModal} />}
     </Page>
   );
 };

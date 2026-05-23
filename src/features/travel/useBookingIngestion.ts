@@ -12,11 +12,12 @@
 
 import { useEffect } from 'react';
 import { getChatStore } from '@/features/app/bootstrap';
+import { getChatRepo } from '@/features/app/bootstrap/providers';
 import type { ChatStore } from '@/store';
 import { toast } from '@/features/toast';
-import { parseBookingsFromMessage } from './parser';
+import { parseBookingsFromMessage, parseTripsFromMessage } from './parser';
 import { useTravelStore } from './travel-store';
-import type { Booking } from './types';
+import type { Booking, Trip } from './types';
 
 export function useBookingIngestion(): void {
   useEffect(() => {
@@ -49,15 +50,19 @@ export function useBookingIngestion(): void {
        falsy and the whole block tree-shakes out. */
     if (import.meta.env.DEV) {
       (window as unknown as {
-        __wanderbot?: { simulateAgentReply: (content: string) => void };
+        __wanderbot?: { simulateAgentReply: (content: string) => Promise<void> };
       }).__wanderbot = {
-        simulateAgentReply(content: string) {
-          const parsed = parseBookingsFromMessage(content);
-          if (parsed.bookings.length === 0) {
-            console.warn('[wanderbot] simulate: no bookings parsed', parsed.errors);
-            return;
+        async simulateAgentReply(content: string) {
+          const trips = parseTripsFromMessage(content);
+          if (trips.trips.length > 0) {
+            await applyTrips(trips.trips);
           }
-          applyBookings(parsed.bookings, 'dev-sim');
+          const parsed = parseBookingsFromMessage(content);
+          if (parsed.bookings.length > 0) {
+            applyBookings(parsed.bookings, 'dev-sim');
+          } else if (trips.trips.length === 0) {
+            console.warn('[wanderbot] simulate: no trips/bookings parsed', parsed.errors, trips.errors);
+          }
         },
       };
     }
@@ -73,15 +78,33 @@ export function useBookingIngestion(): void {
           /* Mark as seen *before* we run the parser so a parser throw
              can't lead to repeated re-processing. */
           processed.add(m.id);
-          const result = parseBookingsFromMessage(m.content);
-          if (result.bookings.length === 0 && result.errors.length === 0) continue;
-          applyBookings(result.bookings, sessionId);
-          if (result.errors.length > 0) {
-            console.warn(
-              '[wanderbot] booking payload had invalid entries:',
-              result.errors,
-            );
-          }
+          /* Trip discovery first — agent may emit trips/v1 + bookings/v1
+             in the same message. Trips need to exist before bookings
+             can attach to them by tripId. Run in an async chain so
+             session creation finishes before bookings upsert. */
+          const content = m.content;
+          void (async () => {
+            const tripResult = parseTripsFromMessage(content);
+            if (tripResult.trips.length > 0) {
+              await applyTrips(tripResult.trips);
+            }
+            if (tripResult.errors.length > 0) {
+              console.warn(
+                '[wanderbot] trip payload had invalid entries:',
+                tripResult.errors,
+              );
+            }
+            const result = parseBookingsFromMessage(content);
+            if (result.bookings.length > 0) {
+              applyBookings(result.bookings, sessionId);
+            }
+            if (result.errors.length > 0) {
+              console.warn(
+                '[wanderbot] booking payload had invalid entries:',
+                result.errors,
+              );
+            }
+          })();
         }
       }
     };
@@ -127,6 +150,61 @@ function applyBookings(bookings: Booking[], sessionId: string): void {
   });
   /* Mark session for analytics consumer if desired — out of scope here. */
   void sessionId;
+}
+
+/** Add trips from an agent trips/v1 block. De-dupes by id (re-scans
+ *  shouldn't pile up duplicates), creates a chat session per new
+ *  trip using the same isAiTitled-flip pattern as ensureTripChatSession,
+ *  and toasts a summary. */
+async function applyTrips(incoming: Trip[]): Promise<void> {
+  if (incoming.length === 0) return;
+  const store = useTravelStore.getState();
+  const existing = new Set(store.trips.map((t) => t.id));
+  const fresh = incoming.filter((t) => !existing.has(t.id));
+  if (fresh.length === 0) {
+    toast({
+      title: 'No new trips found',
+      description: `${incoming.length} trip${incoming.length === 1 ? '' : 's'} already on your board.`,
+    });
+    return;
+  }
+
+  /* Create a chat session per new trip BEFORE persisting the trip
+     itself, so the chatSessionId is on the Trip from the moment it
+     lands in the store — matching how NewTripModal works. */
+  let chat;
+  try {
+    chat = getChatStore();
+  } catch {
+    chat = null;
+  }
+
+  for (const trip of fresh) {
+    if (chat) {
+      const sessionId = `trip-${trip.id}`;
+      try {
+        await chat.getState().createSession(sessionId);
+        await getChatRepo().updateTitle(sessionId, trip.title);
+        await chat.getState().refreshSessions();
+        trip.chatSessionId = sessionId;
+      } catch (err) {
+        console.warn('[wanderbot] trip session create failed', err);
+      }
+    }
+    useTravelStore.getState().addTrip(trip);
+  }
+
+  toast({
+    title:
+      fresh.length === 1
+        ? `Added trip · ${fresh[0].title}`
+        : `Added ${fresh.length} trips`,
+    description:
+      fresh.length === 1
+        ? `${fresh[0].destination} · ${fresh[0].startDate} → ${fresh[0].endDate}`
+        : fresh.map((t) => t.title).slice(0, 3).join(' · '),
+    duration: 4500,
+  });
 }
 
 function bookingSubtitle(b: Booking): string {

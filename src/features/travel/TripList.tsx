@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { getChatStore } from '@/features/app/bootstrap';
 import { useTravelStore } from './travel-store';
+import { useScanForTrips } from './useScanForTrips';
 import { formatTripRange } from './format';
 
 const Rail = styled.aside`
@@ -68,7 +69,8 @@ const SidebarEmptyBtn = styled.button`
   cursor: pointer;
   transition: transform 0.12s;
 
-  &:hover { transform: translateY(-1px); }
+  &:hover:not(:disabled) { transform: translateY(-1px); }
+  &:disabled { opacity: 0.6; cursor: progress; }
 `;
 
 const NewBtn = styled.button`
@@ -82,12 +84,17 @@ const NewBtn = styled.button`
   font-weight: 500;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.8);
-  padding: 4px 6px;
+  padding: 4px 8px;
   border-radius: 6px;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.08);
     color: #fff;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: progress;
   }
 `;
 
@@ -235,8 +242,8 @@ const PopoverItem = styled.button<{ $danger?: boolean }>`
 `;
 
 interface TripListProps {
-  /** Optional override — falls back to the travel store's
-   *  openNewTripModal action when omitted. */
+  /** Optional override — falls back to triggering a trip-discovery
+   *  scan via the agent (the canonical "+ New" behaviour). */
   onCreateTrip?: () => void;
 }
 
@@ -246,8 +253,8 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
   const setActiveTrip = useTravelStore((s) => s.setActiveTrip);
   const bookings = useTravelStore((s) => s.bookings);
   const deleteTrip = useTravelStore((s) => s.deleteTrip);
-  const openNewTripModal = useTravelStore((s) => s.openNewTripModal);
-  const triggerCreate = onCreateTrip ?? openNewTripModal;
+  const { scan, scanInFlight } = useScanForTrips();
+  const triggerCreate = onCreateTrip ?? scan;
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
 
@@ -270,24 +277,24 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
     <Rail ref={(el) => { containerRef.current = el; }}>
       <RailHeader>
         Trips
-        <NewBtn onClick={triggerCreate} title="New trip">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
+        <NewBtn onClick={triggerCreate} disabled={scanInFlight} title="Scan connections for new trips">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
-          New
+          {scanInFlight ? 'Scanning…' : 'Scan'}
         </NewBtn>
       </RailHeader>
       {trips.length === 0 && (
         <SidebarEmpty>
           <strong>No trips yet</strong>
-          <span>Create your first trip to get started.</span>
-          <SidebarEmptyBtn onClick={triggerCreate}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
+          <span>Connect Gmail or calendar — the assistant will find your trips.</span>
+          <SidebarEmptyBtn onClick={triggerCreate} disabled={scanInFlight}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
-            New trip
+            {scanInFlight ? 'Scanning…' : 'Scan for trips'}
           </SidebarEmptyBtn>
         </SidebarEmpty>
       )}
