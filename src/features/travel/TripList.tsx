@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { getChatStore } from '@/features/app/bootstrap';
 import { useTravelStore } from './travel-store';
@@ -259,16 +260,26 @@ const PastBadge = styled.span`
   margin-left: 6px;
 `;
 
+/* Popover is portal'd to document.body and positioned with fixed
+   coords so the rail's overflow-y: auto can't clip it. */
 const Popover = styled.div`
-  position: absolute;
-  top: 36px;
-  right: 8px;
-  z-index: 30;
-  min-width: 156px;
+  position: fixed;
+  z-index: 9999;
+  min-width: 168px;
   background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   padding: 6px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+`;
+
+/* Invisible click-shield to close the popover on outside click — using
+   a portal'd overlay means a click anywhere (including on the page
+   chrome) closes it cleanly. */
+const PopoverScrim = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
 `;
 
 const PopoverItem = styled.button<{ $danger?: boolean }>`
@@ -341,26 +352,23 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
   const { scan, scanInFlight } = useScanForTrips();
   const triggerCreate = onCreateTrip ?? scan;
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; left: number } | null>(null);
   const [pastOpen, setPastOpen] = useState(false);
-  const containerRef = useRef<HTMLElement | null>(null);
 
-  /* Close the popover on outside click. Effect is scoped to the open
-     state so we don't add a global listener when nothing's open. */
+  /* Close the portal'd popover if the rail scrolls — the anchor is
+     captured against viewport coords and would drift otherwise. */
   useEffect(() => {
     if (!menuOpenId) return;
-    const handler = (e: MouseEvent) => {
-      if (!containerRef.current?.contains(e.target as Node)) return;
-      const target = e.target as HTMLElement;
-      if (!target.closest('[data-trip-menu]')) {
-        setMenuOpenId(null);
-      }
+    const onScroll = () => {
+      setMenuOpenId(null);
+      setMenuAnchor(null);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => window.removeEventListener('scroll', onScroll, { capture: true });
   }, [menuOpenId]);
 
   return (
-    <Rail ref={(el) => { containerRef.current = el; }}>
+    <Rail>
       <RailHeader>
         Trips
         <NewBtn onClick={triggerCreate} disabled={scanInFlight} title="Scan connections for new trips">
@@ -441,7 +449,17 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
           data-trip-menu
           onClick={(e) => {
             e.stopPropagation();
-            setMenuOpenId(menuOpen ? null : trip.id);
+            if (menuOpen) {
+              setMenuOpenId(null);
+              setMenuAnchor(null);
+              return;
+            }
+            /* Anchor the portal'd popover off the button so it lines
+               up with the trip card no matter where on the page it
+               sits. position: fixed needs viewport coords. */
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            setMenuAnchor({ top: rect.bottom + 6, left: Math.max(8, rect.right - 168) });
+            setMenuOpenId(trip.id);
           }}
           title="Trip actions"
           aria-label="Trip actions"
@@ -450,8 +468,14 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
             <circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" />
           </svg>
         </MenuBtn>
-        {menuOpen && (
-          <Popover data-trip-menu onClick={(e) => e.stopPropagation()}>
+        {menuOpen && menuAnchor && createPortal(
+          <>
+            <PopoverScrim onClick={() => { setMenuOpenId(null); setMenuAnchor(null); }} />
+            <Popover
+              data-trip-menu
+              style={{ top: menuAnchor.top, left: menuAnchor.left }}
+              onClick={(e) => e.stopPropagation()}
+            >
             {trip.archived ? (
               <PopoverItem
                 onClick={() => {
@@ -509,7 +533,9 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
               </svg>
               Delete trip
             </PopoverItem>
-          </Popover>
+            </Popover>
+          </>,
+          document.body,
         )}
       </CardWithMenu>
     );
