@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import styled from 'styled-components';
 import { useIsMobile } from '@/components/useIsMobile';
-import TripList from './TripList';
 import Itinerary from './Itinerary';
 import TripMap from './TripMap';
 import TripChatPanel from './TripChatPanel';
@@ -73,34 +72,20 @@ const BrandSub = styled.div`
 
 const Body = styled.div`
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) 380px;
+  /* Trip list moved into the main sidebar — body is now itinerary
+     + chat. One left nav for the whole app. */
+  grid-template-columns: minmax(0, 1fr) 380px;
   gap: 16px;
   flex: 1;
   min-height: 0;
 
   @media (max-width: 1280px) {
-    grid-template-columns: 220px minmax(0, 1fr) 340px;
+    grid-template-columns: minmax(0, 1fr) 340px;
   }
 
   @media (max-width: 1100px) {
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
-
-  @media (max-width: 900px) {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-  }
-`;
-
-const RailWrap = styled.div`
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 4px;
-
-  scrollbar-width: thin;
-  scrollbar-color: rgba(36, 36, 36, 0.15) transparent;
-  &::-webkit-scrollbar { width: 6px; }
-  &::-webkit-scrollbar-thumb { background: rgba(36, 36, 36, 0.15); border-radius: 3px; }
 `;
 
 const Center = styled.div`
@@ -133,12 +118,21 @@ const CenterScroll = styled.div`
 `;
 
 const MapStrip = styled.div`
+  /* Pinned to the top of the itinerary scroll. The map stays visible
+     as the day-by-day list scrolls under it — sticky inside the
+     CenterScroll container which is the actual scroll context. */
+  position: sticky;
+  top: 0;
+  z-index: 5;
   height: 200px;
   flex-shrink: 0;
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid rgba(36, 36, 36, 0.06);
   background: #e6e7eb;
+  /* Soft shadow underneath so the day cards scrolling past read as
+     passing under the map rather than crashing into it. */
+  box-shadow: 0 6px 16px -10px rgba(36, 36, 36, 0.35);
 
   @media (max-width: 768px) {
     height: 180px;
@@ -191,10 +185,6 @@ export const TripsView: React.FC<TripsViewProps> = () => {
       </HeaderRow>
 
       <Body>
-        <RailWrap>
-          <TripList />
-        </RailWrap>
-
         <Center>
           <CenterScroll>
             <MapStrip>

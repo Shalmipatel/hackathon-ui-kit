@@ -120,48 +120,51 @@ const Dest = styled.div`
 const Meta = styled.div`
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
   margin-top: 2px;
   font-size: 11.5px;
   font-weight: 500;
   color: rgba(36, 36, 36, 0.55);
 `;
 
-const CountChip = styled.span`
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: rgba(36, 36, 36, 0.06);
-  font-size: 10.5px;
-  font-weight: 600;
-  color: rgba(36, 36, 36, 0.65);
+const Dates = styled.span`
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 `;
 
-/* Persistent ... button. Previous near-white background blended into
-   the card and looked invisible — switched to a contrasting dark chip
-   so the affordance reads even at a glance. */
+const CountChip = styled.span`
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(36, 36, 36, 0.45);
+  font-variant-numeric: tabular-nums;
+`;
+
+/* Quiet ... icon — always present so the affordance is discoverable,
+   but visually subdued so it doesn't fight the trip title. */
 const MenuBtn = styled.button`
   position: absolute;
-  top: 10px;
-  right: 8px;
-  background: #242424;
+  top: 8px;
+  right: 6px;
+  background: transparent;
   border: none;
   cursor: pointer;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: rgba(36, 36, 36, 0.4);
   transition: all 0.12s;
   z-index: 2;
-  box-shadow: 0 1px 2px rgba(36, 36, 36, 0.15);
 
   &:hover {
-    background: #111;
-    transform: translateY(-1px);
+    background: rgba(36, 36, 36, 0.08);
+    color: #242424;
   }
 `;
 
@@ -259,8 +262,8 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
               <Title>{trip.title}</Title>
               <Dest>{trip.destination}</Dest>
               <Meta>
-                {formatTripRange(trip)}
-                <CountChip>{count} {count === 1 ? 'item' : 'items'}</CountChip>
+                <Dates>{formatTripRange(trip)}</Dates>
+                <CountChip>{count}</CountChip>
               </Meta>
             </Card>
             <MenuBtn

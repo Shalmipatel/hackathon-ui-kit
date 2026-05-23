@@ -6,6 +6,7 @@ import type { ChatSessionSummary } from '@/types';
 import { useTimezone } from '@/features/settings/useTimezone';
 import { useA2HSStore } from '@/features/app/components/a2hs-store';
 import { useIsMobile } from '@/components/useIsMobile';
+import { default as TripList } from '@/features/travel/TripList';
 import {
   DndContext,
   closestCenter,
@@ -1082,6 +1083,15 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
               </svg>
               <NavItemLabel $visible={!collapsed}>Trips</NavItemLabel>
             </NavItem>
+            {/* When viewing trips with the sidebar expanded, surface the
+                trip list inline here so the rest of the trips view is
+                free to be a single content column (map + itinerary +
+                chat) instead of having its own left rail. */}
+            {activeView === 'trips' && !collapsed && (
+              <div style={{ padding: '8px 4px 4px' }}>
+                <TripList />
+              </div>
+            )}
             <NavItem $active={activeView === 'connections'} onClick={() => onNavigate('connections')}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
               <NavItemLabel $visible={!collapsed}>Connections</NavItemLabel>
