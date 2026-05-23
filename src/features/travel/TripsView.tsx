@@ -7,6 +7,7 @@ import TripChatPanel from './TripChatPanel';
 import BookingDetailModal from './BookingDetailModal';
 import { useBookingIngestion } from './useBookingIngestion';
 import { useScanForTrips } from './useScanForTrips';
+import { useFirebaseSync } from './useFirebaseSync';
 import { useTravelStore } from './travel-store';
 
 const Page = styled.div`
@@ -217,6 +218,9 @@ export const TripsView: React.FC<TripsViewProps> = () => {
      landing view, so by the time the agent might reply this hook is
      already armed. */
   useBookingIngestion();
+  /* Mirror local trip / booking state to Firebase RTDB if configured.
+     No-op when Firebase env vars aren't set. */
+  useFirebaseSync();
   const showChatCol = !useIsMobile(1100);
 
   const trips = useTravelStore((s) => s.trips);
