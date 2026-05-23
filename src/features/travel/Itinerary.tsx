@@ -8,6 +8,7 @@ import {
   tripDayKeys,
 } from './format';
 import BookingCard from './BookingCard';
+import { useRescanTrip } from './useRescanTrip';
 
 const Wrap = styled.div`
   display: flex;
@@ -22,6 +23,34 @@ const TripHeader = styled.div`
   justify-content: space-between;
   gap: 16px;
   padding: 4px 4px 0;
+`;
+
+const RescanBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(36, 36, 36, 0.15);
+  background: #fff;
+  color: #242424;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 12px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.12s;
+  flex-shrink: 0;
+
+  &:hover:not(:disabled) {
+    background: #242424;
+    color: #fff;
+    border-color: #242424;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: progress;
+  }
 `;
 
 const HeaderText = styled.div`
@@ -168,6 +197,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   const activeTripId = useTravelStore((s) => s.activeTripId);
   const trips = useTravelStore((s) => s.trips);
   const allBookings = useTravelStore((s) => s.bookings);
+  const { rescan, rescanInFlight } = useRescanTrip();
   const trip = useMemo(
     () => trips.find((t) => t.id === activeTripId) ?? null,
     [trips, activeTripId],
@@ -273,6 +303,19 @@ export const Itinerary: React.FC<ItineraryProps> = ({
             )}
           </TripMeta>
         </HeaderText>
+        <RescanBtn
+          onClick={() => rescan(trip.id)}
+          disabled={rescanInFlight}
+          title="Ask the assistant to look for new bookings for this trip"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+            <path d="M21 3v5h-5" />
+            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            <path d="M3 21v-5h5" />
+          </svg>
+          {rescanInFlight ? 'Rescanning…' : 'Rescan trip'}
+        </RescanBtn>
       </TripHeader>
 
       {bookings.length === 0 ? (
