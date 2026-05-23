@@ -26,7 +26,10 @@ const Backdrop = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  /* Leaflet's overlay/marker panes go up to z-index 600+ — modal must
+     sit above the entire map stack or markers poke through the
+     backdrop. */
+  z-index: 1000;
   animation: ${fadeIn} 0.18s ease-out;
   padding: 24px;
 
