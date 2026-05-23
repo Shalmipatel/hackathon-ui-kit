@@ -56,6 +56,11 @@ export function useScanForTrips(): {
       duration: 4000,
     });
 
+    /* Reset the agent's context first so prior conversation state
+       (acks, partial bookings, etc.) doesn't bleed into the scan. The
+       OpenClaw chat backend treats /reset as a control command. */
+    sendMessage('/reset');
+
     const prompt = [
       'I want you to discover new trips from my connected sources. Do not ask me for manual input — pull from Gmail, calendar, and any travel-site sessions you can reach.',
       '',
