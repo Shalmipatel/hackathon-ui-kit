@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <title>AI Assistant</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- iOS Add-to-Home-Screen: enables standalone PWA mode (no address bar) -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- black-translucent + viewport-fit=cover = page bg paints the status
+         bar and home-indicator safe areas in standalone PWA mode -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AI Assistant" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/apple-touch-icon-512.png" />
+    <!-- PNG favicon fallback so iOS share sheet preview uses our icon
+         (iOS Safari doesn't always render SVG favicons) -->
+    <link rel="icon" type="image/png" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="shortcut icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#fbfaf9" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #root { height: 100%; }
+      /* Paint html too so iOS safe-area regions (notch, home indicator)
+         don't fall back to white/black. */
+      html { background-color: #f4f4f5; }
+      body { background-color: #f4f4f5; }
+      /* Block document-level scrolling so WKWebView's "scroll focused
+         input into view" can't drag the chat header off-screen when
+         the keyboard opens. All real scrolling lives inside the
+         in-app ScrollArea.
+         IMPORTANT: only set overflow on body, NOT html. Setting
+         overflow:hidden on the <html> element in WKWebView disables
+         viewport-fit=cover safe-area insets — env(safe-area-inset-*)
+         all resolve to 0 and the page loses its edge-to-edge layout. */
+      body { overflow: hidden; overscroll-behavior: none; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/index.tsx"></script>
+  </body>
+</html>
