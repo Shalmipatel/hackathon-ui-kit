@@ -4,8 +4,9 @@ import type { Booking, ScanStatus, Trip } from './types';
 import { MOCK_BOOKINGS, MOCK_TRIPS } from './mock-data';
 
 /** Content fingerprint used to identify "same trip" across scans even
- *  when the agent regenerates ids. Shared with the ingestion path. */
-function tripFingerprint(t: Pick<Trip, 'title' | 'startDate' | 'endDate'>): string {
+ *  when the agent regenerates ids. Shared with the ingestion path
+ *  and the Firebase sync layer. */
+export function tripFingerprint(t: Pick<Trip, 'title' | 'startDate' | 'endDate'>): string {
   return `${t.title.trim().toLowerCase()}|${t.startDate}|${t.endDate}`;
 }
 
@@ -79,6 +80,11 @@ interface TravelState {
   /** Tombstones for trips the user explicitly deleted — fingerprints
    *  so rescans can't resurrect them under a fresh id. */
   deletedTripFingerprints: string[];
+  /** Trip ids the user deleted — second-layer tombstone so the
+   *  Firebase hydrate can recognize a deletion when the upstream
+   *  RTDB still has the row (the remote delete might race with the
+   *  hydrate read, leaving the row in RTDB momentarily). */
+  deletedTripIds: string[];
 
   setActiveTrip: (id: string | null) => void;
   addTrip: (trip: Trip) => void;
@@ -112,15 +118,27 @@ export const useTravelStore = create<TravelState>()(
       tripChatSessions: {},
       scanInFlight: false,
       deletedTripFingerprints: [],
+      deletedTripIds: [],
 
       setActiveTrip: (id) => set({ activeTripId: id }),
       addTrip: (trip) =>
         set((s) => {
+          /* Tombstone gate first — a trip the user explicitly deleted
+             must never be re-added, no matter where it's coming from
+             (Firebase hydrate, agent ingestion, manual add, etc.). */
+          if (s.deletedTripIds.includes(trip.id)) {
+            console.warn(`[travel-store] addTrip blocked — id ${trip.id} is tombstoned.`);
+            return {};
+          }
+          const fp = tripFingerprint(trip);
+          if (s.deletedTripFingerprints.includes(fp)) {
+            console.warn(`[travel-store] addTrip blocked — fingerprint ${fp} is tombstoned.`);
+            return {};
+          }
           /* Hard guard against dupes — if a trip with the same
              fingerprint already exists, activate it instead of
              stacking another card. Cheap insurance against any caller
              that bypasses the ingestion-level dedupe. */
-          const fp = tripFingerprint(trip);
           const dupe = s.trips.find((t) => tripFingerprint(t) === fp);
           if (dupe) {
             return { activeTripId: dupe.id };
@@ -134,10 +152,12 @@ export const useTravelStore = create<TravelState>()(
       deleteTrip: (id) =>
         set((s) => {
           const { [id]: _removed, ...remainingChat } = s.tripChatSessions;
-          /* Record the fingerprint as a tombstone so the next scan
-             can't bring this trip back under a different id. */
+          /* Record both the id AND the fingerprint as tombstones.
+             id catches racing Firebase hydrate reads of the same
+             row; fingerprint catches future scans that re-emit
+             the same trip under a new id. */
           const victim = s.trips.find((t) => t.id === id);
-          const tombstones = victim
+          const fpTombstones = victim
             ? Array.from(
                 new Set([
                   ...s.deletedTripFingerprints,
@@ -145,6 +165,9 @@ export const useTravelStore = create<TravelState>()(
                 ]),
               )
             : s.deletedTripFingerprints;
+          const idTombstones = Array.from(
+            new Set([...s.deletedTripIds, id]),
+          );
           return {
             trips: s.trips.filter((t) => t.id !== id),
             bookings: s.bookings.filter((b) => b.tripId !== id),
@@ -153,7 +176,8 @@ export const useTravelStore = create<TravelState>()(
                 ? s.trips.find((t) => t.id !== id)?.id ?? null
                 : s.activeTripId,
             tripChatSessions: remainingChat,
-            deletedTripFingerprints: tombstones,
+            deletedTripFingerprints: fpTombstones,
+            deletedTripIds: idTombstones,
           };
         }),
 
@@ -213,6 +237,7 @@ export const useTravelStore = create<TravelState>()(
         activeTripId: state.activeTripId,
         tripChatSessions: state.tripChatSessions,
         deletedTripFingerprints: state.deletedTripFingerprints,
+        deletedTripIds: state.deletedTripIds,
       }),
       /* Run the dedupe pass once per app start so dupes that landed
          before the ingestion-level fix get collapsed automatically. */

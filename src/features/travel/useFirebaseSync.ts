@@ -27,7 +27,7 @@ import {
   saveBookingRemote,
   saveTripRemote,
 } from './firebase';
-import { useTravelStore } from './travel-store';
+import { tripFingerprint, useTravelStore } from './travel-store';
 import type { Booking, Trip } from './types';
 
 export function useFirebaseSync(): void {
@@ -55,6 +55,27 @@ export function useFirebaseSync(): void {
         const remoteTripIds = new Set(remoteTrips.map((t) => t.id));
         const remoteBookingIds = new Set(remoteBookings.map((b) => b.id));
 
+        /* Tombstone gate — never hydrate a trip the user previously
+           deleted. RTDB might still have the row if the remote delete
+           is in flight or failed silently last time around. While
+           we're at it, fire a cleanup delete to RTDB so the row
+           doesn't keep coming back on every reload. */
+        const deletedIds = new Set(state.deletedTripIds);
+        const deletedFps = new Set(state.deletedTripFingerprints);
+        const isTombstoned = (t: typeof remoteTrips[number]) =>
+          deletedIds.has(t.id) || deletedFps.has(tripFingerprint(t));
+
+        const tombstonedRemoteTrips = remoteTrips.filter(isTombstoned);
+        if (tombstonedRemoteTrips.length > 0) {
+          console.warn(
+            `[firebase-sync] cleaning ${tombstonedRemoteTrips.length} zombie trip(s) from RTDB.`,
+          );
+          await Promise.all(
+            tombstonedRemoteTrips.map((t) => deleteTripRemote(t.id)),
+          );
+        }
+        const liveRemoteTrips = remoteTrips.filter((t) => !isTombstoned(t));
+
         /* Push local-only items up. */
         await Promise.all([
           ...state.trips
@@ -65,9 +86,11 @@ export function useFirebaseSync(): void {
             .map((b) => saveBookingRemote(b)),
         ]);
 
-        /* Merge remote-only items into the store. addTrip's fingerprint
-           dedupe takes care of "same trip, different id" collisions. */
-        const tripsToAdd = remoteTrips.filter((t) => !localTripIds.has(t.id));
+        /* Merge remote-only items into the store. addTrip's tombstone
+           check is the last line of defence — even if liveRemoteTrips
+           somehow leaked through, addTrip itself would refuse the
+           insert with a console warning. */
+        const tripsToAdd = liveRemoteTrips.filter((t) => !localTripIds.has(t.id));
         const bookingsToAdd = remoteBookings.filter(
           (b) => !localBookingIds.has(b.id),
         );

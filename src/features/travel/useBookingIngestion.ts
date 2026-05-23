@@ -16,7 +16,7 @@ import { getChatRepo } from '@/features/app/bootstrap/providers';
 import type { ChatStore } from '@/store';
 import { toast } from '@/features/toast';
 import { parseBookingsFromMessage, parseTripsFromMessage } from './parser';
-import { useTravelStore } from './travel-store';
+import { tripFingerprint, useTravelStore } from './travel-store';
 import type { Booking, Trip } from './types';
 
 export function useBookingIngestion(): void {
@@ -270,15 +270,6 @@ function applyBookings(bookings: Booking[], sessionId: string): void {
  *  shouldn't pile up duplicates), creates a chat session per new
  *  trip using the same isAiTitled-flip pattern as ensureTripChatSession,
  *  and toasts a summary. */
-/** Content fingerprint for trip dedup. The agent regenerates ids
- *  every scan (no stable mapping from email → id), so id matching
- *  alone lets the same trip land multiple times. Title-lower + dates
- *  is stable enough: the same Tokyo Jun 12-22 trip always hashes the
- *  same regardless of what id the LLM picked. */
-function tripFingerprint(t: Pick<Trip, 'title' | 'startDate' | 'endDate'>): string {
-  return `${t.title.trim().toLowerCase()}|${t.startDate}|${t.endDate}`;
-}
-
 async function applyTrips(incoming: Trip[]): Promise<void> {
   if (incoming.length === 0) return;
   const store = useTravelStore.getState();
