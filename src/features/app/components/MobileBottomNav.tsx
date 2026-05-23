@@ -64,17 +64,22 @@ const TabBtn = styled.button<{ $active: boolean }>`
   }
 `;
 
-const HomeIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    <polyline points="9 22 9 12 15 12 15 22" />
-  </svg>
-);
-
 const ConnectionsIcon = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </svg>
+);
+
+const TripsIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
+  </svg>
+);
+
+const ChatIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
   </svg>
 );
 
@@ -86,12 +91,20 @@ const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeView, onNavigat
   return (
     <Bar aria-label="Primary">
       <TabBtn
+        $active={activeView === 'trips'}
+        onClick={() => onNavigate('trips')}
+        aria-label="Trips"
+        aria-current={activeView === 'trips' ? 'page' : undefined}
+      >
+        <TripsIcon />
+      </TabBtn>
+      <TabBtn
         $active={activeView === 'chat'}
         onClick={() => onNavigate('chat')}
         aria-label="Chat"
         aria-current={activeView === 'chat' ? 'page' : undefined}
       >
-        <HomeIcon />
+        <ChatIcon />
       </TabBtn>
       <TabBtn
         $active={activeView === 'connections'}

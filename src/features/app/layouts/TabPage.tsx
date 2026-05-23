@@ -11,6 +11,7 @@ import type { ToastVariant } from '@/components/Toast';
 import { useIsMobile } from '@/components/useIsMobile';
 import { useEdgeSwipe } from '@/components/useEdgeSwipe';
 import { SettingsView, SecurityView, ConnectionsView, useLocation } from '@/features/settings';
+import { TripsView } from '@/features/travel';
 
 
 /* Dev-only overlay. Wrapping the `lazy()` in `import.meta.env.DEV`
@@ -1239,7 +1240,7 @@ export const TabPage: React.FC = () => {
     return () => window.removeEventListener('resize', handler);
   }, []);
   const [settingsOverlayOpen, setSettingsOverlayOpen] = useState(false);
-  const [activeView, setActiveView] = useState<AppView>('chat');
+  const [activeView, setActiveView] = useState<AppView>('trips');
 
   /*
    * Dev-only event hook for re-opening the Dev Settings overlay from
@@ -1854,7 +1855,11 @@ export const TabPage: React.FC = () => {
            * lines up). Add a visible trigger here if you want one-click
            * access.
            */}
-          {activeView === 'security' ? (
+          {activeView === 'trips' ? (
+            <ChatArea>
+              <TripsView onNavigateToChat={() => setActiveView('chat')} />
+            </ChatArea>
+          ) : activeView === 'security' ? (
             <ChatArea>
               <PageHeader title="Security" onNavigate={(v) => setActiveView(v as AppView)} onNewChat={handleNewChat} onOpenMobileMenu={() => setMobileSidebarOpen(true)} />
               <ViewPage ref={tabScrollRef}>
