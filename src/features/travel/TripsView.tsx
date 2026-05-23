@@ -117,22 +117,37 @@ const CenterScroll = styled.div`
   }
 `;
 
-const MapStrip = styled.div`
-  /* Pinned to the top of the itinerary scroll. The map stays visible
-     as the day-by-day list scrolls under it — sticky inside the
-     CenterScroll container which is the actual scroll context. */
+/* Shell is the sticky container — full-width with a solid page-bg so
+   nothing scrolls through the rounded-corner gaps of the inner map.
+   Inner MapStrip carries the rounded corners + leaflet. */
+const MapShell = styled.div`
   position: sticky;
   top: 0;
   z-index: 5;
+  background: #fbfaf9;
+  padding: 0 0 12px 0;
+  margin-left: -28px;
+  margin-right: -28px;
+  margin-top: -24px;
+  padding-left: 28px;
+  padding-right: 28px;
+  padding-top: 24px;
+
+  @media (max-width: 768px) {
+    margin-left: -16px;
+    margin-right: -16px;
+    margin-top: -16px;
+    padding: 16px 16px 8px;
+  }
+`;
+
+const MapStrip = styled.div`
   height: 200px;
-  flex-shrink: 0;
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid rgba(36, 36, 36, 0.06);
   background: #e6e7eb;
-  /* Soft shadow underneath so the day cards scrolling past read as
-     passing under the map rather than crashing into it. */
-  box-shadow: 0 6px 16px -10px rgba(36, 36, 36, 0.35);
+  box-shadow: 0 8px 24px -16px rgba(36, 36, 36, 0.45);
 
   @media (max-width: 768px) {
     height: 180px;
@@ -155,6 +170,10 @@ interface TripsViewProps {
 
 export const TripsView: React.FC<TripsViewProps> = () => {
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
+  /* The booking the map is currently panned to, driven by scroll
+     position rather than clicks. Click selection (which opens the
+     modal) overrides this when active. */
+  const [scrollFocusedBookingId, setScrollFocusedBookingId] = useState<string | null>(null);
   /* Listen for agent-emitted booking blocks in the chat and merge them
      into the travel store. Mounting here is fine: trips is the default
      landing view, so by the time the agent might reply this hook is
@@ -167,6 +186,10 @@ export const TripsView: React.FC<TripsViewProps> = () => {
     () => bookings.find((b) => b.id === selectedBookingId) ?? null,
     [bookings, selectedBookingId],
   );
+
+  /* Map focuses on the clicked booking if there is one; otherwise on
+     whatever the scroll-spy is currently surfacing. */
+  const mapFocusId = selectedBookingId ?? scrollFocusedBookingId;
 
   return (
     <Page>
@@ -187,15 +210,18 @@ export const TripsView: React.FC<TripsViewProps> = () => {
       <Body>
         <Center>
           <CenterScroll>
-            <MapStrip>
-              <TripMap
-                focusedBookingId={selectedBookingId}
-                onBookingClick={setSelectedBookingId}
-              />
-            </MapStrip>
+            <MapShell>
+              <MapStrip>
+                <TripMap
+                  focusedBookingId={mapFocusId}
+                  onBookingClick={setSelectedBookingId}
+                />
+              </MapStrip>
+            </MapShell>
             <Itinerary
               focusedBookingId={selectedBookingId}
               onBookingClick={setSelectedBookingId}
+              onScrollFocus={setScrollFocusedBookingId}
             />
           </CenterScroll>
         </Center>

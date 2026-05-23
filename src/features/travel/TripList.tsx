@@ -8,32 +8,13 @@ const Rail = styled.aside`
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 4px;
+  gap: 4px;
+  padding: 0;
   overflow-y: auto;
-
-  @media (max-width: 900px) {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 8px;
-  }
 `;
 
 const RailHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 8px 0;
-  font-family: 'Inter', sans-serif;
-  font-weight: 700;
-  font-size: 13px;
-  color: rgba(36, 36, 36, 0.75);
-  letter-spacing: -0.3px;
-
-  @media (max-width: 900px) {
-    display: none;
-  }
+  display: none;
 `;
 
 const NewBtn = styled.button`
@@ -46,12 +27,13 @@ const NewBtn = styled.button`
   font-family: 'Inter', sans-serif;
   font-weight: 500;
   font-size: 12px;
-  color: #242424;
+  color: rgba(255, 255, 255, 0.8);
   padding: 4px 6px;
   border-radius: 6px;
 
   &:hover {
-    background: rgba(36, 36, 36, 0.05);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
   }
 `;
 
@@ -59,16 +41,14 @@ const Card = styled.button<{ $active: boolean; $accent: string }>`
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
   text-align: left;
-  /* Extra right padding so the title doesn't run under the ... menu
-     button anchored to top-right of the wrapper. */
-  padding: 14px 38px 14px 18px;
-  background: ${(p) => (p.$active ? '#fff' : 'rgba(255,255,255,0.55)')};
+  padding: 10px 36px 10px 18px;
+  background: ${(p) => (p.$active ? 'rgba(255, 255, 255, 0.08)' : 'transparent')};
   border: 1px solid
-    ${(p) => (p.$active ? 'rgba(36, 36, 36, 0.18)' : 'rgba(36, 36, 36, 0.07)')};
-  border-radius: 14px;
+    ${(p) => (p.$active ? 'rgba(255, 255, 255, 0.12)' : 'transparent')};
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.15s;
   overflow: hidden;
@@ -77,31 +57,25 @@ const Card = styled.button<{ $active: boolean; $accent: string }>`
   &::before {
     content: '';
     position: absolute;
-    left: 0;
-    top: 8px;
-    bottom: 8px;
-    width: 4px;
-    border-radius: 0 4px 4px 0;
+    left: 6px;
+    top: 12px;
+    bottom: 12px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
     background: ${(p) => p.$accent};
-    opacity: ${(p) => (p.$active ? 1 : 0.55)};
+    opacity: ${(p) => (p.$active ? 1 : 0.65)};
   }
 
   &:hover {
-    background: #fff;
-    border-color: rgba(36, 36, 36, 0.18);
-  }
-
-  @media (max-width: 900px) {
-    min-width: 200px;
-    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.06);
   }
 `;
 
 const Title = styled.div`
-  font-weight: 600;
-  font-size: 15px;
-  color: #242424;
-  letter-spacing: -0.3px;
+  font-weight: 500;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.95);
+  letter-spacing: -0.2px;
   line-height: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -109,9 +83,9 @@ const Title = styled.div`
 `;
 
 const Dest = styled.div`
-  font-size: 12.5px;
-  color: rgba(36, 36, 36, 0.7);
-  line-height: 18px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -122,10 +96,9 @@ const Meta = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 2px;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 500;
-  color: rgba(36, 36, 36, 0.55);
+  color: rgba(255, 255, 255, 0.4);
 `;
 
 const Dates = styled.span`
@@ -139,7 +112,7 @@ const CountChip = styled.span`
   flex-shrink: 0;
   font-size: 11px;
   font-weight: 500;
-  color: rgba(36, 36, 36, 0.45);
+  color: rgba(255, 255, 255, 0.4);
   font-variant-numeric: tabular-nums;
 `;
 
@@ -147,8 +120,8 @@ const CountChip = styled.span`
    but visually subdued so it doesn't fight the trip title. */
 const MenuBtn = styled.button`
   position: absolute;
-  top: 8px;
-  right: 6px;
+  top: 6px;
+  right: 4px;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -158,13 +131,13 @@ const MenuBtn = styled.button`
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(36, 36, 36, 0.4);
+  color: rgba(255, 255, 255, 0.35);
   transition: all 0.12s;
   z-index: 2;
 
   &:hover {
-    background: rgba(36, 36, 36, 0.08);
-    color: #242424;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
   }
 `;
 

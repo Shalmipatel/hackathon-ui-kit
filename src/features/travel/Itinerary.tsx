@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import styled from 'styled-components';
 import { useTravelStore } from './travel-store';
 import {
@@ -155,11 +155,15 @@ const Empty = styled.div`
 interface ItineraryProps {
   focusedBookingId?: string | null;
   onBookingClick?: (bookingId: string) => void;
+  /** Fires as the user scrolls — passes the booking id closest to the
+   *  top of the visible area so the map can auto-pan to it. */
+  onScrollFocus?: (bookingId: string) => void;
 }
 
 export const Itinerary: React.FC<ItineraryProps> = ({
   focusedBookingId,
   onBookingClick,
+  onScrollFocus,
 }) => {
   const activeTripId = useTravelStore((s) => s.activeTripId);
   const trips = useTravelStore((s) => s.trips);
@@ -190,6 +194,54 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     return map;
   }, [bookings]);
 
+  /* Scroll-spy: pan the map to whichever booking is currently closest
+     to the top of the viewport. Booking cards advertise themselves
+     with `data-booking-id`; we observe all of them and report the
+     top-most-visible one. The 96px rootMargin top accounts for the
+     sticky map's footprint, so a card is considered "active" once
+     it scrolls under the map's bottom edge. */
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const lastFocusRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!onScrollFocus) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+    const root = rootRef.current;
+    if (!root) return;
+    const cards = root.querySelectorAll<HTMLElement>('[data-booking-id]');
+    if (cards.length === 0) return;
+
+    const intersectingByTop = new Map<string, number>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const id = (e.target as HTMLElement).dataset.bookingId;
+          if (!id) continue;
+          if (e.isIntersecting) {
+            intersectingByTop.set(id, e.boundingClientRect.top);
+          } else {
+            intersectingByTop.delete(id);
+          }
+        }
+        if (intersectingByTop.size === 0) return;
+        let topId: string | null = null;
+        let topY = Infinity;
+        for (const [id, y] of intersectingByTop) {
+          if (y < topY) {
+            topY = y;
+            topId = id;
+          }
+        }
+        if (topId && topId !== lastFocusRef.current) {
+          lastFocusRef.current = topId;
+          onScrollFocus(topId);
+        }
+      },
+      { rootMargin: '-220px 0px -45% 0px', threshold: [0, 0.2, 0.5, 0.8, 1] },
+    );
+    cards.forEach((c) => observer.observe(c));
+    return () => observer.disconnect();
+  }, [onScrollFocus, bookings.length, activeTripId]);
+
   if (!trip) {
     return (
       <Empty>
@@ -200,7 +252,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   }
 
   return (
-    <Wrap>
+    <Wrap ref={rootRef}>
       <TripHeader>
         <HeaderText>
           <TripTitle>{trip.title}</TripTitle>
@@ -256,12 +308,16 @@ export const Itinerary: React.FC<ItineraryProps> = ({
               {dayBookings.length > 0 && (
                 <DayItems>
                   {dayBookings.map((b) => (
-                    <BookingCard
-                      key={b.id}
-                      booking={b}
-                      focused={b.id === focusedBookingId}
-                      onClick={() => onBookingClick?.(b.id)}
-                    />
+                    /* data-booking-id is what the scroll-spy
+                       IntersectionObserver reads. Keep this attribute
+                       in sync with the booking key. */
+                    <div key={b.id} data-booking-id={b.id}>
+                      <BookingCard
+                        booking={b}
+                        focused={b.id === focusedBookingId}
+                        onClick={() => onBookingClick?.(b.id)}
+                      />
+                    </div>
                   ))}
                 </DayItems>
               )}

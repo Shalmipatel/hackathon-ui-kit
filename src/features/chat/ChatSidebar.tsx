@@ -1096,76 +1096,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
               <NavItemLabel $visible={!collapsed}>Connections</NavItemLabel>
             </NavItem>
-            {/*
-             * Chat dropdown: clicking the row opens the chat view, the "+"
-             * button starts a brand-new chat session, and the expanded
-             * panel lists the General Chat, pinned chats (drag-to-reorder),
-             * and recent chats.
-             */}
-            <ChatDropdownContainer>
-              <ChatNavRow>
-                <NavItem $active={activeView === 'chat'} onClick={() => onNavigate('chat')} style={{ flex: 1 }}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                  <NavItemLabel $visible={!collapsed}>Chat with assistant</NavItemLabel>
-                </NavItem>
-                {!collapsed && (
-                  <NewChatBtn $alwaysVisible onClick={(e) => { e.stopPropagation(); onNewTask(); }} title="New chat">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  </NewChatBtn>
-                )}
-              </ChatNavRow>
-              {!collapsed && (
-                <SidebarContent>
-                  {generalSession && (
-                    <SidePanelSessionItem
-                      key={generalSession.id}
-                      session={{ ...generalSession, title: 'General Chat' }}
-                      onSwitchSession={onSwitchSession}
-                      isChatView={activeView === 'chat'}
-                    />
-                  )}
-                  {pinnedSessions.length > 0 && (
-                    <RecentsSection>
-                      <SectionLabel>Pinned chats</SectionLabel>
-                      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
-                        <SortableContext items={pinnedIds} strategy={verticalListSortingStrategy}>
-                          {pinnedSessions.map((session) => (
-                            <SidePanelSessionItem key={session.id} session={session} onSwitchSession={onSwitchSession} isChatView={activeView === 'chat'} sortable />
-                          ))}
-                        </SortableContext>
-                        <DragOverlay dropAnimation={dropAnimationConfig}>
-                          {activeDragSession ? (
-                            <DragOverlayItem>
-                              <DragOverlayHandle>
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                                  <circle cx="8" cy="4" r="2" /><circle cx="16" cy="4" r="2" />
-                                  <circle cx="8" cy="12" r="2" /><circle cx="16" cy="12" r="2" />
-                                  <circle cx="8" cy="20" r="2" /><circle cx="16" cy="20" r="2" />
-                                </svg>
-                              </DragOverlayHandle>
-                              <DragOverlayContent>
-                                <DragOverlayTitle>{activeDragSession.title}</DragOverlayTitle>
-                                <DragOverlayStatusText>
-                                  {formatDate(activeDragSession.updatedAt, timezone)}
-                                </DragOverlayStatusText>
-                              </DragOverlayContent>
-                            </DragOverlayItem>
-                          ) : null}
-                        </DragOverlay>
-                      </DndContext>
-                    </RecentsSection>
-                  )}
-                  {(pinnedSessions.length > 0 || unpinnedSessions.length > 0) && (
-                    <RecentsSection>
-                      <SectionLabel>Recent chats</SectionLabel>
-                      {unpinnedSessions.map((session) => (
-                        <SidePanelSessionItem key={session.id} session={session} onSwitchSession={onSwitchSession} isChatView={activeView === 'chat'} />
-                      ))}
-                    </RecentsSection>
-                  )}
-                </SidebarContent>
-              )}
-            </ChatDropdownContainer>
+            <NavItem $active={activeView === 'chat'} onClick={() => onNavigate('chat')}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <NavItemLabel $visible={!collapsed}>Chat with assistant</NavItemLabel>
+            </NavItem>
           </NavSection>
         </ScrollableArea>
 
@@ -1233,13 +1167,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
               </NavItem>
             )}
           </ProfileMenuWrapper>
-          {!collapsed && (
-            <BetaNotice>
-              Your personal AI assistant. Wire up your backend in{' '}
-              <code>.env.local</code> and customize the app for whatever
-              you want to build.
-            </BetaNotice>
-          )}
         </div>
       </PanelInner>
     </Panel>

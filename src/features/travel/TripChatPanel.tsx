@@ -249,17 +249,26 @@ function buildTripContextString(): string | null {
   return lines.join('\n');
 }
 
-/* Per-trip session sync is intentionally disabled in this iteration.
-   chat-store.createSession dedup-returns the same empty-session id
-   (often GENERAL_SESSION_ID), which triggers an init-loop in TabPage's
-   useChat. Until that interaction is resolved cleanly, the inline
-   chat just uses whatever session is currently active — trip context
-   is prepended to each user message so the agent still has the
-   information it needs. Re-enable per-trip sessions in a follow-up
-   when we have a clean handoff with TabPage's session-management
-   effects. */
+/* Per-trip session sync remains DISABLED.
+ *
+ * Attempts so far:
+ *  1) No explicit id → createSession dedups to an existing empty session
+ *     (often GENERAL_SESSION_ID) → trips alias the general chat →
+ *     TabPage.initGeneralSession effect loops with our sync.
+ *  2) Explicit UUID → session is created cleanly, BUT syncWithBackend
+ *     iterates all sessions and calls generateTaskTitle on each non-AI-
+ *     titled one. The new trip session never resolves a title (LLM round-
+ *     trip failing or fast retries), so subsequent syncs keep retrying.
+ *     End result is the same "Maximum update depth" symptom in TabPage.
+ *
+ * Proper fix needs deeper chat-store work: either an "ephemeral / no
+ * sync" flag on createSession, or trip messages live in the travel
+ * store entirely (no chat-store session at all) with the agent reached
+ * via a single shared session under the hood. For now, the inline chat
+ * uses whatever session is active and we prepend trip context to every
+ * user message. */
 function useTripChatSync(): void {
-  // no-op for now
+  // intentionally no-op — see comment above
 }
 
 interface TripChatPanelProps {
