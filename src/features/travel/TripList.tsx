@@ -66,7 +66,9 @@ const Card = styled.button<{ $active: boolean; $accent: string }>`
   gap: 6px;
   width: 100%;
   text-align: left;
-  padding: 14px 14px 14px 18px;
+  /* Extra right padding so the title doesn't run under the ... menu
+     button anchored to top-right of the wrapper. */
+  padding: 14px 38px 14px 18px;
   background: ${(p) => (p.$active ? '#fff' : 'rgba(255,255,255,0.55)')};
   border: 1px solid
     ${(p) => (p.$active ? 'rgba(36, 36, 36, 0.18)' : 'rgba(36, 36, 36, 0.07)')};
@@ -140,35 +142,39 @@ const CountChip = styled.span`
   color: rgba(36, 36, 36, 0.65);
 `;
 
-/* "..." button revealed on hover. Sits in the top-right of the card and
-   opens a small popover with destructive actions. */
+/* "..." button always visible — keeping it hover-only made the
+   affordance invisible on narrow trip cards. Subtle by default so it
+   doesn't compete with the title, but persistent enough to discover. */
 const MenuBtn = styled.button`
   position: absolute;
   top: 8px;
-  right: 8px;
-  background: transparent;
+  right: 6px;
+  background: rgba(255, 255, 255, 0.6);
   border: none;
   cursor: pointer;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(36, 36, 36, 0.45);
-  opacity: 0;
+  color: rgba(36, 36, 36, 0.5);
   transition: all 0.12s;
+  z-index: 2;
 
   &:hover {
-    background: rgba(36, 36, 36, 0.08);
+    background: rgba(36, 36, 36, 0.1);
     color: #242424;
   }
 `;
 
 const CardWithMenu = styled.div`
   position: relative;
-  &:hover ${MenuBtn}, &[data-menu-open='true'] ${MenuBtn} {
-    opacity: 1;
+
+  &:hover ${MenuBtn},
+  &[data-menu-open='true'] ${MenuBtn} {
+    background: rgba(36, 36, 36, 0.08);
+    color: rgba(36, 36, 36, 0.8);
   }
 `;
 
