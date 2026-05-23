@@ -145,7 +145,13 @@ export function connectGmail(email: string): Promise<ConnectResult> {
       const data = event.data as PostMessageBody | undefined;
       if (!data || data.type !== POSTMESSAGE_TYPE) return;
       cleanup();
-      resolve({ success: data.success, email: data.email, error: data.error });
+      /* Forward EVERY field — the caller needs code / state / authUrl
+         / redirectUri to build the gog chat command. Dropping them
+         here is what caused the bogus "Connection failed" after a
+         genuinely successful popup. */
+      const { type: _t, ...rest } = data;
+      void _t;
+      resolve(rest);
     };
 
     let resolved = false;
