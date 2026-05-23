@@ -8,6 +8,8 @@ interface TravelState {
   bookings: Booking[];
   activeTripId: string | null;
   scan: ScanStatus | null;
+  /** Maps a trip id to its dedicated chat-store session id. */
+  tripChatSessions: Record<string, string>;
 
   setActiveTrip: (id: string | null) => void;
   addTrip: (trip: Trip) => void;
@@ -20,6 +22,9 @@ interface TravelState {
 
   setScan: (scan: ScanStatus | null) => void;
 
+  setTripChatSession: (tripId: string, sessionId: string) => void;
+  clearTripChatSession: (tripId: string) => void;
+
   /** Reset everything to the seed mocks — useful for the demo. */
   resetToMocks: () => void;
 }
@@ -31,6 +36,7 @@ export const useTravelStore = create<TravelState>()(
       bookings: MOCK_BOOKINGS,
       activeTripId: MOCK_TRIPS[0]?.id ?? null,
       scan: null,
+      tripChatSessions: {},
 
       setActiveTrip: (id) => set({ activeTripId: id }),
       addTrip: (trip) =>
@@ -40,14 +46,18 @@ export const useTravelStore = create<TravelState>()(
           trips: s.trips.map((t) => (t.id === id ? { ...t, ...patch } : t)),
         })),
       deleteTrip: (id) =>
-        set((s) => ({
-          trips: s.trips.filter((t) => t.id !== id),
-          bookings: s.bookings.filter((b) => b.tripId !== id),
-          activeTripId:
-            s.activeTripId === id
-              ? s.trips.find((t) => t.id !== id)?.id ?? null
-              : s.activeTripId,
-        })),
+        set((s) => {
+          const { [id]: _removed, ...remainingChat } = s.tripChatSessions;
+          return {
+            trips: s.trips.filter((t) => t.id !== id),
+            bookings: s.bookings.filter((b) => b.tripId !== id),
+            activeTripId:
+              s.activeTripId === id
+                ? s.trips.find((t) => t.id !== id)?.id ?? null
+                : s.activeTripId,
+            tripChatSessions: remainingChat,
+          };
+        }),
 
       addBooking: (booking) =>
         set((s) => ({ bookings: [...s.bookings, booking] })),
@@ -65,12 +75,23 @@ export const useTravelStore = create<TravelState>()(
 
       setScan: (scan) => set({ scan }),
 
+      setTripChatSession: (tripId, sessionId) =>
+        set((s) => ({
+          tripChatSessions: { ...s.tripChatSessions, [tripId]: sessionId },
+        })),
+      clearTripChatSession: (tripId) =>
+        set((s) => {
+          const { [tripId]: _removed, ...rest } = s.tripChatSessions;
+          return { tripChatSessions: rest };
+        }),
+
       resetToMocks: () =>
         set({
           trips: MOCK_TRIPS,
           bookings: MOCK_BOOKINGS,
           activeTripId: MOCK_TRIPS[0]?.id ?? null,
           scan: null,
+          tripChatSessions: {},
         }),
     }),
     {
@@ -79,6 +100,7 @@ export const useTravelStore = create<TravelState>()(
         trips: state.trips,
         bookings: state.bookings,
         activeTripId: state.activeTripId,
+        tripChatSessions: state.tripChatSessions,
       }),
     },
   ),

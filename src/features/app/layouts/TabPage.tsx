@@ -1870,7 +1870,7 @@ export const TabPage: React.FC = () => {
             </ChatArea>
           ) : activeView === 'connections' ? (
             <ChatArea>
-              <PageHeader title="Browser connections" onNavigate={(v) => setActiveView(v as AppView)} onNewChat={handleNewChat} onOpenMobileMenu={() => setMobileSidebarOpen(true)} />
+              <PageHeader title="Connections" onNavigate={(v) => setActiveView(v as AppView)} onNewChat={handleNewChat} onOpenMobileMenu={() => setMobileSidebarOpen(true)} />
               <ViewPage ref={tabScrollRef}>
                 <ViewContainer>
                   <ConnectionsView />

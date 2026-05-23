@@ -1,19 +1,13 @@
-import React, { useCallback, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import styled from 'styled-components';
 import { useIsMobile } from '@/components/useIsMobile';
-import { useSendMessage } from '@/features/chat/useSendMessage';
-import { toast } from '@/features/toast';
 import TripList from './TripList';
 import Itinerary from './Itinerary';
 import TripMap from './TripMap';
-import ConnectionsPanel from './ConnectionsPanel';
-import TripChatButton from './TripChatButton';
+import TripChatPanel from './TripChatPanel';
+import BookingDetailModal from './BookingDetailModal';
 import { useBookingIngestion } from './useBookingIngestion';
-import { BOOKING_CONTRACT_PROMPT } from './parser';
-import { selectActiveTrip, useTravelStore } from './travel-store';
-import { formatTripRange } from './format';
-import { useGoogleAuth } from './google-auth';
-import { scanGmail, emailsToChatPayload } from './gmail-scan';
+import { useTravelStore } from './travel-store';
 
 const Page = styled.div`
   display: flex;
@@ -79,13 +73,13 @@ const BrandSub = styled.div`
 
 const Body = styled.div`
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) 360px;
+  grid-template-columns: 240px minmax(0, 1fr) 380px;
   gap: 16px;
   flex: 1;
   min-height: 0;
 
   @media (max-width: 1280px) {
-    grid-template-columns: 220px minmax(0, 1fr) 320px;
+    grid-template-columns: 220px minmax(0, 1fr) 340px;
   }
 
   @media (max-width: 1100px) {
@@ -94,7 +88,7 @@ const Body = styled.div`
 
   @media (max-width: 900px) {
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: auto 1fr;
   }
 `;
 
@@ -103,7 +97,6 @@ const RailWrap = styled.div`
   overflow-y: auto;
   padding-right: 4px;
 
-  /* Hide scrollbar visually but keep functional */
   scrollbar-width: thin;
   scrollbar-color: rgba(36, 36, 36, 0.15) transparent;
   &::-webkit-scrollbar { width: 6px; }
@@ -125,6 +118,9 @@ const CenterScroll = styled.div`
   min-height: 0;
   overflow-y: auto;
   padding: 24px 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 
   scrollbar-width: thin;
   scrollbar-color: rgba(36, 36, 36, 0.15) transparent;
@@ -136,10 +132,21 @@ const CenterScroll = styled.div`
   }
 `;
 
-const RightCol = styled.aside`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+const MapStrip = styled.div`
+  height: 200px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(36, 36, 36, 0.06);
+  background: #e6e7eb;
+
+  @media (max-width: 768px) {
+    height: 180px;
+    border-radius: 12px;
+  }
+`;
+
+const ChatCol = styled.aside`
   min-height: 0;
 
   @media (max-width: 1100px) {
@@ -147,160 +154,25 @@ const RightCol = styled.aside`
   }
 `;
 
-const MapBox = styled.div`
-  height: 260px;
-  flex-shrink: 0;
-  border-radius: 18px;
-  overflow: hidden;
-  border: 1px solid rgba(36, 36, 36, 0.06);
-  background: #e6e7eb;
-`;
-
-const SideScroll = styled.div`
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding-right: 4px;
-
-  scrollbar-width: thin;
-  scrollbar-color: rgba(36, 36, 36, 0.15) transparent;
-  &::-webkit-scrollbar { width: 6px; }
-  &::-webkit-scrollbar-thumb { background: rgba(36, 36, 36, 0.15); border-radius: 3px; }
-`;
-
-const MapCompact = styled.div`
-  display: none;
-
-  @media (max-width: 1100px) and (min-width: 769px) {
-    display: block;
-    height: 220px;
-    border-radius: 16px;
-    overflow: hidden;
-    border: 1px solid rgba(36, 36, 36, 0.06);
-    background: #e6e7eb;
-    margin-bottom: 16px;
-  }
-
-  @media (max-width: 900px) {
-    display: block;
-    height: 200px;
-    border-radius: 14px;
-    overflow: hidden;
-    border: 1px solid rgba(36, 36, 36, 0.06);
-    background: #e6e7eb;
-  }
-`;
-
-const ConnectionsCompact = styled.div`
-  display: none;
-
-  @media (max-width: 1100px) {
-    display: block;
-    margin-top: 24px;
-  }
-`;
-
 interface TripsViewProps {
-  onNavigateToChat: () => void;
+  /** Kept for prop-compat with TabPage; unused now that chat is inline. */
+  onNavigateToChat?: () => void;
 }
 
-export const TripsView: React.FC<TripsViewProps> = ({ onNavigateToChat }) => {
-  const [focusedBookingId, setFocusedBookingId] = useState<string | null>(null);
-  const sendMessage = useSendMessage();
-  const google = useGoogleAuth();
+export const TripsView: React.FC<TripsViewProps> = () => {
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   /* Listen for agent-emitted booking blocks in the chat and merge them
      into the travel store. Mounting here is fine: trips is the default
      landing view, so by the time the agent might reply this hook is
      already armed. */
   useBookingIngestion();
-  /* Threshold matches the @media break for RightCol so we only mount one
-     leaflet map at a time. Two maps + a 0×0 container causes wasted work
-     and a stale fitBounds against an undersized container. */
-  const showRightRail = !useIsMobile(1100);
-  const showCompactMap = !showRightRail;
+  const showChatCol = !useIsMobile(1100);
 
-  const handleScanInbox = useCallback(async () => {
-    const trip = selectActiveTrip(useTravelStore.getState());
-    const tripCtx = trip
-      ? `Active trip: ${trip.title} (${trip.destination}) — ${formatTripRange(trip)}. Trip id: ${trip.id}.`
-      : 'No specific trip selected; group by destination if you find multiple.';
-
-    const token = google.getAccessToken();
-    if (!token) {
-      /* No Gmail token — the agent is the only thing that can fetch
-         email. Surface this clearly rather than silently sending a chat
-         message the user wouldn't see. */
-      toast({
-        title: 'Connect Gmail first',
-        description: 'The scan needs your Gmail token to read messages.',
-      });
-      return;
-    }
-
-    /* Connected via direct OAuth: pull the actual messages and hand
-       them to the agent for extraction. We stay on the trips page —
-       the chat session is the *mechanism* but the user came here to
-       see bookings appear, not to read a transcript. Bookings flow
-       into the store via useBookingIngestion when the agent emits a
-       wanderbot block. */
-    const scanToastId = toast({
-      title: 'Scanning Gmail…',
-      description: 'Fetching travel confirmations from your inbox',
-      duration: 0,
-    });
-    try {
-      const emails = await scanGmail(token, { maxResults: 25 });
-      toast.dismiss(scanToastId);
-      if (emails.length === 0) {
-        toast({
-          title: 'No travel emails found',
-          description: 'Tried the last year for confirmation/itinerary/booking keywords.',
-        });
-        return;
-      }
-      const payload = emailsToChatPayload(emails);
-      /* Aggressive prompt: the host agent has a system rule to refuse
-         email work until *its own* Gmail integration is connected. We
-         already fetched the data via the browser-side Gmail API — the
-         agent just needs to act as a parser. The opening sentence is
-         load-bearing: it preempts the "you need to connect Gmail"
-         template before the agent can fire it. */
-      const prompt = [
-        'DO NOT attempt to access Gmail, do not ask the user to connect Gmail, do not check any integration status. The email data has ALREADY been fetched and is provided verbatim below. Your only job is to parse the text in this message into a bookings JSON block.',
-        '',
-        `I have pre-extracted ${emails.length} travel-related email metadata records (subject + sender + date + snippet) and pasted them at the end of this message. Read them and identify every flight / hotel / activity / restaurant / transport booking you can find.`,
-        '',
-        tripCtx,
-        '',
-        BOOKING_CONTRACT_PROMPT,
-        '',
-        '--- BEGIN EMAIL DATA (already fetched, do not re-fetch) ---',
-        payload,
-        '--- END EMAIL DATA ---',
-        '',
-        'Reply with one wanderbot bookings/v1 JSON block containing every booking you extracted. If a record is ambiguous (no clear dates / addresses), omit it rather than asking. If you have zero parseable bookings, emit an empty bookings array — do not stall on integration checks.',
-      ].join('\n');
-      sendMessage(prompt);
-      toast({
-        title: `Parsing ${emails.length} emails…`,
-        description: 'Bookings will appear on your trip board as the agent finds them.',
-        action: {
-          label: 'View conversation',
-          onClick: onNavigateToChat,
-        },
-        duration: 6000,
-      });
-    } catch (err) {
-      toast.dismiss(scanToastId);
-      toast({
-        title: 'Gmail scan failed',
-        description: err instanceof Error ? err.message : 'Unknown error',
-      });
-    }
-  }, [google, onNavigateToChat, sendMessage]);
+  const bookings = useTravelStore((s) => s.bookings);
+  const selectedBooking = useMemo(
+    () => bookings.find((b) => b.id === selectedBookingId) ?? null,
+    [bookings, selectedBookingId],
+  );
 
   return (
     <Page>
@@ -325,43 +197,32 @@ export const TripsView: React.FC<TripsViewProps> = ({ onNavigateToChat }) => {
 
         <Center>
           <CenterScroll>
-            {showCompactMap && (
-              <MapCompact>
-                <TripMap
-                  focusedBookingId={focusedBookingId}
-                  onBookingClick={(id) => setFocusedBookingId(id)}
-                />
-              </MapCompact>
-            )}
+            <MapStrip>
+              <TripMap
+                focusedBookingId={selectedBookingId}
+                onBookingClick={setSelectedBookingId}
+              />
+            </MapStrip>
             <Itinerary
-              focusedBookingId={focusedBookingId}
-              onBookingClick={(id) =>
-                setFocusedBookingId((prev) => (prev === id ? null : id))
-              }
+              focusedBookingId={selectedBookingId}
+              onBookingClick={setSelectedBookingId}
             />
-            {showCompactMap && (
-              <ConnectionsCompact>
-                <ConnectionsPanel onScanInbox={handleScanInbox} />
-              </ConnectionsCompact>
-            )}
           </CenterScroll>
         </Center>
 
-        {showRightRail && (
-          <RightCol>
-            <MapBox>
-              <TripMap
-                focusedBookingId={focusedBookingId}
-                onBookingClick={(id) => setFocusedBookingId(id)}
-              />
-            </MapBox>
-            <SideScroll>
-              <TripChatButton onNavigateToChat={onNavigateToChat} />
-              <ConnectionsPanel onScanInbox={handleScanInbox} />
-            </SideScroll>
-          </RightCol>
+        {showChatCol && (
+          <ChatCol>
+            <TripChatPanel />
+          </ChatCol>
         )}
       </Body>
+
+      {selectedBooking && (
+        <BookingDetailModal
+          booking={selectedBooking}
+          onClose={() => setSelectedBookingId(null)}
+        />
+      )}
     </Page>
   );
 };

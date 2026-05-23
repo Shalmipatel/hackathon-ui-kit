@@ -109,7 +109,7 @@ const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeView, onNavigat
       <TabBtn
         $active={activeView === 'connections'}
         onClick={() => onNavigate('connections')}
-        aria-label="Browser connections"
+        aria-label="Connections"
         aria-current={activeView === 'connections' ? 'page' : undefined}
       >
         <ConnectionsIcon />
