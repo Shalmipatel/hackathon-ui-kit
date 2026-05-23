@@ -4,19 +4,15 @@ import { useTravelStore } from './travel-store';
 import { formatTripRange } from './format';
 
 const Rail = styled.aside`
-  width: 280px;
-  flex-shrink: 0;
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 4px;
   overflow-y: auto;
 
-  @media (max-width: 1100px) {
-    width: 240px;
-  }
   @media (max-width: 900px) {
-    width: 100%;
     flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
