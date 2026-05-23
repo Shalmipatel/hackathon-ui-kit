@@ -10,6 +10,11 @@ interface TravelState {
   scan: ScanStatus | null;
   /** Maps a trip id to its dedicated chat-store session id. */
   tripChatSessions: Record<string, string>;
+  /** UI state — whether the New Trip modal is open. Lives in this
+   *  store rather than a separate UI store because the trigger is
+   *  inside the sidebar's TripList but the modal mounts at the
+   *  TripsView level. */
+  newTripModalOpen: boolean;
 
   setActiveTrip: (id: string | null) => void;
   addTrip: (trip: Trip) => void;
@@ -25,6 +30,9 @@ interface TravelState {
   setTripChatSession: (tripId: string, sessionId: string) => void;
   clearTripChatSession: (tripId: string) => void;
 
+  openNewTripModal: () => void;
+  closeNewTripModal: () => void;
+
   /** Reset everything to the seed mocks — useful for the demo. */
   resetToMocks: () => void;
 }
@@ -37,6 +45,7 @@ export const useTravelStore = create<TravelState>()(
       activeTripId: MOCK_TRIPS[0]?.id ?? null,
       scan: null,
       tripChatSessions: {},
+      newTripModalOpen: false,
 
       setActiveTrip: (id) => set({ activeTripId: id }),
       addTrip: (trip) =>
@@ -84,6 +93,9 @@ export const useTravelStore = create<TravelState>()(
           const { [tripId]: _removed, ...rest } = s.tripChatSessions;
           return { tripChatSessions: rest };
         }),
+
+      openNewTripModal: () => set({ newTripModalOpen: true }),
+      closeNewTripModal: () => set({ newTripModalOpen: false }),
 
       resetToMocks: () =>
         set({

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
+import { getChatStore } from '@/features/app/bootstrap';
 import { useTravelStore } from './travel-store';
 import { formatTripRange } from './format';
 
@@ -14,7 +15,60 @@ const Rail = styled.aside`
 `;
 
 const RailHeader = styled.div`
-  display: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px 4px 14px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+`;
+
+const SidebarEmpty = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 14px 16px;
+  margin: 4px 4px 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  font-family: 'Inter', sans-serif;
+  color: rgba(255, 255, 255, 0.55);
+
+  strong {
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 13.5px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+  }
+  span {
+    font-size: 11.5px;
+    line-height: 16px;
+  }
+`;
+
+const SidebarEmptyBtn = styled.button`
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #feeb29;
+  color: #242424;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: transform 0.12s;
+
+  &:hover { transform: translateY(-1px); }
 `;
 
 const NewBtn = styled.button`
@@ -181,6 +235,8 @@ const PopoverItem = styled.button<{ $danger?: boolean }>`
 `;
 
 interface TripListProps {
+  /** Optional override — falls back to the travel store's
+   *  openNewTripModal action when omitted. */
   onCreateTrip?: () => void;
 }
 
@@ -190,6 +246,8 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
   const setActiveTrip = useTravelStore((s) => s.setActiveTrip);
   const bookings = useTravelStore((s) => s.bookings);
   const deleteTrip = useTravelStore((s) => s.deleteTrip);
+  const openNewTripModal = useTravelStore((s) => s.openNewTripModal);
+  const triggerCreate = onCreateTrip ?? openNewTripModal;
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
 
@@ -212,16 +270,27 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
     <Rail ref={(el) => { containerRef.current = el; }}>
       <RailHeader>
         Trips
-        {onCreateTrip && (
-          <NewBtn onClick={onCreateTrip} title="New trip">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+        <NewBtn onClick={triggerCreate} title="New trip">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          New
+        </NewBtn>
+      </RailHeader>
+      {trips.length === 0 && (
+        <SidebarEmpty>
+          <strong>No trips yet</strong>
+          <span>Create your first trip to get started.</span>
+          <SidebarEmptyBtn onClick={triggerCreate}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-            New
-          </NewBtn>
-        )}
-      </RailHeader>
+            New trip
+          </SidebarEmptyBtn>
+        </SidebarEmpty>
+      )}
       {trips.map((trip) => {
         const count = bookings.filter((b) => b.tripId === trip.id).length;
         const menuOpen = menuOpenId === trip.id;
@@ -260,8 +329,20 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
                     const ok =
                       typeof window === 'undefined'
                         ? true
-                        : window.confirm(`Delete "${trip.title}"? This removes all its bookings.`);
+                        : window.confirm(`Delete "${trip.title}"? This removes its bookings and chat history.`);
                     if (!ok) return;
+                    /* Tear down the chat-store session first so we
+                       don't leave an orphan session behind. */
+                    if (trip.chatSessionId) {
+                      try {
+                        getChatStore()
+                          .getState()
+                          .deleteSession(trip.chatSessionId)
+                          .catch((err) => console.warn('[trip-list] session delete failed', err));
+                      } catch (err) {
+                        console.warn('[trip-list] chat store unavailable', err);
+                      }
+                    }
                     deleteTrip(trip.id);
                     setMenuOpenId(null);
                   }}

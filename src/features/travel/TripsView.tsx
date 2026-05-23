@@ -5,6 +5,7 @@ import Itinerary from './Itinerary';
 import TripMap from './TripMap';
 import TripChatPanel from './TripChatPanel';
 import BookingDetailModal from './BookingDetailModal';
+import NewTripModal from './NewTripModal';
 import { useBookingIngestion } from './useBookingIngestion';
 import { useTravelStore } from './travel-store';
 
@@ -140,6 +141,65 @@ const ChatCol = styled.aside`
   }
 `;
 
+const EmptyCenter = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  font-family: 'Inter', sans-serif;
+  gap: 16px;
+`;
+
+const EmptyIllustration = styled.div`
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #feeb29 0%, #f5b400 100%);
+  color: #242424;
+`;
+
+const EmptyTitle = styled.h2`
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: #242424;
+  letter-spacing: -0.4px;
+`;
+
+const EmptyBody = styled.p`
+  margin: 0;
+  max-width: 380px;
+  font-size: 14px;
+  line-height: 21px;
+  color: rgba(36, 36, 36, 0.6);
+`;
+
+const EmptyCta = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  border: none;
+  background: #242424;
+  color: #fff;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 11px 18px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.12s;
+  box-shadow: 0 6px 16px -10px rgba(36, 36, 36, 0.45);
+
+  &:hover { transform: translateY(-1px); }
+`;
+
 interface TripsViewProps {
   /** Kept for prop-compat with TabPage; unused now that chat is inline. */
   onNavigateToChat?: () => void;
@@ -158,7 +218,13 @@ export const TripsView: React.FC<TripsViewProps> = () => {
   useBookingIngestion();
   const showChatCol = !useIsMobile(1100);
 
+  const trips = useTravelStore((s) => s.trips);
   const bookings = useTravelStore((s) => s.bookings);
+  const newTripModalOpen = useTravelStore((s) => s.newTripModalOpen);
+  const closeNewTripModal = useTravelStore((s) => s.closeNewTripModal);
+  const openNewTripModal = useTravelStore((s) => s.openNewTripModal);
+  const hasTrips = trips.length > 0;
+
   const selectedBooking = useMemo(
     () => bookings.find((b) => b.id === selectedBookingId) ?? null,
     [bookings, selectedBookingId],
@@ -186,22 +252,46 @@ export const TripsView: React.FC<TripsViewProps> = () => {
 
       <Body>
         <Center>
-          <MapStrip>
-            <TripMap
-              focusedBookingId={mapFocusId}
-              onBookingClick={setSelectedBookingId}
-            />
-          </MapStrip>
-          <ItineraryScroll>
-            <Itinerary
-              focusedBookingId={selectedBookingId}
-              onBookingClick={setSelectedBookingId}
-              onScrollFocus={setScrollFocusedBookingId}
-            />
-          </ItineraryScroll>
+          {hasTrips ? (
+            <>
+              <MapStrip>
+                <TripMap
+                  focusedBookingId={mapFocusId}
+                  onBookingClick={setSelectedBookingId}
+                />
+              </MapStrip>
+              <ItineraryScroll>
+                <Itinerary
+                  focusedBookingId={selectedBookingId}
+                  onBookingClick={setSelectedBookingId}
+                  onScrollFocus={setScrollFocusedBookingId}
+                />
+              </ItineraryScroll>
+            </>
+          ) : (
+            <EmptyCenter>
+              <EmptyIllustration>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
+                </svg>
+              </EmptyIllustration>
+              <EmptyTitle>No trips yet</EmptyTitle>
+              <EmptyBody>
+                Add your first trip to start planning. Each trip gets its
+                own day-by-day itinerary, map, and chat.
+              </EmptyBody>
+              <EmptyCta onClick={openNewTripModal}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                Create your first trip
+              </EmptyCta>
+            </EmptyCenter>
+          )}
         </Center>
 
-        {showChatCol && (
+        {showChatCol && hasTrips && (
           <ChatCol>
             <TripChatPanel />
           </ChatCol>
@@ -214,6 +304,7 @@ export const TripsView: React.FC<TripsViewProps> = () => {
           onClose={() => setSelectedBookingId(null)}
         />
       )}
+      {newTripModalOpen && <NewTripModal onClose={closeNewTripModal} />}
     </Page>
   );
 };
