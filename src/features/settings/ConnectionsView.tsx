@@ -19,6 +19,7 @@ import {
 import { getGateway, getIntegrationClient, getBrowserConnectionRepository, getSystemSession } from '@/features/app/bootstrap/providers';
 import { useAuth } from '@/features/auth';
 import { ConnectionPrefsModal } from '@/features/connections/ConnectionPrefsModal';
+import GoogleConnectCard from '@/features/travel/GoogleConnectCard';
 import { toast } from '@/features/toast/toast-store';
 import { useIsMobile } from '@/components/useIsMobile';
 import type { BrowserConnection } from '@/types/browser-connection-repository.interface';
@@ -1565,6 +1566,12 @@ const ConnectionsView: React.FC = () => {
           {/* ── Integrations ── */}
           <SectionLabel>Integrations</SectionLabel>
           <SectionDesc>Connect the apps and services you use.</SectionDesc>
+          {/* Server-side Gmail integration via OpenClaw's gog skill.
+              Lives above the browser-login cards because it's the
+              primary inbox connector for the travel feature. */}
+          <div style={{ marginBottom: 12 }}>
+            <GoogleConnectCard />
+          </div>
           <SectionGroup>
             {/* Gmail and Google Calendar integration cards were removed —
                 the starter focuses on browser-based integrations. The
