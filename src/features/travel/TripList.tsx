@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { getChatStore } from '@/features/app/bootstrap';
 import { useTravelStore } from './travel-store';
@@ -248,7 +248,20 @@ interface TripListProps {
 }
 
 export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
-  const trips = useTravelStore((s) => s.trips);
+  const allTrips = useTravelStore((s) => s.trips);
+  /* Sort by startDate ascending so the soonest trip is at the top.
+     Tie-break on title for stable order across two trips that
+     happen to share a start date. */
+  const trips = useMemo(
+    () =>
+      [...allTrips].sort((a, b) => {
+        if (a.startDate !== b.startDate) {
+          return a.startDate < b.startDate ? -1 : 1;
+        }
+        return a.title.localeCompare(b.title);
+      }),
+    [allTrips],
+  );
   const activeTripId = useTravelStore((s) => s.activeTripId);
   const setActiveTrip = useTravelStore((s) => s.setActiveTrip);
   const bookings = useTravelStore((s) => s.bookings);
