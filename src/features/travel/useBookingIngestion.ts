@@ -156,11 +156,31 @@ function applyBookings(bookings: Booking[], sessionId: string): void {
  *  shouldn't pile up duplicates), creates a chat session per new
  *  trip using the same isAiTitled-flip pattern as ensureTripChatSession,
  *  and toasts a summary. */
+/** Content fingerprint for trip dedup. The agent regenerates ids
+ *  every scan (no stable mapping from email → id), so id matching
+ *  alone lets the same trip land multiple times. Title-lower + dates
+ *  is stable enough: the same Tokyo Jun 12-22 trip always hashes the
+ *  same regardless of what id the LLM picked. */
+function tripFingerprint(t: Pick<Trip, 'title' | 'startDate' | 'endDate'>): string {
+  return `${t.title.trim().toLowerCase()}|${t.startDate}|${t.endDate}`;
+}
+
 async function applyTrips(incoming: Trip[]): Promise<void> {
   if (incoming.length === 0) return;
   const store = useTravelStore.getState();
-  const existing = new Set(store.trips.map((t) => t.id));
-  const fresh = incoming.filter((t) => !existing.has(t.id));
+  const existingIds = new Set(store.trips.map((t) => t.id));
+  const existingFingerprints = new Set(store.trips.map(tripFingerprint));
+  /* Also dedupe within the incoming batch — the agent has been known to
+     emit the same trip twice in a single block. Keep the first hit. */
+  const seenFingerprints = new Set<string>();
+  const fresh = incoming.filter((t) => {
+    if (existingIds.has(t.id)) return false;
+    const fp = tripFingerprint(t);
+    if (existingFingerprints.has(fp)) return false;
+    if (seenFingerprints.has(fp)) return false;
+    seenFingerprints.add(fp);
+    return true;
+  });
   if (fresh.length === 0) {
     toast({
       title: 'No new trips found',
