@@ -422,7 +422,18 @@ Rules:
  *  Booking emission is optional — if the agent can extract per-trip
  *  bookings it can include a bookings/v1 block per trip, using the
  *  trip id from the trips/v1 block as tripId. */
-export const TRIP_DISCOVERY_PROMPT = `Scan my connected sources (Gmail, calendar, any logged-in travel sites) for evidence of upcoming or recent trips. Group related bookings — flights, hotels, activities clustered around the same destination + date range — into one "trip". For each trip, emit a wanderbot trips/v1 JSON block:
+export const TRIP_DISCOVERY_PROMPT = `Scan EVERY one of my connected sources for trip evidence, not just Gmail. You MUST attempt all of these, even if some return nothing:
+
+SOURCES TO CHECK (each is its own pass — do not stop after the first):
+1. **Gmail** — search for travel-confirmation keywords (booking, itinerary, confirmation, reservation, e-ticket, boarding pass). Use the Google skill (gog) if you have it.
+2. **Airbnb** — open https://www.airbnb.com/trips/v1 (Trips dashboard) in the connected browser session. Read upcoming + past reservations. Extract host name, check-in/check-out, lat/lng of the listing, confirmation code.
+3. **Booking.com** — https://secure.booking.com/myreservations.html — same pattern.
+4. **Airline sites** (Delta, United, JAL, Lufthansa, TAP, Air France, etc.) — if any are logged in, open their "My trips" / "Manage reservations" page and pull current flights.
+5. **Marriott / Hyatt / Hilton** — "My stays" pages for hotel reservations.
+6. **Google Calendar** — events tagged with destinations or matching flight/hotel descriptions.
+7. **OpenTable / Resy** — upcoming restaurant reservations.
+
+For EACH source, log a brief note in the chat ("Checked Airbnb: found N reservations") so I can see what was tried. Then group related bookings — flights, hotels, activities clustered around the same destination + date range — into one "trip". For each trip, emit a wanderbot trips/v1 JSON block:
 
 \`\`\`json
 {
@@ -449,4 +460,6 @@ Rules:
 - color is optional; pick a memorable hex per trip if you can.
 - id is REQUIRED if you also emit bookings (so they can reference the trip via tripId). Pick a stable slug like "trip-tokyo-2026".
 - **Every trip MUST have at least one booking attached in the same response** — emit a bookings/v1 block whose entries reference the trip via tripId. A trip with no events is just a placeholder and will be dropped client-side. If you can't find any concrete bookings (flights, hotels, activities) for a candidate trip, do NOT include the trip at all.
-- If you find no trips with concrete bookings, emit \`{ "wanderbot": "trips/v1", "trips": [] }\` so the user knows the scan ran.`;
+- **Cross-source merging is required**: if a Gmail confirmation and an Airbnb reservation refer to the same trip (overlapping dates + same destination), merge them into one trips/v1 entry with multiple bookings — don't emit two duplicate trips.
+- If you find no trips with concrete bookings across ALL sources, emit \`{ "wanderbot": "trips/v1", "trips": [] }\` so the user knows the scan ran.
+- Do NOT stop the scan early because Gmail returned nothing — keep going through Airbnb, Booking, airlines, etc.`;
