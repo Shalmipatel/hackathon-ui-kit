@@ -533,11 +533,16 @@ export const MobileApp: React.FC = () => {
                 </StickyMapWrap>
                 <PageBody>
                   {isPast && <PastBadge>Past trip</PastBadge>}
+                  {/* Deliberately NOT passing focusedBookingId or
+                      onCollapseBooking — on mobile the bottom-sheet
+                      BookingDetailModal is the only edit surface.
+                      Passing focusedBookingId would also expand the
+                      inline BookingCard editor, leaving two editors
+                      stacked (the dimmed form visible behind the
+                      sheet). */}
                   <Itinerary
                     tripId={trip.id}
-                    focusedBookingId={selectedBookingId}
                     onBookingClick={setSelectedBookingId}
-                    onCollapseBooking={() => setSelectedBookingId(null)}
                     onScrollFocus={setScrollFocusedBookingId}
                   />
                 </PageBody>
