@@ -263,12 +263,32 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     [trips, activeTripId],
   );
   const bookings = useMemo(
-    () =>
-      allBookings
-        .filter((b) => b.tripId === activeTripId)
-        .sort(
-          (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
-        ),
+    () => {
+      const matched = allBookings.filter((b) => b.tripId === activeTripId);
+      /* Defensive filter — drop any booking missing the required scalar
+         fields. RTDB writes from the agent skill sometimes land without
+         a `start` (or a `type` / `title`), which crashes downstream
+         day-bucketing. Filtering here keeps the whole view alive
+         instead of taking out TripMap + Itinerary together. */
+      const valid: typeof matched = [];
+      const dropped: string[] = [];
+      for (const b of matched) {
+        if (!b.type || !b.title || typeof b.start !== 'string' || !b.start) {
+          dropped.push(b.id);
+          continue;
+        }
+        valid.push(b);
+      }
+      if (dropped.length > 0) {
+        console.warn(
+          `[itinerary] skipped ${dropped.length} malformed booking(s) missing start/type/title:`,
+          dropped,
+        );
+      }
+      return valid.sort(
+        (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+      );
+    },
     [allBookings, activeTripId],
   );
 

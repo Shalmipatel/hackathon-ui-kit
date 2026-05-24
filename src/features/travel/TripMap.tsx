@@ -134,6 +134,10 @@ export const TripMap: React.FC<TripMapProps> = ({ focusedBookingId, onBookingCli
   const items = useMemo(() => {
     return allBookings
       .filter((b) => b.tripId === activeTripId)
+      /* Defensive: agent-written RTDB rows sometimes lack `start`
+         (and would NaN out the sort + downstream renderers). Drop
+         them here so the map stays alive. */
+      .filter((b) => typeof b.start === 'string' && !!b.start)
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
       .map((b) => {
         const loc = bookingLocation(b);
