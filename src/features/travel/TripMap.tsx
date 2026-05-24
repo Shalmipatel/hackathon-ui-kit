@@ -125,10 +125,16 @@ function FitBounds({ points, focusedPoint }: { points: L.LatLngTuple[]; focusedP
 interface TripMapProps {
   focusedBookingId?: string | null;
   onBookingClick?: (bookingId: string) => void;
+  /** Override the trip this map renders. Defaults to the travel-store's
+   *  activeTripId — same escape-hatch story as Itinerary's `tripId`
+   *  prop so a list of trips (mobile carousel) can render each map
+   *  independently. */
+  tripId?: string;
 }
 
-export const TripMap: React.FC<TripMapProps> = ({ focusedBookingId, onBookingClick }) => {
-  const activeTripId = useTravelStore((s) => s.activeTripId);
+export const TripMap: React.FC<TripMapProps> = ({ focusedBookingId, onBookingClick, tripId }) => {
+  const storeActiveTripId = useTravelStore((s) => s.activeTripId);
+  const activeTripId = tripId ?? storeActiveTripId;
   const allBookings = useTravelStore((s) => s.bookings);
 
   const items = useMemo(() => {

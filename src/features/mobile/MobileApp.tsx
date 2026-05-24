@@ -18,6 +18,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { useTravelStore } from '@/features/travel/travel-store';
 import Itinerary from '@/features/travel/Itinerary';
+import TripMap from '@/features/travel/TripMap';
 import TripChatPanel from '@/features/travel/TripChatPanel';
 import { signOutFirebase } from '@/features/auth/firebase-auth';
 import ConnectionsView from '@/features/settings/ConnectionsView';
@@ -104,32 +105,37 @@ const Page = styled.section`
   scroll-snap-stop: always;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 4px 14px calc(96px + env(safe-area-inset-bottom)) 14px;
+  /* No padding on the page itself — the map needs to bleed edge-to-edge.
+     Inner content gets its own horizontal padding via PageBody. */
 `;
 
-const PastSeparator = styled.section`
-  flex: 0 0 100%;
-  height: 100%;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 32px;
+const StickyMapWrap = styled.div`
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #fbfaf9;
+  /* Trim the embedded TripMap so it doesn't overflow the page on
+     small screens. */
+  & > div { height: 180px; min-height: 180px; }
+`;
 
-  div {
-    color: rgba(36, 36, 36, 0.45);
-    font-size: 13px;
-    line-height: 22px;
-    max-width: 220px;
-  }
-  strong {
-    display: block;
-    color: rgba(36, 36, 36, 0.85);
-    font-size: 14px;
-    margin-bottom: 6px;
-  }
+const PageBody = styled.div`
+  padding: 12px 14px calc(96px + env(safe-area-inset-bottom));
+`;
+
+const PastBadge = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 4px 0 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(36, 36, 36, 0.06);
+  color: rgba(36, 36, 36, 0.65);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 `;
 
 const Empty = styled.section`
@@ -453,7 +459,7 @@ export const MobileApp: React.FC = () => {
   const pageLabel =
     totalPages === 0
       ? 'No trips'
-      : `${activeIdx + 1} / ${totalPages}${activeIdx >= pastStartIdx ? ' · past' : ''}`;
+      : `${activeIdx + 1} / ${totalPages}`;
 
   return (
     <Root>
@@ -479,26 +485,20 @@ export const MobileApp: React.FC = () => {
             </div>
           </Empty>
         ) : (
-          <>
-            {upcoming.map((trip, i) => (
+          orderedTrips.map((trip, i) => {
+            const isPast = i >= pastStartIdx;
+            return (
               <Page key={trip.id} data-trip-page data-trip-idx={i}>
-                <Itinerary />
+                <StickyMapWrap>
+                  <TripMap tripId={trip.id} />
+                </StickyMapWrap>
+                <PageBody>
+                  {isPast && <PastBadge>Past trip</PastBadge>}
+                  <Itinerary tripId={trip.id} />
+                </PageBody>
               </Page>
-            ))}
-            {past.length > 0 && (
-              <PastSeparator data-trip-page data-trip-idx={pastStartIdx - 0.5}>
-                <div>
-                  <strong>Past trips</strong>
-                  Swipe to revisit your earlier travels.
-                </div>
-              </PastSeparator>
-            )}
-            {past.map((trip, i) => (
-              <Page key={trip.id} data-trip-page data-trip-idx={pastStartIdx + i + (past.length > 0 ? 1 : 0)}>
-                <Itinerary />
-              </Page>
-            ))}
-          </>
+            );
+          })
         )}
       </Pager>
 

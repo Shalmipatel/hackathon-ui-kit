@@ -238,6 +238,11 @@ interface ItineraryProps {
   /** Fires as the user scrolls — passes the booking id closest to the
    *  top of the visible area so the map can auto-pan to it. */
   onScrollFocus?: (bookingId: string) => void;
+  /** Override the trip this itinerary renders. Defaults to the
+   *  travel-store's activeTripId — useful when the host is a list
+   *  of trips (e.g. mobile carousel) where each card needs to render
+   *  its OWN trip, independent of the global active selection. */
+  tripId?: string;
 }
 
 export const Itinerary: React.FC<ItineraryProps> = ({
@@ -245,8 +250,10 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   onBookingClick,
   onCollapseBooking,
   onScrollFocus,
+  tripId,
 }) => {
-  const activeTripId = useTravelStore((s) => s.activeTripId);
+  const storeActiveTripId = useTravelStore((s) => s.activeTripId);
+  const effectiveTripId = tripId ?? storeActiveTripId;
   const trips = useTravelStore((s) => s.trips);
   const allBookings = useTravelStore((s) => s.bookings);
   const addBooking = useTravelStore((s) => s.addBooking);
@@ -259,12 +266,12 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const trip = useMemo(
-    () => trips.find((t) => t.id === activeTripId) ?? null,
-    [trips, activeTripId],
+    () => trips.find((t) => t.id === effectiveTripId) ?? null,
+    [trips, effectiveTripId],
   );
   const bookings = useMemo(
     () => {
-      const matched = allBookings.filter((b) => b.tripId === activeTripId);
+      const matched = allBookings.filter((b) => b.tripId === effectiveTripId);
       /* Defensive filter — drop any booking missing the required scalar
          fields. RTDB writes from the agent skill sometimes land without
          a `start` (or a `type` / `title`), which crashes downstream
@@ -289,7 +296,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
         (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
       );
     },
-    [allBookings, activeTripId],
+    [allBookings, effectiveTripId],
   );
 
   const days = useMemo(() => (trip ? tripDayKeys(trip) : []), [trip]);
@@ -468,7 +475,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     );
     cards.forEach((c) => observer.observe(c));
     return () => observer.disconnect();
-  }, [onScrollFocus, bookings.length, activeTripId]);
+  }, [onScrollFocus, bookings.length, effectiveTripId]);
 
   if (!trip) {
     return (
