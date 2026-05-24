@@ -116,8 +116,16 @@ const StickyMapWrap = styled.div`
   z-index: 5;
   background: #fbfaf9;
   /* Trim the embedded TripMap so it doesn't overflow the page on
-     small screens. */
-  & > div { height: 180px; min-height: 180px; }
+     small screens, and KILL its built-in 16px corner radius so the
+     edge-to-edge sticky strip doesn't look like a floating pill. */
+  & > div {
+    height: 200px;
+    min-height: 200px;
+    border-radius: 0;
+  }
+  /* Subtle hairline so the map separates from the itinerary that
+     scrolls under it. */
+  box-shadow: 0 1px 0 rgba(36, 36, 36, 0.08);
 `;
 
 const PageBody = styled.div`
@@ -466,6 +474,13 @@ export const MobileApp: React.FC = () => {
     [allBookings, selectedBookingId],
   );
 
+  /* Scroll-spy: the topmost-visible booking card as the user scrolls
+     vertically inside a trip page. Used to pan the sticky map so it
+     stays focused on whatever the user is looking at. Selected (tapped)
+     booking takes priority over scroll focus. */
+  const [scrollFocusedBookingId, setScrollFocusedBookingId] = useState<string | null>(null);
+  const mapFocusBookingId = selectedBookingId ?? scrollFocusedBookingId;
+
   /* Positions / labels for the top bar. */
   const pageLabel =
     totalPages === 0
@@ -501,7 +516,11 @@ export const MobileApp: React.FC = () => {
             return (
               <Page key={trip.id} data-trip-page data-trip-idx={i}>
                 <StickyMapWrap>
-                  <TripMap tripId={trip.id} />
+                  <TripMap
+                    tripId={trip.id}
+                    focusedBookingId={mapFocusBookingId}
+                    onBookingClick={setSelectedBookingId}
+                  />
                 </StickyMapWrap>
                 <PageBody>
                   {isPast && <PastBadge>Past trip</PastBadge>}
@@ -510,6 +529,7 @@ export const MobileApp: React.FC = () => {
                     focusedBookingId={selectedBookingId}
                     onBookingClick={setSelectedBookingId}
                     onCollapseBooking={() => setSelectedBookingId(null)}
+                    onScrollFocus={setScrollFocusedBookingId}
                   />
                 </PageBody>
               </Page>
