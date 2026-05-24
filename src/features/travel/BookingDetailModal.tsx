@@ -347,6 +347,9 @@ const Btn = styled.button<{ $variant?: 'danger' | 'ghost' }>`
 const TONE: Record<Booking['type'], string> = {
   flight: 'rgba(56, 189, 248, 0.22)',
   hotel: 'rgba(250, 204, 21, 0.28)',
+  attraction: 'rgba(217, 119, 6, 0.22)',
+  experience: 'rgba(20, 184, 166, 0.22)',
+  event: 'rgba(236, 72, 153, 0.22)',
   activity: 'rgba(168, 85, 247, 0.22)',
   restaurant: 'rgba(248, 113, 113, 0.22)',
   transport: 'rgba(73, 160, 120, 0.22)',
@@ -373,6 +376,28 @@ function typeIcon(type: Booking['type']): React.ReactElement {
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M3 12h18" /><path d="M12 3a14 14 0 0 0 0 18" /><path d="M12 3a14 14 0 0 1 0 18" />
+        </svg>
+      );
+    case 'attraction':
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+          <circle cx="12" cy="13" r="4" />
+        </svg>
+      );
+    case 'experience':
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3v3" /><path d="M12 18v3" /><path d="M3 12h3" /><path d="M18 12h3" />
+          <path d="m5.6 5.6 2.1 2.1" /><path d="m16.3 16.3 2.1 2.1" />
+          <path d="m5.6 18.4 2.1-2.1" /><path d="m16.3 7.7 2.1-2.1" />
+        </svg>
+      );
+    case 'event':
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 7v3a2 2 0 0 0 0 4v3a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3a2 2 0 0 0 0-4V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z" />
+          <path d="M13 5v2" /><path d="M13 17v2" /><path d="M13 11v2" />
         </svg>
       );
     case 'restaurant':
@@ -413,6 +438,9 @@ function locationLine(b: Booking): { label: string; address?: string } | null {
       return { label: `${b.from.name} → ${b.to.name}` };
     case 'hotel':
     case 'activity':
+    case 'attraction':
+    case 'experience':
+    case 'event':
     case 'restaurant':
       return {
         label: b.place.name,

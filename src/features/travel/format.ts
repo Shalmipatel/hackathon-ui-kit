@@ -181,6 +181,9 @@ export function bookingLocation(booking: Booking): { lat: number; lng: number; l
       return { lat: booking.to.lat, lng: booking.to.lng, label: booking.to.name };
     case 'hotel':
     case 'activity':
+    case 'attraction':
+    case 'experience':
+    case 'event':
     case 'restaurant':
       return {
         lat: booking.place.lat,

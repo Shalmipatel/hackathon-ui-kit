@@ -299,7 +299,7 @@ curl -X PUT \
 | ----- | -------- | ----- |
 | `id` | yes | Stable id (see "ID generation"), MUST match URL key |
 | `tripId` | yes | Must match an existing trip id from this same run |
-| `type` | yes | `flight` \| `hotel` \| `activity` \| `restaurant` \| `transport` |
+| `type` | yes | `flight` \| `hotel` \| `attraction` \| `experience` \| `event` \| `activity` \| `restaurant` \| `transport` — see "Type guide" below |
 | `title` | yes | Short label: "SFO → HND", "Renaissance Zurich Tower" |
 | `start` | yes | Full ISO 8601 with timezone offset, e.g. `2026-06-12T11:25:00-07:00` |
 | `end` | optional | ISO 8601 — required for hotels (checkout), nice-to-have for flights |
@@ -311,7 +311,23 @@ curl -X PUT \
 | `cost` | optional | `{ "amount": N, "currency": "USD" }` |
 | `notes` | optional | Free-form |
 
-### Booking — type-specific placement
+### Type guide — pick the most specific one
+
+Prefer the narrower bucket over the generic `activity` catch-all.
+Examples are illustrative, not exhaustive:
+
+| Type | Use it for | Examples |
+| ---- | ---------- | -------- |
+| `flight` | Commercial flights | "Your ANA itinerary", "SFO → HND" |
+| `hotel` | Overnight lodging | Hotel, Airbnb, hostel, B&B |
+| `attraction` | Sightseeing with an entry queue | Museums, monuments, landmarks, observation decks, scenic viewpoints |
+| `experience` | Hands-on, learning, or wellness bookings | Cooking class, wine tasting, language lesson, spa treatment, workshop |
+| `event` | Scheduled entertainment with a ticket | Concerts, theater shows, sports games, theme-park entry |
+| `restaurant` | Sit-down dining with a reservation | OpenTable / Resy / SevenRooms confirmations |
+| `transport` | Ground/sea/rail transport | Train, ferry, rental car, airport transfer, intercity bus |
+| `activity` | **Catch-all** when none of the above fits | Hike, beach day, generic "things to do" with no clearer label |
+
+### Type-specific placement
 
 `flight` and `transport` need `from` and `to`. Every other type uses a single `place`.
 
@@ -320,6 +336,9 @@ curl -X PUT \
 | `flight` | `from: Place`, `to: Place` |
 | `transport` | `from: Place`, `to: Place` |
 | `hotel` | `place: Place` |
+| `attraction` | `place: Place` |
+| `experience` | `place: Place` |
+| `event` | `place: Place` |
 | `activity` | `place: Place` |
 | `restaurant` | `place: Place` |
 

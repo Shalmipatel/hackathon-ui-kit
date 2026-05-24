@@ -1,4 +1,20 @@
-export type BookingType = 'flight' | 'hotel' | 'activity' | 'restaurant' | 'transport';
+export type BookingType =
+  | 'flight'
+  | 'hotel'
+  /** Museums, monuments, landmarks, viewpoints — sightseeing
+   *  with an entry queue. */
+  | 'attraction'
+  /** Classes, tastings, workshops, spas — hands-on / learning
+   *  / wellness. */
+  | 'experience'
+  /** Shows, concerts, sports games, theme parks — scheduled
+   *  entertainment. */
+  | 'event'
+  /** Catch-all for anything that doesn't fit the more specific
+   *  buckets above. Manually-added places default here. */
+  | 'activity'
+  | 'restaurant'
+  | 'transport';
 
 export type BookingSource = 'email' | 'agent' | 'manual';
 
@@ -59,6 +75,21 @@ export interface ActivityBooking extends BookingBase {
   place: Place;
 }
 
+export interface AttractionBooking extends BookingBase {
+  type: 'attraction';
+  place: Place;
+}
+
+export interface ExperienceBooking extends BookingBase {
+  type: 'experience';
+  place: Place;
+}
+
+export interface EventBooking extends BookingBase {
+  type: 'event';
+  place: Place;
+}
+
 export interface RestaurantBooking extends BookingBase {
   type: 'restaurant';
   place: Place;
@@ -77,6 +108,9 @@ export type Booking =
   | FlightBooking
   | HotelBooking
   | ActivityBooking
+  | AttractionBooking
+  | ExperienceBooking
+  | EventBooking
   | RestaurantBooking
   | TransportBooking;
 

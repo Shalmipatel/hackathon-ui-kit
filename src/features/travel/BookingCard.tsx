@@ -204,17 +204,21 @@ const IconWrap = styled.div<{ $type: BookingType }>`
   justify-content: center;
   flex-shrink: 0;
   color: #242424;
-  background: ${(p) =>
-    p.$type === 'flight'
-      ? 'rgba(56, 189, 248, 0.18)'
-      : p.$type === 'hotel'
-        ? 'rgba(250, 204, 21, 0.22)'
-        : p.$type === 'activity'
-          ? 'rgba(168, 85, 247, 0.18)'
-          : p.$type === 'restaurant'
-            ? 'rgba(248, 113, 113, 0.18)'
-            : 'rgba(73, 160, 120, 0.18)'};
+  background: ${(p) => TONE_BG[p.$type] ?? 'rgba(168, 85, 247, 0.18)'};
 `;
+
+/* Single source of truth for per-type icon-tile background tints.
+   Kept close to IconWrap so adding a new type means one edit. */
+const TONE_BG: Record<BookingType, string> = {
+  flight: 'rgba(56, 189, 248, 0.18)',     // sky blue
+  hotel: 'rgba(250, 204, 21, 0.22)',      // amber
+  attraction: 'rgba(217, 119, 6, 0.18)',  // burnt orange (landmarks)
+  experience: 'rgba(20, 184, 166, 0.18)', // teal (wellness/learning)
+  event: 'rgba(236, 72, 153, 0.18)',      // pink (entertainment)
+  activity: 'rgba(168, 85, 247, 0.18)',   // purple (catch-all)
+  restaurant: 'rgba(248, 113, 113, 0.18)',// red
+  transport: 'rgba(73, 160, 120, 0.18)',  // green
+};
 
 /* ── Expanded layout ───────────────────────────────────────────── */
 
@@ -435,6 +439,38 @@ function BookingIcon({ type }: { type: BookingType }) {
           <path d="M3 12h18" />
         </svg>
       );
+    case 'attraction':
+      /* Camera/landmark — museums, monuments, viewpoints. */
+      return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+          <circle cx="12" cy="13" r="4" />
+        </svg>
+      );
+    case 'experience':
+      /* Sparkle — classes, tastings, spas, wellness. */
+      return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3v3" />
+          <path d="M12 18v3" />
+          <path d="M3 12h3" />
+          <path d="M18 12h3" />
+          <path d="m5.6 5.6 2.1 2.1" />
+          <path d="m16.3 16.3 2.1 2.1" />
+          <path d="m5.6 18.4 2.1-2.1" />
+          <path d="m16.3 7.7 2.1-2.1" />
+        </svg>
+      );
+    case 'event':
+      /* Ticket — shows, concerts, games, theme parks. */
+      return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 7v3a2 2 0 0 0 0 4v3a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3a2 2 0 0 0 0-4V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z" />
+          <path d="M13 5v2" />
+          <path d="M13 17v2" />
+          <path d="M13 11v2" />
+        </svg>
+      );
     case 'restaurant':
       return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -476,6 +512,9 @@ function bookingSubtitle(booking: Booking): string {
         .filter(Boolean)
         .join(' · ');
     case 'activity':
+    case 'attraction':
+    case 'experience':
+    case 'event':
       return [booking.place.address ?? booking.place.name, booking.provider]
         .filter(Boolean)
         .join(' · ');
@@ -504,6 +543,9 @@ function locationLine(b: Booking): { label: string; address?: string } | null {
       return { label: `${b.from.name} → ${b.to.name}` };
     case 'hotel':
     case 'activity':
+    case 'attraction':
+    case 'experience':
+    case 'event':
     case 'restaurant':
       return { label: b.place.name, address: b.place.address };
   }
@@ -547,6 +589,9 @@ function multiDayLabels(type: BookingType): { start: string; end: string } {
     case 'hotel':
       return { start: 'Check-in', end: 'Check-out' };
     case 'activity':
+    case 'attraction':
+    case 'experience':
+    case 'event':
     case 'restaurant':
       return { start: 'Starts', end: 'Ends' };
   }

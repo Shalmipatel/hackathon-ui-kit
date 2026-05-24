@@ -54,17 +54,23 @@ const PopupMeta = styled.div`
 const TYPE_GLYPH: Record<BookingType, string> = {
   flight: '✈',
   hotel: 'H',
-  activity: '◉',
+  attraction: '★',  // monuments / landmarks
+  experience: '✦',  // classes / spa / wellness
+  event: '🎟',      // shows / concerts / games
+  activity: '◉',    // catch-all
   restaurant: '🍴',
   transport: 'T',
 };
 
 const TYPE_COLOR: Record<BookingType, string> = {
-  flight: '#38bdf8',
-  hotel: '#feeb29',
-  activity: '#a855f7',
-  restaurant: '#f87171',
-  transport: '#22c55e',
+  flight: '#38bdf8',     // sky blue
+  hotel: '#feeb29',      // amber
+  attraction: '#d97706', // burnt orange
+  experience: '#14b8a6', // teal
+  event: '#ec4899',      // pink
+  activity: '#a855f7',   // purple
+  restaurant: '#f87171', // red
+  transport: '#22c55e',  // green
 };
 
 function buildIcon(type: BookingType, focused: boolean): L.DivIcon {

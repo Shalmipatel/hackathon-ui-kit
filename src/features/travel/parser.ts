@@ -221,6 +221,9 @@ type ValidationResult =
 const VALID_TYPES: BookingType[] = [
   'flight',
   'hotel',
+  'attraction',
+  'experience',
+  'event',
   'activity',
   'restaurant',
   'transport',
@@ -321,6 +324,21 @@ function validateBooking(input: unknown, defaultTripId?: string): ValidationResu
       const place = parsePlace(obj.place);
       if (!place) return { ok: false, reason: 'activity needs place' };
       return { ok: true, booking: { ...base, type: 'activity', place } };
+    }
+    case 'attraction': {
+      const place = parsePlace(obj.place);
+      if (!place) return { ok: false, reason: 'attraction needs place' };
+      return { ok: true, booking: { ...base, type: 'attraction', place } };
+    }
+    case 'experience': {
+      const place = parsePlace(obj.place);
+      if (!place) return { ok: false, reason: 'experience needs place' };
+      return { ok: true, booking: { ...base, type: 'experience', place } };
+    }
+    case 'event': {
+      const place = parsePlace(obj.place);
+      if (!place) return { ok: false, reason: 'event needs place' };
+      return { ok: true, booking: { ...base, type: 'event', place } };
     }
     case 'restaurant': {
       const place = parsePlace(obj.place);
