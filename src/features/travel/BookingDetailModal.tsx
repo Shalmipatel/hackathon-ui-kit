@@ -34,7 +34,10 @@ const slideUp = keyframes`
   to   { opacity: 1; transform: translateY(0) scale(1); }
 `;
 
-const Backdrop = styled.div`
+/* Apple-style sheet easing — close to UIKit's spring presentation curve. */
+const IOS_EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
+
+const Backdrop = styled.div<{ $open: boolean }>`
   position: fixed;
   inset: 0;
   background: rgba(36, 36, 36, 0.45);
@@ -45,8 +48,9 @@ const Backdrop = styled.div`
      sit above the entire map stack or markers poke through the
      backdrop. */
   z-index: 1000;
-  animation: ${fadeIn} 0.18s ease-out;
   padding: 24px;
+  opacity: ${(p) => (p.$open ? 1 : 0)};
+  transition: opacity 0.32s ${IOS_EASE};
 
   @media (max-width: 600px) {
     padding: 0;
@@ -54,7 +58,7 @@ const Backdrop = styled.div`
   }
 `;
 
-const Card = styled.div<{ $dragOffset?: number; $dragging?: boolean }>`
+const Card = styled.div<{ $open: boolean; $dragOffset: number; $dragging: boolean }>`
   background: #fff;
   border-radius: 18px;
   width: min(560px, 100%);
@@ -63,6 +67,8 @@ const Card = styled.div<{ $dragOffset?: number; $dragging?: boolean }>`
   flex-direction: column;
   font-family: 'Inter', sans-serif;
   box-shadow: 0 24px 60px rgba(36, 36, 36, 0.35);
+  /* Desktop: subtle scale-in. Mobile overrides below to use translateY
+     for the slide-up + drag-to-dismiss. */
   animation: ${slideUp} 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
 
@@ -70,31 +76,45 @@ const Card = styled.div<{ $dragOffset?: number; $dragging?: boolean }>`
     border-radius: 18px 18px 0 0;
     width: 100%;
     max-height: 92vh;
-    transform: translateY(${(p) => `${p.$dragOffset ?? 0}px`});
-    transition: ${(p) => (p.$dragging ? 'none' : 'transform 0.18s ease-out')};
+    animation: none;
+    /* When dragging → track finger exactly. When at rest (open OR
+       closing) → translate to the target. */
+    transform: translateY(${(p) =>
+      p.$dragging ? `${p.$dragOffset}px` : p.$open ? '0' : '100%'});
+    transition: ${(p) =>
+      p.$dragging ? 'none' : `transform 0.42s ${IOS_EASE}`};
   }
 `;
 
-/* iOS-style drag handle. Only visible at mobile widths where the
-   modal is bottom-anchored — drag down to dismiss. */
+/* iOS-native grabber: 36×5 visible pill (Apple HIG spec) sitting in a
+   44pt-tall touchable region (Apple's minimum touch target). Centered
+   so the visible pill stays where the eye expects it while the hit
+   area extends comfortably above and below.
+
+   On mobile we also extend the drag region to wrap the entire sheet
+   header (handle + title row) so the user doesn't have to land
+   precisely on the 5px pill. */
 const DragHandle = styled.div`
   display: none;
-  flex-shrink: 0;
-  padding: 9px 0 5px;
-  justify-content: center;
-  touch-action: none;
-  cursor: grab;
-  &::after {
-    content: '';
-    display: block;
-    width: 42px;
-    height: 5px;
-    border-radius: 3px;
-    background: rgba(36, 36, 36, 0.15);
-  }
 
   @media (max-width: 600px) {
     display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 8px 0;
+    touch-action: none;
+    cursor: grab;
+    &:active { cursor: grabbing; }
+    &::after {
+      content: '';
+      display: block;
+      width: 36px;
+      height: 5px;
+      border-radius: 3px;
+      background: rgba(60, 60, 67, 0.3); /* iOS grabber color */
+    }
   }
 `;
 
@@ -499,15 +519,39 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
     commit({ end: replaceIsoTime(b.end, hh, mm) });
   };
 
+  /* Sheet open/closing state powers the slide-up entry + slide-down
+     exit animations on mobile. We mount with `open: false` so the
+     Card starts at translateY(100%), then flip to `true` on the next
+     frame so the CSS transition can interpolate. Closing reverses it
+     and defers the actual unmount to the parent until the animation
+     completes. */
+  const [open, setOpen] = useState(false);
+  const closingRef = useRef(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setOpen(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  const animatedClose = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setOpen(false);
+    /* Matches the 0.42s transform transition on Card; small extra
+       margin so the unmount doesn't snip the tail of the spring. */
+    setTimeout(onClose, 440);
+  };
+
   /* Mobile drag-to-dismiss state. PointerEvents on the drag handle
-     translate the card; release past 100px triggers onClose, otherwise
-     the card snaps back. Desktop never sees the handle (CSS gates it
-     via @media), so these handlers are inert above 600px. */
+     translate the card; release past 80px (Apple's typical dismiss
+     threshold) AND/OR with fast downward velocity triggers close.
+     Otherwise the card snaps back. Desktop never sees the handle
+     (CSS gates it via @media), so these handlers are inert. */
   const dragStartY = useRef<number | null>(null);
+  const dragStartTime = useRef<number>(0);
   const [dragOffset, setDragOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
   const onHandleDown = (e: React.PointerEvent) => {
     dragStartY.current = e.clientY;
+    dragStartTime.current = performance.now();
     setDragging(true);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -518,10 +562,15 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
   };
   const onHandleUp = () => {
     if (dragStartY.current === null) return;
+    const dy = dragOffset;
+    const elapsed = Math.max(1, performance.now() - dragStartTime.current);
+    const velocity = dy / elapsed; // px / ms
     dragStartY.current = null;
     setDragging(false);
-    if (dragOffset > 100) {
-      onClose();
+    /* Dismiss if dragged > 80px, OR flicked down faster than ~0.5 px/ms
+       (matches the "swipe to dismiss" feel of iOS sheets). */
+    if (dy > 80 || velocity > 0.5) {
+      animatedClose();
     } else {
       setDragOffset(0);
     }
@@ -529,14 +578,15 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
 
   return (
     <Backdrop
+      $open={open}
       role="dialog"
       aria-modal="true"
       aria-label={`Booking details: ${b.title}`}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) animatedClose();
       }}
     >
-      <Card $dragOffset={dragOffset} $dragging={dragging}>
+      <Card $open={open} $dragOffset={dragOffset} $dragging={dragging}>
         <DragHandle
           onPointerDown={onHandleDown}
           onPointerMove={onHandleMove}
@@ -571,7 +621,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               </SourcePill>
             </HeadSub>
           </HeadMain>
-          <Close onClick={onClose} aria-label="Close">
+          <Close onClick={animatedClose} aria-label="Close">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -761,7 +811,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
             </svg>
             Delete booking
           </Btn>
-          <Btn onClick={onClose}>Done</Btn>
+          <Btn onClick={animatedClose}>Done</Btn>
         </Footer>
       </Card>
     </Backdrop>

@@ -109,6 +109,11 @@ const MapStrip = styled.div`
   flex-shrink: 0;
   border-bottom: 1px solid rgba(36, 36, 36, 0.06);
   background: #e6e7eb;
+  /* Squash TripMap's own 16px radius — the strip sits flush against
+     the page card's top corners (handled by Center's overflow:hidden)
+     and butts up against the itinerary below. Internal rounding here
+     leaves the visible "floating pill" curves the user flagged. */
+  & > div { border-radius: 0; }
 
   @media (max-width: 768px) {
     height: 180px;
