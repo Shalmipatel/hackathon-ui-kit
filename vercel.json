@@ -1,0 +1,36 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/session/:path*",
+      "destination": "https://neoclaw-admin-us-west-1.securebrowser.com/api/session/:path*"
+    },
+    {
+      "source": "/v1/:path*",
+      "destination": "https://neoclaw-admin-us-west-1.securebrowser.com/api/gw/v1/:path*"
+    },
+    {
+      "source": "/tools/:path*",
+      "destination": "https://neoclaw-admin-us-west-1.securebrowser.com/api/gw/tools/:path*"
+    },
+    {
+      "source": "/neoclaw-files/:path*",
+      "destination": "https://neoclaw-admin-us-west-1.securebrowser.com/api/gw/neoclaw-files/:path*"
+    },
+    {
+      "source": "/websockify/:path*",
+      "destination": "https://neoclaw-admin-us-west-1.securebrowser.com/api/gw/websockify/:path*"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://neoclaw-admin-us-west-1.securebrowser.com/api/gw/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
