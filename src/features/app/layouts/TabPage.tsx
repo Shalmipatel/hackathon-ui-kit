@@ -139,7 +139,7 @@ const PageShell = styled.div<{ $hasNativeBottomNav?: boolean }>`
     body.keyboard-up & {
       --chat-input-bottom-pad: 12px;
     }
-    background: #fbfaf9;
+    background: #DCE1DE;
   }
 `;
 
@@ -169,8 +169,8 @@ const TopFade = styled.div`
     pointer-events: none;
     background: linear-gradient(
       to bottom,
-      #fbfaf9 0%,
-      #fbfaf9 env(safe-area-inset-top, 0),
+      #DCE1DE 0%,
+      #DCE1DE env(safe-area-inset-top, 0),
       rgba(251, 250, 249, 0) 100%
     );
   }
@@ -178,7 +178,7 @@ const TopFade = styled.div`
 
 const MainInner = styled.div`
   flex: 1;
-  background: #fbfaf9;
+  background: #DCE1DE;
   border: 1px solid rgba(36, 36, 36, 0.75);
   border-radius: 24px;
   display: flex;
@@ -322,7 +322,7 @@ const NewChatFab = styled.button`
   align-items: center;
   justify-content: center;
   background: #242424;
-  color: #fbfaf9;
+  color: #DCE1DE;
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(36, 36, 36, 0.3);
   transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
@@ -334,7 +334,7 @@ const NewChatFab = styled.button`
   }
   &:active { transform: scale(0.96); }
   &:focus-visible {
-    outline: 2px solid #feeb29;
+    outline: 2px solid #216869;
     outline-offset: 2px;
   }
 
@@ -363,10 +363,10 @@ const CompleteButton = styled.button`
   align-items: center;
   gap: 6px;
   padding: 5px 12px;
-  border: 1px solid #22c55e;
+  border: 1px solid #49A078;
   border-radius: 8px;
   background: transparent;
-  color: #22c55e;
+  color: #49A078;
   font-size: 12px;
   font-weight: 500;
   font-family: ${theme.fontFamily};
@@ -375,7 +375,7 @@ const CompleteButton = styled.button`
   white-space: nowrap;
 
   &:hover {
-    background: #22c55e12;
+    background: #49A07812;
   }
 
   svg {
@@ -390,8 +390,8 @@ const CompletedBadge = styled.button`
   padding: 5px 12px;
   border: 1px solid transparent;
   border-radius: 8px;
-  background: #22c55e12;
-  color: #22c55e;
+  background: #49A07812;
+  color: #49A078;
   font-size: 12px;
   font-weight: 500;
   font-family: ${theme.fontFamily};
@@ -400,7 +400,7 @@ const CompletedBadge = styled.button`
   transition: all 0.15s;
 
   &:hover {
-    border-color: #22c55e;
+    border-color: #49A078;
     background: transparent;
   }
 `;
@@ -411,7 +411,7 @@ const ChatArea = styled.div`
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  background: #fbfaf9;
+  background: #DCE1DE;
   border-left: 1px solid #f9fafb;
   border-radius: 24px;
   position: relative;
@@ -434,7 +434,7 @@ const DesktopOnly = styled.div`
 const ViewPage = styled.div`
   flex: 1;
   overflow-y: auto;
-  background: #fbfaf9;
+  background: #DCE1DE;
   scrollbar-gutter: stable;
 
   &::-webkit-scrollbar {
@@ -489,7 +489,7 @@ const DropOverlayContent = styled.div`
   flex-direction: column;
   align-items: center;
   gap: 25px;
-  color: #fbfaf9;
+  color: #DCE1DE;
   font-family: 'Inter', sans-serif;
   font-size: 24px;
   font-weight: 500;
@@ -769,7 +769,7 @@ const ChatTopBar = styled.div`
     position: relative;
     margin: 0 -16px;
     padding: 6px 16px;
-    background: #fbfaf9;
+    background: #DCE1DE;
     z-index: 60;
 
     &::after {
@@ -782,8 +782,8 @@ const ChatTopBar = styled.div`
       pointer-events: none;
       background: linear-gradient(
         to bottom,
-        #fbfaf9 0%,
-        #fbfaf9 16px,
+        #DCE1DE 0%,
+        #DCE1DE 16px,
         rgba(251, 250, 249, 0) 100%
       );
     }
@@ -944,7 +944,7 @@ const RecentChatItem = styled.button<{ $active?: boolean }>`
       top: 0;
       bottom: 0;
       width: 4px;
-      background: #feeb29;
+      background: #216869;
       border-radius: 0 4px 4px 0;
     }
   `}

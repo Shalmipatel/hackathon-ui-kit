@@ -131,7 +131,7 @@ const AccountPill = styled.div`
   gap: 8px;
   align-self: flex-start;
   padding: 4px 16px 4px 4px;
-  background: #fbfaf9;
+  background: #DCE1DE;
   border-radius: 9999px;
   font-family: 'Inter', sans-serif;
   font-size: 13px;
@@ -234,7 +234,7 @@ const SubmitBtn = styled.button`
   padding: 0 26px;
   border: 2px solid #242424;
   border-radius: 20px;
-  background: #feeb29;
+  background: #216869;
   font-family: 'Inter', sans-serif;
   font-weight: 700;
   font-size: 13px;

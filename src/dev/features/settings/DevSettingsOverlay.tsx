@@ -480,7 +480,7 @@ const QrInlineToggle = styled.label`
 
 const TokenStatus = styled.span<{ $valid: boolean }>`
   font-size: 12px;
-  color: ${({ $valid }) => ($valid ? theme.colors.success ?? '#22c55e' : theme.colors.textMuted)};
+  color: ${({ $valid }) => ($valid ? theme.colors.success ?? '#49A078' : theme.colors.textMuted)};
   margin-left: 8px;
   font-weight: 400;
 `;

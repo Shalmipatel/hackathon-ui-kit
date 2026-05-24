@@ -133,7 +133,7 @@ const SessionItemButton = styled.button<{ $active: boolean; $hasHandle?: boolean
       top: 0;
       bottom: 0;
       width: 4px;
-      background: #feeb29;
+      background: #216869;
       border-radius: 0 4px 4px 0;
     }
   `}
@@ -177,7 +177,7 @@ const RenameInput = styled.input`
   font-family: 'Red Hat Display', ${theme.fontFamily};
 
   &:focus {
-    border-color: #feeb29;
+    border-color: #216869;
   }
 `;
 

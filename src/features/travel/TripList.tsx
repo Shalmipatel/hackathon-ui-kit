@@ -59,7 +59,7 @@ const SidebarEmptyBtn = styled.button`
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: #feeb29;
+  background: #216869;
   color: #242424;
   border: none;
   padding: 6px 10px;

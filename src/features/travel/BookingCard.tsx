@@ -1,27 +1,69 @@
-import React from 'react';
-import styled from 'styled-components';
-import type { Booking, BookingType } from './types';
-import { formatDuration, formatMoney, formatTimeOfDay } from './format';
+/**
+ * Booking card with two states:
+ *   - compact  → time / title / subtitle / pill (the default)
+ *   - expanded → inline editor with title, date+time, end, notes,
+ *                location read-out, details, and a delete button.
+ *
+ * Expansion is driven by the `focused` prop (which the parent toggles
+ * via `onClick`). When focused, the card mounts an outside-click + Esc
+ * listener that calls `onCollapse` to clear focus. Auto-save: every
+ * editable field commits to the store on blur (or `onChange` for
+ * native date/time inputs that don't expose a blur signal cleanly).
+ *
+ * Browser detail: native `<input type="date">` / `<input type="time">`
+ * pickers render in a compositor layer outside the DOM, so clicking
+ * inside them does NOT fire document mousedown — which means the
+ * outside-click handler doesn't accidentally collapse the card while
+ * the user is picking a date or time.
+ */
 
-const Card = styled.div<{ $focused?: boolean }>`
+import React, { useEffect, useRef, useState } from 'react';
+import styled, { keyframes } from 'styled-components';
+import type { Booking, BookingType } from './types';
+import {
+  formatDayLabel,
+  formatDuration,
+  formatMoney,
+  formatTimeOfDay,
+  isoTimeOnly,
+  replaceIsoDate,
+  replaceIsoTime,
+} from './format';
+import { useTravelStore } from './travel-store';
+
+/* ── Shared shell ──────────────────────────────────────────────── */
+
+const Card = styled.div<{ $focused?: boolean; $expanded?: boolean }>`
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid
+    ${(p) => (p.$focused ? 'rgba(33, 104, 105, 0.55)' : 'rgba(36, 36, 36, 0.07)')};
+  font-family: 'Inter', sans-serif;
+  position: relative;
+  transition: border-color 0.15s, box-shadow 0.2s;
+  ${(p) =>
+    p.$expanded
+      ? `
+    box-shadow: 0 12px 32px rgba(31, 36, 33, 0.12);
+    cursor: default;
+  `
+      : `
+    cursor: pointer;
+    &:hover {
+      border-color: rgba(36, 36, 36, 0.22);
+      box-shadow: 0 2px 8px rgba(36, 36, 36, 0.05);
+    }
+  `}
+`;
+
+/* ── Compact layout ────────────────────────────────────────────── */
+
+const CompactGrid = styled.div`
   display: grid;
   grid-template-columns: 80px 1fr auto;
   gap: 16px;
   align-items: center;
   padding: 14px 16px;
-  border-radius: 14px;
-  background: #fff;
-  border: 1px solid
-    ${(p) => (p.$focused ? 'rgba(36, 36, 36, 0.35)' : 'rgba(36, 36, 36, 0.07)')};
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: 'Inter', sans-serif;
-  position: relative;
-
-  &:hover {
-    border-color: rgba(36, 36, 36, 0.22);
-    box-shadow: 0 2px 8px rgba(36, 36, 36, 0.05);
-  }
 
   @media (max-width: 600px) {
     grid-template-columns: 56px 1fr;
@@ -52,7 +94,43 @@ const SubTime = styled.div`
   font-weight: 500;
 `;
 
-const Body = styled.div`
+const AddTimeBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed rgba(33, 104, 105, 0.4);
+  background: transparent;
+  color: #216869;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.12s;
+
+  &:hover {
+    background: rgba(33, 104, 105, 0.08);
+    border-style: solid;
+  }
+`;
+
+const TimeInput = styled.input`
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1F2421;
+  padding: 4px 6px;
+  border: 1px solid rgba(33, 104, 105, 0.45);
+  border-radius: 8px;
+  background: #fff;
+  width: 100px;
+
+  &:focus { outline: 2px solid rgba(33, 104, 105, 0.3); outline-offset: 1px; }
+`;
+
+const BodyCol = styled.div`
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -134,8 +212,201 @@ const IconWrap = styled.div<{ $type: BookingType }>`
           ? 'rgba(168, 85, 247, 0.18)'
           : p.$type === 'restaurant'
             ? 'rgba(248, 113, 113, 0.18)'
-            : 'rgba(34, 197, 94, 0.18)'};
+            : 'rgba(73, 160, 120, 0.18)'};
 `;
+
+/* ── Expanded layout ───────────────────────────────────────────── */
+
+const expandKeyframes = keyframes`
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
+
+const ExpandedBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px 18px 18px;
+  animation: ${expandKeyframes} 0.16s ease-out;
+`;
+
+const ExpandedHead = styled.div`
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+`;
+
+const ExpandedHeadMain = styled.div`
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+const TitleInput = styled.input`
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  color: #1F2421;
+  line-height: 22px;
+  border-radius: 8px;
+  transition: border-color 0.12s, background 0.12s;
+
+  &:hover { border-color: rgba(31, 36, 33, 0.12); }
+  &:focus { outline: none; border-color: #216869; background: #fff; }
+`;
+
+const HeadMetaRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: rgba(36, 36, 36, 0.6);
+  padding-left: 6px;
+`;
+
+const CloseBtn = styled.button`
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(36, 36, 36, 0.55);
+  transition: background 0.12s;
+  flex-shrink: 0;
+
+  &:hover { background: rgba(36, 36, 36, 0.06); color: #242424; }
+`;
+
+const SectionTitle = styled.h3`
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgba(36, 36, 36, 0.55);
+  text-transform: uppercase;
+`;
+
+const Row = styled.div`
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 10px 14px;
+  align-items: center;
+  font-size: 13px;
+`;
+
+const RowLabel = styled.label`
+  color: rgba(36, 36, 36, 0.55);
+  font-weight: 500;
+  letter-spacing: -0.2px;
+`;
+
+const FieldInput = styled.input`
+  width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  color: #1F2421;
+  padding: 7px 10px;
+  border: 1px solid rgba(31, 36, 33, 0.14);
+  border-radius: 8px;
+  background: #fff;
+  transition: border-color 0.12s;
+
+  &:hover { border-color: rgba(31, 36, 33, 0.28); }
+  &:focus { outline: none; border-color: #216869; }
+`;
+
+const ReadOnlyValue = styled.div`
+  color: #1F2421;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  word-break: break-word;
+`;
+
+const AddTimePill = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed rgba(33, 104, 105, 0.45);
+  background: transparent;
+  color: #216869;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.12s;
+  width: fit-content;
+
+  &:hover { background: rgba(33, 104, 105, 0.08); border-style: solid; }
+`;
+
+const NotesArea = styled.textarea`
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 19px;
+  color: #1F2421;
+  padding: 10px 12px;
+  border: 1px solid rgba(31, 36, 33, 0.14);
+  border-radius: 10px;
+  background: #fff;
+  transition: border-color 0.12s;
+
+  &::placeholder { color: rgba(31, 36, 33, 0.4); }
+  &:hover { border-color: rgba(31, 36, 33, 0.28); }
+  &:focus { outline: none; border-color: #216869; }
+`;
+
+const Actions = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 4px;
+`;
+
+const DangerBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.06);
+  color: #dc2626;
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 12.5px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.12s;
+
+  &:hover { background: rgba(239, 68, 68, 0.12); }
+`;
+
+const InputRowFlex = styled.div`
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+`;
+
+/* ── Icons & helpers ───────────────────────────────────────────── */
 
 function BookingIcon({ type }: { type: BookingType }) {
   switch (type) {
@@ -225,50 +496,418 @@ function bookingSubtitle(booking: Booking): string {
   }
 }
 
+function locationLine(b: Booking): { label: string; address?: string } | null {
+  switch (b.type) {
+    case 'flight':
+    case 'transport':
+      return { label: `${b.from.name} → ${b.to.name}` };
+    case 'hotel':
+    case 'activity':
+    case 'restaurant':
+      return { label: b.place.name, address: b.place.address };
+  }
+}
+
+function whenLineReadOnly(b: Booking): string {
+  const dayKey = b.start.slice(0, 10);
+  if (b.hasTime === false) return formatDayLabel(dayKey);
+  const startTime = formatTimeOfDay(b.start);
+  if (!b.end) return `${formatDayLabel(dayKey)} · ${startTime}`;
+  const endDayKey = b.end.slice(0, 10);
+  const endTime = formatTimeOfDay(b.end);
+  if (dayKey === endDayKey) {
+    return `${formatDayLabel(dayKey)} · ${startTime} → ${endTime} · ${formatDuration(b.start, b.end)}`;
+  }
+  return `${formatDayLabel(dayKey)} ${startTime} → ${formatDayLabel(endDayKey)} ${endTime} · ${formatDuration(b.start, b.end)}`;
+}
+
+/* ── Component ─────────────────────────────────────────────────── */
+
 interface BookingCardProps {
   booking: Booking;
   focused?: boolean;
+  /** Fired when the user clicks the compact card to expand it. */
   onClick?: () => void;
+  /** Fired when the expanded card requests to collapse (outside
+   *  click, Escape, or the close button). */
+  onCollapse?: () => void;
 }
 
 export const BookingCard: React.FC<BookingCardProps> = ({
   booking,
   focused,
   onClick,
+  onCollapse,
 }) => {
+  const cardRef = useRef<HTMLDivElement>(null);
   const dur = formatDuration(booking.start, booking.end);
+  const upsertBooking = useTravelStore((s) => s.upsertBooking);
+  const deleteBooking = useTravelStore((s) => s.deleteBooking);
+  const hasNoTime = booking.hasTime === false;
+
+  /* Compact-mode inline time picker (used only when collapsed). */
+  const [editingTime, setEditingTime] = useState(false);
+
+  /* Controlled mirrors for the editable text fields. Re-sync if the
+     booking is swapped out (e.g. id change). */
+  const [title, setTitle] = useState(booking.title);
+  const [notes, setNotes] = useState(booking.notes ?? '');
+  useEffect(() => setTitle(booking.title), [booking.id, booking.title]);
+  useEffect(() => setNotes(booking.notes ?? ''), [booking.id, booking.notes]);
+
+  /* Outside click + Esc → collapse. Native date/time pickers render
+     in a compositor layer and don't fire DOM mousedown, so they won't
+     accidentally close the card. */
+  useEffect(() => {
+    if (!focused) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+      if (cardRef.current?.contains(t)) return;
+      onCollapse?.();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCollapse?.();
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [focused, onCollapse]);
+
+  /* When the card first becomes focused (e.g. via a map-pin click
+     while it's scrolled off-screen) bring it into view. */
+  useEffect(() => {
+    if (focused && cardRef.current) {
+      cardRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [focused]);
+
+  const commit = (patch: Partial<Booking>) => {
+    upsertBooking({ ...booking, ...patch } as Booking);
+  };
+
+  const commitInlineTime = (value: string) => {
+    setEditingTime(false);
+    if (!value) return;
+    const [hh, mm] = value.split(':');
+    if (!hh || !mm) return;
+    commit({ start: replaceIsoTime(booking.start, hh, mm), hasTime: true });
+  };
+
+  const handleStartDate = (dateKey: string) => {
+    if (!dateKey) return;
+    commit({ start: replaceIsoDate(booking.start, dateKey) });
+  };
+  const handleStartTime = (time: string) => {
+    if (!time) return;
+    const [hh, mm] = time.split(':');
+    commit({ start: replaceIsoTime(booking.start, hh, mm), hasTime: true });
+  };
+  const handleEndDate = (dateKey: string) => {
+    if (!dateKey || !booking.end) return;
+    commit({ end: replaceIsoDate(booking.end, dateKey) });
+  };
+  const handleEndTime = (time: string) => {
+    if (!time || !booking.end) return;
+    const [hh, mm] = time.split(':');
+    commit({ end: replaceIsoTime(booking.end, hh, mm) });
+  };
+
+  const stopBubble = (e: React.MouseEvent) => e.stopPropagation();
+
+  /* ── Expanded render ─────────────────────────────────────────── */
+  if (focused) {
+    const loc = locationLine(booking);
+    const startDate = booking.start.slice(0, 10);
+    const startTime = isoTimeOnly(booking.start);
+    const endDate = booking.end?.slice(0, 10) ?? '';
+    const endTime = booking.end ? isoTimeOnly(booking.end) : '';
+
+    return (
+      <Card
+        ref={cardRef}
+        $focused={focused}
+        $expanded
+        onClick={stopBubble}
+      >
+        <ExpandedBody>
+          <ExpandedHead>
+            <IconWrap $type={booking.type}>
+              <BookingIcon type={booking.type} />
+            </IconWrap>
+            <ExpandedHeadMain>
+              <TitleInput
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={() => {
+                  const next = title.trim();
+                  if (next && next !== booking.title) commit({ title: next });
+                  else setTitle(booking.title);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                  if (e.key === 'Escape') {
+                    setTitle(booking.title);
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                aria-label="Title"
+              />
+              <HeadMetaRow>
+                <span style={{ textTransform: 'capitalize', fontWeight: 500 }}>{booking.type}</span>
+                {booking.provider && <span>· {booking.provider}</span>}
+                <Pill $tone={booking.source}>
+                  {booking.source === 'email' ? 'From email' : booking.source}
+                </Pill>
+              </HeadMetaRow>
+            </ExpandedHeadMain>
+            <CloseBtn onClick={() => onCollapse?.()} aria-label="Close">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </CloseBtn>
+          </ExpandedHead>
+
+          <div>
+            <SectionTitle>When</SectionTitle>
+            <Row>
+              <RowLabel htmlFor={`start-date-${booking.id}`}>Starts</RowLabel>
+              <InputRowFlex>
+                <FieldInput
+                  id={`start-date-${booking.id}`}
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => handleStartDate(e.target.value)}
+                  style={{ maxWidth: 160 }}
+                />
+                {hasNoTime ? (
+                  <AddTimePill
+                    type="button"
+                    onClick={() => handleStartTime('12:00')}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    Add time
+                  </AddTimePill>
+                ) : (
+                  <FieldInput
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => handleStartTime(e.target.value)}
+                    style={{ maxWidth: 130 }}
+                  />
+                )}
+              </InputRowFlex>
+              {booking.end !== undefined && (
+                <>
+                  <RowLabel htmlFor={`end-date-${booking.id}`}>Ends</RowLabel>
+                  <InputRowFlex>
+                    <FieldInput
+                      id={`end-date-${booking.id}`}
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => handleEndDate(e.target.value)}
+                      style={{ maxWidth: 160 }}
+                    />
+                    <FieldInput
+                      type="time"
+                      value={endTime}
+                      onChange={(e) => handleEndTime(e.target.value)}
+                      style={{ maxWidth: 130 }}
+                    />
+                  </InputRowFlex>
+                </>
+              )}
+              {!hasNoTime && (
+                <>
+                  <RowLabel>Summary</RowLabel>
+                  <ReadOnlyValue style={{ color: 'rgba(31,36,33,0.65)', fontWeight: 400 }}>
+                    {whenLineReadOnly(booking)}
+                  </ReadOnlyValue>
+                </>
+              )}
+            </Row>
+          </div>
+
+          {loc && (
+            <div>
+              <SectionTitle>Where</SectionTitle>
+              <Row>
+                <RowLabel>Location</RowLabel>
+                <ReadOnlyValue>{loc.label}</ReadOnlyValue>
+                {loc.address && (
+                  <>
+                    <RowLabel>Address</RowLabel>
+                    <ReadOnlyValue>{loc.address}</ReadOnlyValue>
+                  </>
+                )}
+              </Row>
+            </div>
+          )}
+
+          {(booking.confirmation || booking.cost ||
+            (booking.type === 'flight' && (booking.flightNumber || booking.cabin)) ||
+            (booking.type === 'transport' && booking.mode) ||
+            (booking.type === 'hotel' && booking.nights) ||
+            (booking.type === 'restaurant' && booking.partySize)) && (
+            <div>
+              <SectionTitle>Details</SectionTitle>
+              <Row>
+                {booking.type === 'flight' && booking.flightNumber && (
+                  <>
+                    <RowLabel>Flight</RowLabel>
+                    <ReadOnlyValue>{booking.flightNumber}</ReadOnlyValue>
+                  </>
+                )}
+                {booking.type === 'flight' && booking.cabin && (
+                  <>
+                    <RowLabel>Cabin</RowLabel>
+                    <ReadOnlyValue>{booking.cabin}</ReadOnlyValue>
+                  </>
+                )}
+                {booking.type === 'transport' && booking.mode && (
+                  <>
+                    <RowLabel>Mode</RowLabel>
+                    <ReadOnlyValue>{booking.mode}</ReadOnlyValue>
+                  </>
+                )}
+                {booking.type === 'hotel' && booking.nights && (
+                  <>
+                    <RowLabel>Nights</RowLabel>
+                    <ReadOnlyValue>{booking.nights}</ReadOnlyValue>
+                  </>
+                )}
+                {booking.type === 'restaurant' && booking.partySize && (
+                  <>
+                    <RowLabel>Party</RowLabel>
+                    <ReadOnlyValue>{booking.partySize}</ReadOnlyValue>
+                  </>
+                )}
+                {booking.confirmation && (
+                  <>
+                    <RowLabel>Confirmation</RowLabel>
+                    <ReadOnlyValue style={{ fontFamily: 'ui-monospace, monospace' }}>#{booking.confirmation}</ReadOnlyValue>
+                  </>
+                )}
+                {booking.cost && (
+                  <>
+                    <RowLabel>Cost</RowLabel>
+                    <ReadOnlyValue>{formatMoney(booking.cost.amount, booking.cost.currency)}</ReadOnlyValue>
+                  </>
+                )}
+              </Row>
+            </div>
+          )}
+
+          <div>
+            <SectionTitle>Notes</SectionTitle>
+            <NotesArea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              onBlur={() => {
+                const next = notes.trim();
+                if (next !== (booking.notes ?? '')) {
+                  commit({ notes: next || undefined });
+                }
+              }}
+              placeholder="Add your own notes — reservation refs, who's coming, what to bring…"
+            />
+          </div>
+
+          <Actions>
+            <DangerBtn
+              type="button"
+              onClick={() => {
+                deleteBooking(booking.id);
+                onCollapse?.();
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18" />
+                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <path d="M19 6 18 20a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              </svg>
+              Delete
+            </DangerBtn>
+          </Actions>
+        </ExpandedBody>
+      </Card>
+    );
+  }
+
+  /* ── Compact render ──────────────────────────────────────────── */
+
   return (
-    <Card $focused={focused} onClick={onClick}>
-      <TimeCol>
-        <Time>{formatTimeOfDay(booking.start)}</Time>
-        {dur && <SubTime>{dur}</SubTime>}
-      </TimeCol>
-      <Body>
-        <Title>
-          <IconWrap $type={booking.type}>
-            <BookingIcon type={booking.type} />
-          </IconWrap>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {booking.title}
-          </span>
-        </Title>
-        <Sub>{bookingSubtitle(booking)}</Sub>
-      </Body>
-      <Tail>
-        <Pill $tone={booking.source}>
-          {booking.source === 'email' ? 'From email' : booking.source}
-        </Pill>
-        {booking.confirmation && (
-          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-            #{booking.confirmation}
-          </span>
-        )}
-        {booking.cost && (
-          <span style={{ color: 'rgba(36,36,36,0.75)', fontWeight: 600 }}>
-            {formatMoney(booking.cost.amount, booking.cost.currency)}
-          </span>
-        )}
-      </Tail>
+    <Card ref={cardRef} $focused={focused} onClick={onClick}>
+      <CompactGrid>
+        <TimeCol onClick={stopBubble}>
+          {hasNoTime ? (
+            editingTime ? (
+              <TimeInput
+                type="time"
+                autoFocus
+                onBlur={(e) => commitInlineTime(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitInlineTime((e.target as HTMLInputElement).value);
+                  if (e.key === 'Escape') setEditingTime(false);
+                }}
+              />
+            ) : (
+              <AddTimeBtn
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingTime(true);
+                }}
+                title="Set a time for this plan"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                Add time
+              </AddTimeBtn>
+            )
+          ) : (
+            <>
+              <Time>{formatTimeOfDay(booking.start)}</Time>
+              {dur && <SubTime>{dur}</SubTime>}
+            </>
+          )}
+        </TimeCol>
+        <BodyCol>
+          <Title>
+            <IconWrap $type={booking.type}>
+              <BookingIcon type={booking.type} />
+            </IconWrap>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {booking.title}
+            </span>
+          </Title>
+          <Sub>{bookingSubtitle(booking)}</Sub>
+        </BodyCol>
+        <Tail>
+          <Pill $tone={booking.source}>
+            {booking.source === 'email' ? 'From email' : booking.source}
+          </Pill>
+          {booking.confirmation && (
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+              #{booking.confirmation}
+            </span>
+          )}
+          {booking.cost && (
+            <span style={{ color: 'rgba(36,36,36,0.75)', fontWeight: 600 }}>
+              {formatMoney(booking.cost.amount, booking.cost.currency)}
+            </span>
+          )}
+        </Tail>
+      </CompactGrid>
     </Card>
   );
 };

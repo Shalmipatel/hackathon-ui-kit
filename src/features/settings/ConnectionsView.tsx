@@ -428,7 +428,7 @@ const ConnectedAccountPill = styled.div`
   gap: 8px;
   align-self: flex-start;
   padding: 4px 16px 4px 4px;
-  background: #fbfaf9;
+  background: #DCE1DE;
   border-radius: 9999px;
   font-family: 'Inter', sans-serif;
   font-size: 13px;
@@ -557,7 +557,7 @@ const ConnectedSubmitBtn = styled.button`
   padding: 0 26px;
   border: 2px solid #242424;
   border-radius: 20px;
-  background: #feeb29;
+  background: #216869;
   font-family: 'Inter', sans-serif;
   font-weight: 700;
   font-size: 13px;
@@ -789,7 +789,7 @@ const SaveBtn = styled.button`
   padding: 0 20px;
   border: 2px solid #242424;
   border-radius: 18px;
-  background: #feeb29;
+  background: #216869;
   font-family: 'Inter', sans-serif;
   font-weight: 700;
   font-size: 13px;
@@ -924,7 +924,7 @@ const StepCard = styled.div`
   flex: 1;
   min-width: 0;
   height: 300px;
-  background: #fbfaf9;
+  background: #DCE1DE;
   border-radius: 24px;
   position: relative;
   overflow: hidden;
@@ -1848,7 +1848,7 @@ const BrowserModalInner: React.FC<{
                   <RemoteBrowserViewer
                     active={!!status?.containerRunning}
                     navigateUrl={url}
-                    spinnerColor="#feeb29"
+                    spinnerColor="#216869"
                     loadingText="Starting secure browser..."
                     autoClickSelector={autoClickSelector}
                     autoClickText={autoClickText}

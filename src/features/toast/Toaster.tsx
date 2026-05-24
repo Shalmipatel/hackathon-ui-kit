@@ -169,7 +169,7 @@ const ActionBtn = styled.button`
   flex-shrink: 0;
   height: 36px;
   padding: 0 18px;
-  background: #feeb29;
+  background: #216869;
   border: 3px solid #242424;
   border-radius: 20px;
   color: #242424;

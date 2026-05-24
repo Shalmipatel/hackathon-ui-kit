@@ -4,7 +4,12 @@ import L from 'leaflet';
 import styled from 'styled-components';
 import 'leaflet/dist/leaflet.css';
 import { useTravelStore } from './travel-store';
-import { bookingLocation, formatTimeOfDay } from './format';
+import {
+  bookingDayKey,
+  bookingLocation,
+  formatTimeOfDay,
+  tripDayKeys,
+} from './format';
 import type { Booking, BookingType } from './types';
 
 const Wrap = styled.div`
@@ -51,41 +56,79 @@ const PopupMeta = styled.div`
   color: rgba(36, 36, 36, 0.6);
 `;
 
-const TYPE_GLYPH: Record<BookingType, string> = {
-  flight: '✈',
-  hotel: 'H',
-  activity: '◉',
-  restaurant: '🍴',
-  transport: 'T',
+const PopupDayChip = styled.span<{ $color: string }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: ${(p) => p.$color};
+`;
+
+/* Optional human-readable type prefix used inside the popup body — the
+   pin itself now shows the day number instead of a type glyph. */
+const TYPE_LABEL: Record<BookingType, string> = {
+  flight: 'Flight',
+  hotel: 'Hotel',
+  activity: 'Activity',
+  restaurant: 'Restaurant',
+  transport: 'Transport',
 };
 
-const TYPE_COLOR: Record<BookingType, string> = {
-  flight: '#38bdf8',
-  hotel: '#feeb29',
-  activity: '#a855f7',
-  restaurant: '#f87171',
-  transport: '#22c55e',
-};
+/* Pin colors are now keyed by trip-day index, not booking type. The
+   palette stays inside the wanderbot/charcoal-teal-sage family at the
+   front, then fans out into complementary hues. After 12 days it just
+   cycles — beyond that the day number on the pin is enough to
+   distinguish them. */
+const DAY_PALETTE = [
+  '#216869', // teal       (brand primary)
+  '#49A078', // sage       (brand accent)
+  '#d97757', // terracotta
+  '#4B8BEA', // sky blue
+  '#9F65D0', // violet
+  '#E0A030', // amber
+  '#c44569', // rose
+  '#5B4FCF', // indigo
+  '#20B2AA', // light sea green
+  '#ea4335', // red
+  '#8B5A2B', // saddle brown
+  '#0F766E', // deep teal
+];
 
-function buildIcon(type: BookingType, focused: boolean): L.DivIcon {
-  const color = TYPE_COLOR[type];
+function colorForDayIndex(index: number): string {
+  if (index < 0) return DAY_PALETTE[0];
+  return DAY_PALETTE[index % DAY_PALETTE.length];
+}
+
+/** Pin: filled circle, day number centered, white border. Focus state
+ *  bumps size + swaps the border to charcoal so it pops above the
+ *  unfocused pins of the same day. */
+function buildIcon(color: string, dayNumber: number, focused: boolean): L.DivIcon {
   const size = focused ? 36 : 30;
   return new L.DivIcon({
     html: `<div style="
       background:${color};
-      color:#242424;
+      color:#ffffff;
       border-radius:50%;
       width:${size}px;
       height:${size}px;
       display:flex;
       align-items:center;
       justify-content:center;
-      font-size:${focused ? 15 : 13}px;
+      font-size:${focused ? 14 : 12.5}px;
       font-weight:700;
-      border:2px solid ${focused ? '#242424' : 'white'};
-      box-shadow:0 2px 8px rgba(36,36,36,${focused ? 0.45 : 0.25});
+      letter-spacing:-0.3px;
+      border:2px solid ${focused ? '#1F2421' : 'white'};
+      box-shadow:0 2px 8px rgba(31,36,33,${focused ? 0.45 : 0.25});
       transition:all 0.15s;
-    ">${TYPE_GLYPH[type]}</div>`,
+      font-family:'Inter', sans-serif;
+    ">${dayNumber}</div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
     popupAnchor: [0, -size / 2],
@@ -129,7 +172,23 @@ interface TripMapProps {
 
 export const TripMap: React.FC<TripMapProps> = ({ focusedBookingId, onBookingClick }) => {
   const activeTripId = useTravelStore((s) => s.activeTripId);
+  const trips = useTravelStore((s) => s.trips);
   const allBookings = useTravelStore((s) => s.bookings);
+
+  const trip = useMemo(
+    () => trips.find((t) => t.id === activeTripId) ?? null,
+    [trips, activeTripId],
+  );
+
+  /* Map each day-key to its 0-based index within the trip so we can
+     consistently color pins regardless of how many bookings live on a
+     given day. Pre-build a lookup map to keep the per-marker work O(1). */
+  const dayIndexByKey = useMemo(() => {
+    const m = new Map<string, number>();
+    if (!trip) return m;
+    tripDayKeys(trip).forEach((k, i) => m.set(k, i));
+    return m;
+  }, [trip]);
 
   const items = useMemo(() => {
     return allBookings
@@ -137,13 +196,32 @@ export const TripMap: React.FC<TripMapProps> = ({ focusedBookingId, onBookingCli
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
       .map((b) => {
         const loc = bookingLocation(b);
-        return loc ? { booking: b, ...loc } : null;
+        if (!loc) return null;
+        const dayKey = bookingDayKey(b);
+        /* Fallback to 0 if a booking somehow lands outside the trip's
+           day range (shouldn't happen post-drag, but defend anyway). */
+        const dayIdx = dayIndexByKey.get(dayKey) ?? 0;
+        const color = colorForDayIndex(dayIdx);
+        return {
+          booking: b,
+          dayIdx,
+          color,
+          ...loc,
+        };
       })
       .filter(
-        (x): x is { booking: Booking; lat: number; lng: number; label: string } =>
-          x !== null,
+        (
+          x,
+        ): x is {
+          booking: Booking;
+          dayIdx: number;
+          color: string;
+          lat: number;
+          lng: number;
+          label: string;
+        } => x !== null,
       );
-  }, [allBookings, activeTripId]);
+  }, [allBookings, activeTripId, dayIndexByKey]);
 
   const points = useMemo<L.LatLngTuple[]>(
     () => items.map((i) => [i.lat, i.lng]),
@@ -177,11 +255,11 @@ export const TripMap: React.FC<TripMapProps> = ({ focusedBookingId, onBookingCli
           url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
         <FitBounds points={points} focusedPoint={focusedPoint} />
-        {items.map(({ booking, lat, lng, label }) => (
+        {items.map(({ booking, lat, lng, label, dayIdx, color }) => (
           <Marker
             key={booking.id}
             position={[lat, lng]}
-            icon={buildIcon(booking.type, booking.id === focusedBookingId)}
+            icon={buildIcon(color, dayIdx + 1, booking.id === focusedBookingId)}
             eventHandlers={{
               click: () => onBookingClick?.(booking.id),
             }}
@@ -190,8 +268,9 @@ export const TripMap: React.FC<TripMapProps> = ({ focusedBookingId, onBookingCli
               <PopupBody>
                 <PopupTitle>{booking.title}</PopupTitle>
                 <PopupMeta>
-                  {formatTimeOfDay(booking.start)} · {label}
+                  {TYPE_LABEL[booking.type]} · {formatTimeOfDay(booking.start)} · {label}
                 </PopupMeta>
+                <PopupDayChip $color={color}>Day {dayIdx + 1}</PopupDayChip>
               </PopupBody>
             </Popup>
           </Marker>

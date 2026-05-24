@@ -33,7 +33,7 @@ const Header = styled.div`
   justify-content: space-between;
   height: 40px;
   padding: 4px 16px;
-  background: #fbfaf9;
+  background: #DCE1DE;
 `;
 
 const HeaderTitle = styled.span`
@@ -222,7 +222,7 @@ const SecondaryButton = styled(BaseButton)`
 `;
 
 const PrimaryButton = styled(BaseButton)`
-  background: #feeb29;
+  background: #216869;
 `;
 
 const ArrowRight = () => (

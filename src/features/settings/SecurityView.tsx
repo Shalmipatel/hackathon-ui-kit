@@ -161,7 +161,7 @@ const TrustFeaturesRow = styled.div`
   display: flex;
   align-items: center;
   gap: 16px;
-  background: #fbfaf9;
+  background: #DCE1DE;
   border-radius: 8px;
   padding: 16px 12px;
   @media (max-width: 900px) {
@@ -498,8 +498,8 @@ const TextInput = styled.input`
 
   &::placeholder { color: #a1a1aa; }
   &:focus {
-    border-color: #866af5;
-    box-shadow: 0 0 0 3px rgba(134, 106, 245, 0.1);
+    border-color: #216869;
+    box-shadow: 0 0 0 3px rgba(33, 104, 105, 0.1);
   }
 `;
 
@@ -521,8 +521,8 @@ const TextArea = styled.textarea`
 
   &::placeholder { color: #a1a1aa; }
   &:focus {
-    border-color: #866af5;
-    box-shadow: 0 0 0 3px rgba(134, 106, 245, 0.1);
+    border-color: #216869;
+    box-shadow: 0 0 0 3px rgba(33, 104, 105, 0.1);
   }
 `;
 
@@ -540,15 +540,15 @@ const TypeOption = styled.button<{ $selected: boolean }>`
   align-items: center;
   gap: 4px;
   padding: 12px 6px;
-  border: 1.5px solid ${p => p.$selected ? '#866af5' : '#e4e4e7'};
+  border: 1.5px solid ${p => p.$selected ? '#216869' : '#e4e4e7'};
   border-radius: 10px;
-  background: ${p => p.$selected ? 'rgba(134, 106, 245, 0.04)' : '#FFFFFF'};
+  background: ${p => p.$selected ? 'rgba(33, 104, 105, 0.04)' : '#FFFFFF'};
   cursor: pointer;
   transition: all 0.15s;
   font-family: ${theme.fontFamily};
 
   &:hover {
-    border-color: ${p => p.$selected ? '#866af5' : '#d4d4d8'};
+    border-color: ${p => p.$selected ? '#216869' : '#d4d4d8'};
   }
 `;
 
@@ -559,7 +559,7 @@ const TypeEmoji = styled.span`
 const TypeLabel = styled.span<{ $selected: boolean }>`
   font-size: 10px;
   font-weight: 600;
-  color: ${p => p.$selected ? '#866af5' : '#71717a'};
+  color: ${p => p.$selected ? '#216869' : '#71717a'};
 `;
 
 const ModalActions = styled.div`
@@ -703,8 +703,8 @@ const EditBtn = styled.button`
   transition: all 0.15s;
 
   &:hover {
-    background: rgba(134, 106, 245, 0.1);
-    color: #866af5;
+    background: rgba(33, 104, 105, 0.1);
+    color: #216869;
   }
 `;
 
@@ -781,9 +781,9 @@ const BehaviorToggle = styled.div`
 
 const BehaviorOption = styled.button<{ $active: boolean }>`
   padding: 14px 16px;
-  border: 1.5px solid ${p => p.$active ? '#866af5' : '#e4e4e7'};
+  border: 1.5px solid ${p => p.$active ? '#216869' : '#e4e4e7'};
   border-radius: 12px;
-  background: ${p => p.$active ? 'rgba(134, 106, 245, 0.04)' : '#FFFFFF'};
+  background: ${p => p.$active ? 'rgba(33, 104, 105, 0.04)' : '#FFFFFF'};
   cursor: pointer;
   transition: all 0.2s;
   text-align: left;
@@ -798,13 +798,13 @@ const BehaviorOption = styled.button<{ $active: boolean }>`
       top: 8px;
       right: 10px;
       font-size: 12px;
-      color: #866af5;
+      color: #216869;
       font-weight: 700;
     }
   `}
 
   &:hover {
-    border-color: ${p => p.$active ? '#866af5' : '#d4d4d8'};
+    border-color: ${p => p.$active ? '#216869' : '#d4d4d8'};
     transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   }
@@ -847,12 +847,12 @@ const EmailModalIcon = styled.div`
   width: 72px;
   height: 72px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #866af5 0%, #6548cb 100%);
+  background: linear-gradient(135deg, #216869 0%, #143f40 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 20px;
-  box-shadow: 0 8px 24px rgba(134, 106, 245, 0.3);
+  box-shadow: 0 8px 24px rgba(33, 104, 105, 0.3);
 `;
 
 const EmailModalTitle = styled.h3`
@@ -882,8 +882,8 @@ const EmailComposer = styled.div`
   transition: border-color 0.2s;
 
   &:focus-within {
-    border-color: #866af5;
-    box-shadow: 0 0 0 4px rgba(134, 106, 245, 0.1);
+    border-color: #216869;
+    box-shadow: 0 0 0 4px rgba(33, 104, 105, 0.1);
   }
 `;
 
@@ -905,7 +905,7 @@ const EmailComposerInput = styled.input`
 const EmailComposerDomain = styled.span`
   font-size: 15px;
   font-weight: 600;
-  color: #866af5;
+  color: #216869;
   padding-right: 16px;
   white-space: nowrap;
   user-select: none;
@@ -999,12 +999,12 @@ const CardFace = styled.div`
 `;
 
 const CardFront = styled(CardFace)`
-  background: linear-gradient(135deg, #866af5 0%, #6548cb 100%);
+  background: linear-gradient(135deg, #216869 0%, #143f40 100%);
   padding: 22px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-shadow: 0 8px 32px rgba(134, 106, 245, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(33, 104, 105, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
 `;
 
 const CardBack = styled(CardFace)`
@@ -1014,7 +1014,7 @@ const CardBack = styled(CardFace)`
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-shadow: 0 8px 32px rgba(134, 106, 245, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(33, 104, 105, 0.25), 0 2px 8px rgba(0, 0, 0, 0.08);
 `;
 
 const CardDecoration = styled.div`
@@ -1252,8 +1252,8 @@ const LimitField = styled.input`
   box-sizing: border-box;
 
   &:focus {
-    border-color: #866af5;
-    box-shadow: 0 0 0 3px rgba(134, 106, 245, 0.1);
+    border-color: #216869;
+    box-shadow: 0 0 0 3px rgba(33, 104, 105, 0.1);
   }
 `;
 
@@ -1275,18 +1275,18 @@ const FundsAmountGrid = styled.div`
 
 const FundsAmountBtn = styled.button<{ $selected: boolean }>`
   padding: 14px;
-  border: 1.5px solid ${p => p.$selected ? '#866af5' : '#e4e4e7'};
+  border: 1.5px solid ${p => p.$selected ? '#216869' : '#e4e4e7'};
   border-radius: 10px;
-  background: ${p => p.$selected ? 'rgba(134, 106, 245, 0.04)' : '#FFFFFF'};
+  background: ${p => p.$selected ? 'rgba(33, 104, 105, 0.04)' : '#FFFFFF'};
   cursor: pointer;
   transition: all 0.15s;
   font-family: ${theme.fontFamily};
   font-size: 16px;
   font-weight: 700;
-  color: ${p => p.$selected ? '#866af5' : '#18181b'};
+  color: ${p => p.$selected ? '#216869' : '#18181b'};
 
   &:hover {
-    border-color: ${p => p.$selected ? '#866af5' : '#d4d4d8'};
+    border-color: ${p => p.$selected ? '#216869' : '#d4d4d8'};
   }
 `;
 
@@ -1441,7 +1441,7 @@ const SecurityView: React.FC = () => {
             </PersonaCard>
 
             {/* MY NEOCLAW card */}
-            <PersonaCard $accent="#866af5">
+            <PersonaCard $accent="#216869">
               <div style={{ padding: 24 }}>
                 <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(36,36,36,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8, fontSize: 20, overflow: 'clip' }}>🤖</div>
                 <PersonaName>
@@ -1484,7 +1484,7 @@ const SecurityView: React.FC = () => {
               padding: '3px 10px',
               borderRadius: 20,
               background: 'linear-gradient(135deg, rgba(66,133,244,0.08) 0%, #ede9fe 100%)',
-              color: '#7c3aed',
+              color: '#216869',
               fontSize: 10,
               fontWeight: 700,
               fontFamily: "'Inter', sans-serif",

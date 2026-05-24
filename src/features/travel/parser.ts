@@ -26,7 +26,7 @@ const TRIPS_CONTRACT_VERSION = 'trips/v1';
 const FENCE_RE = /```(?:json|wanderbot)?\s*\n([\s\S]*?)```/gi;
 const HEX_COLOR_RE = /^#[0-9a-f]{3,8}$/i;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const TRIP_COLOR_PALETTE = ['#feeb29', '#22c55e', '#38bdf8', '#a855f7', '#f87171', '#fb923c'];
+const TRIP_COLOR_PALETTE = ['#216869', '#49A078', '#38bdf8', '#a855f7', '#f87171', '#fb923c'];
 
 export interface ParsedBookings {
   /** Validated, ready-to-upsert bookings. */
@@ -445,7 +445,7 @@ For EACH source, log a brief note in the chat ("Checked Airbnb: found N reservat
       "destination": "Japan",
       "startDate": "2026-06-12",
       "endDate": "2026-06-22",
-      "color": "#feeb29",
+      "color": "#216869",
       "travelers": ["..."],
       "summary": "Optional one-liner — 10 days, Tokyo first then shinkansen to Kyoto"
     }

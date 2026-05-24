@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { useTravelStore } from './travel-store';
 import {
@@ -9,6 +9,9 @@ import {
 } from './format';
 import BookingCard from './BookingCard';
 import { useRescanTrip } from './useRescanTrip';
+import AddPlaceButton, { type PlaceResult } from './AddPlaceButton';
+import type { ActivityBooking, Booking } from './types';
+import { toast } from '@/features/toast';
 
 const Wrap = styled.div`
   display: flex;
@@ -94,10 +97,47 @@ const Travelers = styled.span`
   color: rgba(36, 36, 36, 0.7);
 `;
 
-const Section = styled.div`
+const Section = styled.div<{ $dragOver?: boolean }>`
   display: flex;
   flex-direction: column;
   gap: 10px;
+  border-radius: 14px;
+  padding: 6px;
+  margin: -6px;
+  transition: background 0.12s, box-shadow 0.12s;
+  background: ${(p) =>
+    p.$dragOver ? 'rgba(33, 104, 105, 0.07)' : 'transparent'};
+  box-shadow: ${(p) =>
+    p.$dragOver ? 'inset 0 0 0 1px rgba(33, 104, 105, 0.35)' : 'none'};
+`;
+
+const DropHint = styled.div<{ $dragOver?: boolean }>`
+  margin: 0 0 0 56px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px dashed
+    ${(p) =>
+      p.$dragOver ? 'rgba(33, 104, 105, 0.6)' : 'rgba(31, 36, 33, 0.18)'};
+  background: ${(p) =>
+    p.$dragOver ? 'rgba(33, 104, 105, 0.06)' : 'transparent'};
+  color: ${(p) =>
+    p.$dragOver ? '#216869' : 'rgba(31, 36, 33, 0.5)'};
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  pointer-events: none;
+
+  @media (max-width: 600px) {
+    margin-left: 0;
+  }
+`;
+
+const Draggable = styled.div<{ $dragging?: boolean }>`
+  cursor: grab;
+  opacity: ${(p) => (p.$dragging ? 0.4 : 1)};
+  transition: opacity 0.12s;
+
+  &:active { cursor: grabbing; }
 `;
 
 const DayHeader = styled.div`
@@ -106,6 +146,10 @@ const DayHeader = styled.div`
   gap: 12px;
   padding: 0 4px;
   font-family: 'Inter', sans-serif;
+`;
+
+const DayHeaderSpacer = styled.div`
+  flex: 1;
 `;
 
 const DayBadge = styled.div<{ $empty?: boolean }>`
@@ -184,6 +228,10 @@ const Empty = styled.div`
 interface ItineraryProps {
   focusedBookingId?: string | null;
   onBookingClick?: (bookingId: string) => void;
+  /** Fired when the currently expanded card requests collapse —
+   *  outside click, Escape, or the close button. Parent should clear
+   *  the focused id. */
+  onCollapseBooking?: () => void;
   /** Fires as the user scrolls — passes the booking id closest to the
    *  top of the visible area so the map can auto-pan to it. */
   onScrollFocus?: (bookingId: string) => void;
@@ -192,12 +240,21 @@ interface ItineraryProps {
 export const Itinerary: React.FC<ItineraryProps> = ({
   focusedBookingId,
   onBookingClick,
+  onCollapseBooking,
   onScrollFocus,
 }) => {
   const activeTripId = useTravelStore((s) => s.activeTripId);
   const trips = useTravelStore((s) => s.trips);
   const allBookings = useTravelStore((s) => s.bookings);
+  const addBooking = useTravelStore((s) => s.addBooking);
+  const upsertBooking = useTravelStore((s) => s.upsertBooking);
   const { rescan, rescanInFlight } = useRescanTrip();
+
+  /* Drag-and-drop state. `draggingId` is the booking being dragged
+     (used to dim its card); `dragOverDay` is the day-key the cursor
+     is currently over (used to highlight the drop target). */
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const trip = useMemo(
     () => trips.find((t) => t.id === activeTripId) ?? null,
     [trips, activeTripId],
@@ -223,6 +280,105 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     });
     return map;
   }, [bookings]);
+
+  /* Build an ActivityBooking from a place picked in the day's
+     AddPlaceButton popover. Noon-local timestamp keeps it sorting in
+     the middle of any existing bookings on that day without requiring
+     the user to pick a time. */
+  const handleAddPlace = (dayKey: string, place: PlaceResult) => {
+    if (!trip) return;
+    const id =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const activity: ActivityBooking = {
+      id,
+      tripId: trip.id,
+      type: 'activity',
+      title: place.name,
+      /* Noon is just a sort-stable placeholder — `hasTime: false` is
+         what tells the UI to render an "Add time" affordance instead
+         of the literal "12:00 PM". */
+      start: `${dayKey}T12:00:00`,
+      hasTime: false,
+      source: 'manual',
+      place: {
+        name: place.name,
+        address: place.address,
+        lat: place.lat,
+        lng: place.lng,
+      },
+    };
+    addBooking(activity);
+    toast({
+      title: `Added to ${formatDayLabel(dayKey)}`,
+      description: place.name,
+      duration: 3500,
+    });
+  };
+
+  /* ── Drag-and-drop handlers ───────────────────────────────────
+     HTML5 native DnD — no extra deps. Works mouse-first; touch
+     devices fall through to the AddPlaceButton / detail modal for
+     edits. The dataTransfer payload is the booking id; the drop
+     target is the day section. */
+  const handleDragStart = (
+    e: React.DragEvent<HTMLDivElement>,
+    bookingId: string,
+  ) => {
+    e.dataTransfer.setData('text/plain', bookingId);
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggingId(bookingId);
+  };
+
+  const handleDragEnd = () => {
+    setDraggingId(null);
+    setDragOverDay(null);
+  };
+
+  const handleDragOver = (
+    e: React.DragEvent<HTMLDivElement>,
+    dayKey: string,
+  ) => {
+    /* preventDefault is what tells the browser the element is a
+       valid drop target — without it, drop never fires. */
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverDay !== dayKey) setDragOverDay(dayKey);
+  };
+
+  const handleDragLeave = (
+    e: React.DragEvent<HTMLDivElement>,
+    dayKey: string,
+  ) => {
+    /* `dragleave` fires when moving between any child elements too —
+       guard so the highlight only clears when we actually leave the
+       section. */
+    const next = e.relatedTarget as Node | null;
+    if (next && e.currentTarget.contains(next)) return;
+    if (dragOverDay === dayKey) setDragOverDay(null);
+  };
+
+  const handleDrop = (
+    e: React.DragEvent<HTMLDivElement>,
+    dayKey: string,
+  ) => {
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain') || draggingId;
+    setDraggingId(null);
+    setDragOverDay(null);
+    if (!id) return;
+    const booking = allBookings.find((b) => b.id === id);
+    if (!booking) return;
+    if (bookingDayKey(booking) === dayKey) return; // no-op
+    const moved = shiftBookingToDay(booking, dayKey);
+    upsertBooking(moved);
+    toast({
+      title: `Moved to ${formatDayLabel(dayKey)}`,
+      description: booking.title,
+      duration: 3000,
+    });
+  };
 
   /* Scroll-spy: pan the map to whichever booking is currently closest
      to the top of the viewport. Booking cards advertise themselves
@@ -328,8 +484,21 @@ export const Itinerary: React.FC<ItineraryProps> = ({
           const dayBookings = bookingsByDay.get(day) ?? [];
           const [, m, d] = day.split('-').map(Number);
           const dayLabel = formatDayLabel(day);
+          const isDragOver = dragOverDay === day;
+          /* When dragging, show a dashed drop hint even on days that
+             already have items, so the user has a clear sense of the
+             whole day's drop zone. Open days always show it. */
+          const showDropHint =
+            (draggingId && bookingDayKey(allBookings.find((x) => x.id === draggingId)!) !== day) ||
+            dayBookings.length === 0;
           return (
-            <Section key={day}>
+            <Section
+              key={day}
+              $dragOver={isDragOver}
+              onDragOver={(e) => handleDragOver(e, day)}
+              onDragLeave={(e) => handleDragLeave(e, day)}
+              onDrop={(e) => handleDrop(e, day)}
+            >
               <DayHeader>
                 <DayBadge $empty={dayBookings.length === 0}>
                   <DayBadgeNum>{d}</DayBadgeNum>
@@ -347,22 +516,46 @@ export const Itinerary: React.FC<ItineraryProps> = ({
                     </DayEmpty>
                   )}
                 </DayTitle>
+                <DayHeaderSpacer />
+                <AddPlaceButton
+                  dayLabel={dayLabel}
+                  destinationHint={trip.destination}
+                  onAdd={(place) => handleAddPlace(day, place)}
+                />
               </DayHeader>
               {dayBookings.length > 0 && (
                 <DayItems>
-                  {dayBookings.map((b) => (
-                    /* data-booking-id is what the scroll-spy
-                       IntersectionObserver reads. Keep this attribute
-                       in sync with the booking key. */
-                    <div key={b.id} data-booking-id={b.id}>
-                      <BookingCard
-                        booking={b}
-                        focused={b.id === focusedBookingId}
-                        onClick={() => onBookingClick?.(b.id)}
-                      />
-                    </div>
-                  ))}
+                  {dayBookings.map((b) => {
+                    const isExpanded = b.id === focusedBookingId;
+                    return (
+                      /* data-booking-id is what the scroll-spy
+                         IntersectionObserver reads. Keep this attribute
+                         in sync with the booking key. Drag is disabled
+                         while expanded so the inline editor doesn't
+                         get accidentally torn off mid-edit. */
+                      <Draggable
+                        key={b.id}
+                        data-booking-id={b.id}
+                        draggable={!isExpanded}
+                        $dragging={draggingId === b.id}
+                        onDragStart={(e) => handleDragStart(e, b.id)}
+                        onDragEnd={handleDragEnd}
+                      >
+                        <BookingCard
+                          booking={b}
+                          focused={isExpanded}
+                          onClick={() => onBookingClick?.(b.id)}
+                          onCollapse={onCollapseBooking}
+                        />
+                      </Draggable>
+                    );
+                  })}
                 </DayItems>
+              )}
+              {showDropHint && (
+                <DropHint $dragOver={isDragOver}>
+                  {isDragOver ? 'Drop here' : dayBookings.length === 0 ? 'Open day · drop a plan here' : 'Drop here to move to this day'}
+                </DropHint>
               )}
             </Section>
           );
@@ -373,3 +566,40 @@ export const Itinerary: React.FC<ItineraryProps> = ({
 };
 
 export default Itinerary;
+
+/* ── Helpers ───────────────────────────────────────────────────── */
+
+/** Shift a booking onto a different day, preserving time-of-day and
+ *  total duration. Works on any booking type (single or multi-day):
+ *
+ *    activity 2026-06-15T14:30 → drop on 06-17 → 2026-06-17T14:30
+ *    hotel 06-15T15:00 → 06-17T11:00 (2nt), drop start on 06-20
+ *      → 06-20T15:00 → 06-22T11:00 (still 2nt)
+ *
+ *  Implementation: replace the YYYY-MM-DD prefix on `start`, then
+ *  shift `end` (if present) by the same number of calendar days so
+ *  the span survives the move.
+ */
+function shiftBookingToDay(booking: Booking, newDayKey: string): Booking {
+  const oldDayKey = booking.start.slice(0, 10);
+  if (oldDayKey === newDayKey) return booking;
+  const newStart = newDayKey + booking.start.slice(10);
+  let newEnd: string | undefined = booking.end;
+  if (booking.end) {
+    const [oy, om, od] = oldDayKey.split('-').map(Number);
+    const oldEndDay = booking.end.slice(0, 10);
+    const [oey, oem, oed] = oldEndDay.split('-').map(Number);
+    const [ny, nm, nd] = newDayKey.split('-').map(Number);
+    /* Day count between old start day and old end day, computed via
+       Date arithmetic so a month boundary doesn't trip us up. */
+    const oldStartTs = new Date(oy, om - 1, od).getTime();
+    const oldEndTs = new Date(oey, oem - 1, oed).getTime();
+    const dayDelta = Math.round((oldEndTs - oldStartTs) / 86_400_000);
+    const newEndDate = new Date(ny, nm - 1, nd + dayDelta);
+    const newEndDayKey = `${newEndDate.getFullYear()}-${String(
+      newEndDate.getMonth() + 1,
+    ).padStart(2, '0')}-${String(newEndDate.getDate()).padStart(2, '0')}`;
+    newEnd = newEndDayKey + booking.end.slice(10);
+  }
+  return { ...booking, start: newStart, end: newEnd } as Booking;
+}

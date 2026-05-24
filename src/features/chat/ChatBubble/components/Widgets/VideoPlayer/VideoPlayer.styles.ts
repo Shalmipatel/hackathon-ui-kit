@@ -194,7 +194,7 @@ export const ControlButton = styled.button`
   cursor: pointer;
   padding: 0;
   outline: none;
-  color: #fbfaf9;
+  color: #DCE1DE;
 
   &:hover {
     background: rgba(255, 255, 255, 0.1);
@@ -205,7 +205,7 @@ export const TimeText = styled.span`
   font-family: 'Inter', sans-serif;
   font-weight: 500;
   font-size: 13px;
-  color: #fbfaf9;
+  color: #DCE1DE;
   letter-spacing: -0.3px;
   white-space: nowrap;
 `;

@@ -26,7 +26,7 @@ const Wrap = styled.div`
   position: relative;
   z-index: 60;
   padding: 28px 48px 16px;
-  background: #fbfaf9;
+  background: #DCE1DE;
 
   &::after {
     content: '';
@@ -38,7 +38,7 @@ const Wrap = styled.div`
     pointer-events: none;
     background: linear-gradient(
       to bottom,
-      #fbfaf9 0%,
+      #DCE1DE 0%,
       rgba(251, 250, 249, 0) 100%
     );
   }
@@ -127,7 +127,7 @@ const TimeSep = styled.span`
 const AskButton = styled.button`
   height: 44px;
   padding: 0 24px;
-  background: #feeb29;
+  background: #216869;
   border: 3px solid #242424;
   border-radius: 24px;
   font-family: 'Inter', sans-serif;

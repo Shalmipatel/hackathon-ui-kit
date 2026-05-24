@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import type { Booking } from './types';
 import {
@@ -6,8 +6,23 @@ import {
   formatDuration,
   formatMoney,
   formatTimeOfDay,
+  isoTimeOnly,
+  replaceIsoDate,
+  replaceIsoTime,
 } from './format';
 import { useTravelStore } from './travel-store';
+
+/**
+ * Booking detail modal — read-only externals (confirmation, cost,
+ * coords-on-map) + inline-editable user-facing fields (title, date,
+ * times, notes). Auto-saves on blur via `upsertBooking` so there's
+ * no separate "Save" step; the store re-renders and the parent
+ * passes the fresh booking back in on the next tick.
+ *
+ * Time UX: when `booking.hasTime === false` we hide the formatted
+ * time and surface an "+ Add time" affordance. Picking a time flips
+ * `hasTime` true and the regular time editor takes over.
+ */
 
 const fadeIn = keyframes`
   from { opacity: 0; }
@@ -83,13 +98,30 @@ const HeadMain = styled.div`
   min-width: 0;
 `;
 
-const HeadTitle = styled.h2`
+const TitleInput = styled.input`
+  display: block;
+  width: 100%;
   margin: 0;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-family: inherit;
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.3px;
-  color: #242424;
+  color: #1F2421;
   line-height: 24px;
+  border-radius: 8px;
+  transition: border-color 0.12s, background 0.12s;
+
+  &:hover {
+    border-color: rgba(31, 36, 33, 0.12);
+  }
+  &:focus {
+    outline: none;
+    border-color: #216869;
+    background: #fff;
+  }
 `;
 
 const HeadSub = styled.div`
@@ -100,6 +132,7 @@ const HeadSub = styled.div`
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  padding-left: 6px;
 `;
 
 const SourcePill = styled.span<{ $tone?: 'email' | 'agent' | 'manual' }>`
@@ -155,30 +188,8 @@ const Body = styled.div`
   gap: 20px;
 `;
 
-const Fields = styled.dl`
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 8px 16px;
-  margin: 0;
-  font-size: 13px;
-`;
-
-const Term = styled.dt`
-  color: rgba(36, 36, 36, 0.55);
-  font-weight: 500;
-  letter-spacing: -0.2px;
-`;
-
-const Def = styled.dd`
-  margin: 0;
-  color: #242424;
-  font-weight: 500;
-  letter-spacing: -0.2px;
-  word-break: break-word;
-`;
-
 const SectionTitle = styled.h3`
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -186,22 +197,93 @@ const SectionTitle = styled.h3`
   text-transform: uppercase;
 `;
 
+const Row = styled.div`
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px 16px;
+  align-items: center;
+  font-size: 13px;
+`;
+
+const RowLabel = styled.label`
+  color: rgba(36, 36, 36, 0.55);
+  font-weight: 500;
+  letter-spacing: -0.2px;
+`;
+
+const FieldInput = styled.input`
+  width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  color: #1F2421;
+  padding: 7px 10px;
+  border: 1px solid rgba(31, 36, 33, 0.14);
+  border-radius: 8px;
+  background: #fff;
+  transition: border-color 0.12s;
+
+  &:hover { border-color: rgba(31, 36, 33, 0.28); }
+  &:focus { outline: none; border-color: #216869; }
+`;
+
+const ReadOnlyValue = styled.div`
+  color: #1F2421;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  word-break: break-word;
+`;
+
+const AddTimeBtn = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed rgba(33, 104, 105, 0.45);
+  background: transparent;
+  color: #216869;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.12s;
+  width: fit-content;
+
+  &:hover {
+    background: rgba(33, 104, 105, 0.08);
+    border-style: solid;
+  }
+`;
+
+const NotesArea = styled.textarea`
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 19px;
+  color: #1F2421;
+  padding: 10px 12px;
+  border: 1px solid rgba(31, 36, 33, 0.14);
+  border-radius: 10px;
+  background: #fff;
+  transition: border-color 0.12s;
+
+  &::placeholder {
+    color: rgba(31, 36, 33, 0.4);
+  }
+  &:hover { border-color: rgba(31, 36, 33, 0.28); }
+  &:focus { outline: none; border-color: #216869; }
+`;
+
 const SourceBlock = styled.div`
-  background: #faf9f5;
+  background: #DCE1DE;
   border-radius: 12px;
   padding: 14px 16px;
   font-size: 13px;
   color: rgba(36, 36, 36, 0.85);
   line-height: 19px;
-`;
-
-const Notes = styled.div`
-  font-size: 13px;
-  color: rgba(36, 36, 36, 0.78);
-  line-height: 19px;
-  background: rgba(36, 36, 36, 0.03);
-  border-radius: 10px;
-  padding: 12px 14px;
 `;
 
 const Footer = styled.div`
@@ -242,7 +324,7 @@ const TONE: Record<Booking['type'], string> = {
   hotel: 'rgba(250, 204, 21, 0.28)',
   activity: 'rgba(168, 85, 247, 0.22)',
   restaurant: 'rgba(248, 113, 113, 0.22)',
-  transport: 'rgba(34, 197, 94, 0.22)',
+  transport: 'rgba(73, 160, 120, 0.22)',
 };
 
 function typeIcon(type: Booking['type']): React.ReactElement {
@@ -286,8 +368,9 @@ function typeIcon(type: Booking['type']): React.ReactElement {
   }
 }
 
-function whenLine(b: Booking): string {
+function whenLineReadOnly(b: Booking): string {
   const dayKey = b.start.slice(0, 10);
+  if (b.hasTime === false) return formatDayLabel(dayKey);
   const startTime = formatTimeOfDay(b.start);
   if (!b.end) return `${formatDayLabel(dayKey)} · ${startTime}`;
   const endDayKey = b.end.slice(0, 10);
@@ -298,21 +381,17 @@ function whenLine(b: Booking): string {
   return `${formatDayLabel(dayKey)} ${startTime} → ${formatDayLabel(endDayKey)} ${endTime} · ${formatDuration(b.start, b.end)}`;
 }
 
-function locationLine(b: Booking): { label: string; address?: string; coords: string } | null {
+function locationLine(b: Booking): { label: string; address?: string } | null {
   switch (b.type) {
     case 'flight':
     case 'transport':
-      return {
-        label: `${b.from.name} → ${b.to.name}`,
-        coords: `${b.to.lat.toFixed(4)}, ${b.to.lng.toFixed(4)}`,
-      };
+      return { label: `${b.from.name} → ${b.to.name}` };
     case 'hotel':
     case 'activity':
     case 'restaurant':
       return {
         label: b.place.name,
         address: b.place.address,
-        coords: `${b.place.lat.toFixed(4)}, ${b.place.lng.toFixed(4)}`,
       };
   }
 }
@@ -327,7 +406,45 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
   onClose,
 }) => {
   const deleteBooking = useTravelStore((s) => s.deleteBooking);
+  const upsertBooking = useTravelStore((s) => s.upsertBooking);
   const loc = locationLine(b);
+
+  /* Controlled local state for the editable fields. Re-sync if the
+     parent ever swaps the booking out from under us. */
+  const [title, setTitle] = useState(b.title);
+  const [notes, setNotes] = useState(b.notes ?? '');
+  useEffect(() => setTitle(b.title), [b.id, b.title]);
+  useEffect(() => setNotes(b.notes ?? ''), [b.id, b.notes]);
+
+  const commit = (patch: Partial<Booking>) => {
+    upsertBooking({ ...b, ...patch } as Booking);
+  };
+
+  const startDate = b.start.slice(0, 10);
+  const startTime = isoTimeOnly(b.start);
+  const endDate = b.end?.slice(0, 10) ?? '';
+  const endTime = b.end ? isoTimeOnly(b.end) : '';
+
+  const hasNoTime = b.hasTime === false;
+
+  const handleStartDate = (dateKey: string) => {
+    if (!dateKey) return;
+    commit({ start: replaceIsoDate(b.start, dateKey) });
+  };
+  const handleStartTime = (time: string) => {
+    if (!time) return;
+    const [hh, mm] = time.split(':');
+    commit({ start: replaceIsoTime(b.start, hh, mm), hasTime: true });
+  };
+  const handleEndDate = (dateKey: string) => {
+    if (!dateKey || !b.end) return;
+    commit({ end: replaceIsoDate(b.end, dateKey) });
+  };
+  const handleEndTime = (time: string) => {
+    if (!time || !b.end) return;
+    const [hh, mm] = time.split(':');
+    commit({ end: replaceIsoTime(b.end, hh, mm) });
+  };
 
   return (
     <Backdrop
@@ -342,7 +459,23 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         <Head>
           <HeadIcon $tone={TONE[b.type]}>{typeIcon(b.type)}</HeadIcon>
           <HeadMain>
-            <HeadTitle>{b.title}</HeadTitle>
+            <TitleInput
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={() => {
+                const next = title.trim();
+                if (next && next !== b.title) commit({ title: next });
+                else setTitle(b.title);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                if (e.key === 'Escape') {
+                  setTitle(b.title);
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              aria-label="Title"
+            />
             <HeadSub>
               <span style={{ textTransform: 'capitalize', fontWeight: 500 }}>{b.type}</span>
               {b.provider && <span>· {b.provider}</span>}
@@ -360,79 +493,157 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         <Body>
           <div>
             <SectionTitle>When</SectionTitle>
-            <Fields>
-              <Term>Start</Term>
-              <Def>{whenLine(b)}</Def>
-              {b.type === 'hotel' && b.nights && (
+            <Row>
+              <RowLabel htmlFor={`start-date-${b.id}`}>Starts</RowLabel>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <FieldInput
+                  id={`start-date-${b.id}`}
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => handleStartDate(e.target.value)}
+                  style={{ maxWidth: 160 }}
+                />
+                {hasNoTime ? (
+                  <AddTimeBtn
+                    type="button"
+                    onClick={() => {
+                      /* Default to noon when the user opens the picker —
+                         most browsers' time inputs need a starting value
+                         to render the picker UI cleanly. */
+                      handleStartTime('12:00');
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    Add time
+                  </AddTimeBtn>
+                ) : (
+                  <FieldInput
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => handleStartTime(e.target.value)}
+                    style={{ maxWidth: 130 }}
+                  />
+                )}
+              </div>
+              {b.end !== undefined && (
                 <>
-                  <Term>Nights</Term>
-                  <Def>{b.nights}</Def>
+                  <RowLabel htmlFor={`end-date-${b.id}`}>Ends</RowLabel>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <FieldInput
+                      id={`end-date-${b.id}`}
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => handleEndDate(e.target.value)}
+                      style={{ maxWidth: 160 }}
+                    />
+                    <FieldInput
+                      type="time"
+                      value={endTime}
+                      onChange={(e) => handleEndTime(e.target.value)}
+                      style={{ maxWidth: 130 }}
+                    />
+                  </div>
                 </>
               )}
-              {b.type === 'restaurant' && b.partySize && (
+              {!hasNoTime && (
                 <>
-                  <Term>Party</Term>
-                  <Def>{b.partySize}</Def>
+                  <RowLabel>Summary</RowLabel>
+                  <ReadOnlyValue style={{ color: 'rgba(31,36,33,0.65)', fontWeight: 400 }}>
+                    {whenLineReadOnly(b)}
+                  </ReadOnlyValue>
                 </>
               )}
-            </Fields>
+            </Row>
           </div>
 
           {loc && (
             <div>
               <SectionTitle>Where</SectionTitle>
-              <Fields>
-                <Term>Location</Term>
-                <Def>{loc.label}</Def>
+              <Row>
+                <RowLabel>Location</RowLabel>
+                <ReadOnlyValue>{loc.label}</ReadOnlyValue>
                 {loc.address && (
                   <>
-                    <Term>Address</Term>
-                    <Def>{loc.address}</Def>
+                    <RowLabel>Address</RowLabel>
+                    <ReadOnlyValue>{loc.address}</ReadOnlyValue>
                   </>
                 )}
-                <Term>Coords</Term>
-                <Def style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{loc.coords}</Def>
-              </Fields>
+              </Row>
             </div>
           )}
 
-          {(b.flightNumber || b.cabin || b.mode || b.confirmation || b.cost) && (
+          {(b.confirmation || b.cost ||
+            (b.type === 'flight' && (b.flightNumber || b.cabin)) ||
+            (b.type === 'transport' && b.mode) ||
+            (b.type === 'hotel' && b.nights) ||
+            (b.type === 'restaurant' && b.partySize)) && (
             <div>
               <SectionTitle>Details</SectionTitle>
-              <Fields>
+              <Row>
                 {b.type === 'flight' && b.flightNumber && (
                   <>
-                    <Term>Flight</Term>
-                    <Def>{b.flightNumber}</Def>
+                    <RowLabel>Flight</RowLabel>
+                    <ReadOnlyValue>{b.flightNumber}</ReadOnlyValue>
                   </>
                 )}
                 {b.type === 'flight' && b.cabin && (
                   <>
-                    <Term>Cabin</Term>
-                    <Def>{b.cabin}</Def>
+                    <RowLabel>Cabin</RowLabel>
+                    <ReadOnlyValue>{b.cabin}</ReadOnlyValue>
                   </>
                 )}
                 {b.type === 'transport' && b.mode && (
                   <>
-                    <Term>Mode</Term>
-                    <Def>{b.mode}</Def>
+                    <RowLabel>Mode</RowLabel>
+                    <ReadOnlyValue>{b.mode}</ReadOnlyValue>
+                  </>
+                )}
+                {b.type === 'hotel' && b.nights && (
+                  <>
+                    <RowLabel>Nights</RowLabel>
+                    <ReadOnlyValue>{b.nights}</ReadOnlyValue>
+                  </>
+                )}
+                {b.type === 'restaurant' && b.partySize && (
+                  <>
+                    <RowLabel>Party</RowLabel>
+                    <ReadOnlyValue>{b.partySize}</ReadOnlyValue>
                   </>
                 )}
                 {b.confirmation && (
                   <>
-                    <Term>Confirmation</Term>
-                    <Def style={{ fontFamily: 'ui-monospace, monospace' }}>#{b.confirmation}</Def>
+                    <RowLabel>Confirmation</RowLabel>
+                    <ReadOnlyValue style={{ fontFamily: 'ui-monospace, monospace' }}>#{b.confirmation}</ReadOnlyValue>
                   </>
                 )}
                 {b.cost && (
                   <>
-                    <Term>Cost</Term>
-                    <Def>{formatMoney(b.cost.amount, b.cost.currency)}</Def>
+                    <RowLabel>Cost</RowLabel>
+                    <ReadOnlyValue>{formatMoney(b.cost.amount, b.cost.currency)}</ReadOnlyValue>
                   </>
                 )}
-              </Fields>
+              </Row>
             </div>
           )}
+
+          <div>
+            <SectionTitle>Notes</SectionTitle>
+            <NotesArea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              onBlur={() => {
+                const next = notes.trim();
+                /* Commit even when empty, so the user can clear notes. */
+                if (next !== (b.notes ?? '')) {
+                  commit({ notes: next || undefined });
+                }
+              }}
+              placeholder="Add your own notes — reservation refs, who's coming, what to bring…"
+            />
+          </div>
 
           {b.emailSubject && (
             <div>
@@ -454,13 +665,6 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               </SourceBlock>
             </div>
           )}
-
-          {b.notes && (
-            <div>
-              <SectionTitle>Notes</SectionTitle>
-              <Notes>{b.notes}</Notes>
-            </div>
-          )}
         </Body>
         <Footer>
           <Btn $variant="danger" onClick={() => { deleteBooking(b.id); onClose(); }}>
@@ -470,7 +674,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
             </svg>
             Delete booking
           </Btn>
-          <Btn onClick={onClose}>Close</Btn>
+          <Btn onClick={onClose}>Done</Btn>
         </Footer>
       </Card>
     </Backdrop>

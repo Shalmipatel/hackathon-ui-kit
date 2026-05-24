@@ -81,21 +81,21 @@ function useAuthenticatedMediaUrl(src: string | undefined): string | null {
   return blobUrl;
 }
 
-const PlayIcon = ({ size = 24, color = '#fbfaf9' }: { size?: number; color?: string }) => (
+const PlayIcon = ({ size = 24, color = '#DCE1DE' }: { size?: number; color?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
     <path d="M8 5v14l11-7z" />
   </svg>
 );
 
 const PauseIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="#fbfaf9">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="#DCE1DE">
     <rect x="6" y="5" width="4" height="14" rx="1" />
     <rect x="14" y="5" width="4" height="14" rx="1" />
   </svg>
 );
 
 const VolumeIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fbfaf9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#DCE1DE" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
     <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
     <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
@@ -103,7 +103,7 @@ const VolumeIcon = () => (
 );
 
 const VolumeMuteIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fbfaf9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#DCE1DE" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
     <line x1="23" y1="9" x2="17" y2="15" />
     <line x1="17" y1="9" x2="23" y2="15" />
@@ -111,7 +111,7 @@ const VolumeMuteIcon = () => (
 );
 
 const ExpandIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fbfaf9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#DCE1DE" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="15 3 21 3 21 9" />
     <polyline points="9 21 3 21 3 15" />
     <line x1="21" y1="3" x2="14" y2="10" />

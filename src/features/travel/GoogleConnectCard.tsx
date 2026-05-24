@@ -30,7 +30,7 @@ const Card = styled.div<{ $connected?: boolean }>`
   background: #fff;
   border-radius: 14px;
   border: 1px solid
-    ${(p) => (p.$connected ? 'rgba(34, 197, 94, 0.45)' : 'rgba(36, 36, 36, 0.08)')};
+    ${(p) => (p.$connected ? 'rgba(73, 160, 120, 0.45)' : 'rgba(36, 36, 36, 0.08)')};
   font-family: 'Inter', sans-serif;
 `;
 
@@ -133,8 +133,8 @@ const ConnectedRow = styled.div`
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  background: rgba(34, 197, 94, 0.08);
-  border: 1px solid rgba(34, 197, 94, 0.2);
+  background: rgba(73, 160, 120, 0.08);
+  border: 1px solid rgba(73, 160, 120, 0.2);
   border-radius: 10px;
   font-size: 13px;
   color: #15803d;
@@ -167,14 +167,14 @@ const StatusRow = styled.div<{ $tone: ProcessStatus }>`
         : 'rgba(36, 36, 36, 0.78)'};
   background: ${(p) =>
     p.$tone === 'success'
-      ? 'rgba(34, 197, 94, 0.1)'
+      ? 'rgba(73, 160, 120, 0.1)'
       : p.$tone === 'error'
         ? 'rgba(220, 38, 38, 0.08)'
         : 'rgba(36, 36, 36, 0.04)'};
   border: 1px solid
     ${(p) =>
       p.$tone === 'success'
-        ? 'rgba(34, 197, 94, 0.3)'
+        ? 'rgba(73, 160, 120, 0.3)'
         : p.$tone === 'error'
           ? 'rgba(220, 38, 38, 0.35)'
           : 'rgba(36, 36, 36, 0.1)'};

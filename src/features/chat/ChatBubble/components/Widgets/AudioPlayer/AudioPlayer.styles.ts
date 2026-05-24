@@ -111,7 +111,7 @@ export const PlayStopButton = styled.button`
   justify-content: center;
   width: 40px;
   height: 40px;
-  background: #feeb29;
+  background: #216869;
   border: 2px solid #242424;
   border-radius: 24px;
   cursor: pointer;

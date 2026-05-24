@@ -21,7 +21,7 @@ const LoadingShell = styled.div<{ $fading?: boolean }>`
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fbfaf9;
+  background: #DCE1DE;
   z-index: 9999;
 
   ${(p) => p.$fading && css`
@@ -46,7 +46,7 @@ const LoadingSpinner = styled.div`
   width: 32px;
   height: 32px;
   border: 3px solid transparent;
-  border-top-color: #feeb29;
+  border-top-color: #216869;
   border-radius: 50%;
   animation: ${spin} 0.8s linear infinite;
 `;
@@ -95,7 +95,7 @@ const ErrorContainer = styled.div`
 
 const ErrorCard = styled.div`
   padding: 48px 36px;
-  background: #fbfaf9;
+  background: #DCE1DE;
   border: 1px solid rgba(36, 36, 36, 0.75);
   border-radius: 24px;
   max-width: 480px;

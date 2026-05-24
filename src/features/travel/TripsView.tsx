@@ -1,10 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import styled from 'styled-components';
 import { useIsMobile } from '@/components/useIsMobile';
 import Itinerary from './Itinerary';
 import TripMap from './TripMap';
 import TripChatPanel from './TripChatPanel';
-import BookingDetailModal from './BookingDetailModal';
 import { useBookingIngestion } from './useBookingIngestion';
 import { useScanForTrips } from './useScanForTrips';
 import { useFirebaseSync } from './useFirebaseSync';
@@ -15,7 +14,7 @@ const Page = styled.div`
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  background: #fbfaf9;
+  background: #DCE1DE;
   padding: 16px;
   gap: 16px;
   overflow: hidden;
@@ -46,7 +45,7 @@ const BrandMark = styled.div`
   width: 36px;
   height: 36px;
   border-radius: 11px;
-  background: linear-gradient(135deg, #feeb29 0%, #f5b400 100%);
+  background: linear-gradient(135deg, #216869 0%, #49A078 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -161,7 +160,7 @@ const EmptyIllustration = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #feeb29 0%, #f5b400 100%);
+  background: linear-gradient(135deg, #216869 0%, #49A078 100%);
   color: #242424;
 `;
 
@@ -224,17 +223,12 @@ export const TripsView: React.FC<TripsViewProps> = () => {
   const showChatCol = !useIsMobile(1100);
 
   const trips = useTravelStore((s) => s.trips);
-  const bookings = useTravelStore((s) => s.bookings);
   const { scan: scanForTrips, scanInFlight } = useScanForTrips();
   const hasTrips = trips.length > 0;
 
-  const selectedBooking = useMemo(
-    () => bookings.find((b) => b.id === selectedBookingId) ?? null,
-    [bookings, selectedBookingId],
-  );
-
-  /* Map focuses on the clicked booking if there is one; otherwise on
-     whatever the scroll-spy is currently surfacing. */
+  /* Map focuses on the clicked (= expanded inline) booking if there
+     is one; otherwise on whatever the scroll-spy is currently
+     surfacing. */
   const mapFocusId = selectedBookingId ?? scrollFocusedBookingId;
 
   return (
@@ -267,6 +261,7 @@ export const TripsView: React.FC<TripsViewProps> = () => {
                 <Itinerary
                   focusedBookingId={selectedBookingId}
                   onBookingClick={setSelectedBookingId}
+                  onCollapseBooking={() => setSelectedBookingId(null)}
                   onScrollFocus={setScrollFocusedBookingId}
                 />
               </ItineraryScroll>
@@ -301,13 +296,6 @@ export const TripsView: React.FC<TripsViewProps> = () => {
           </ChatCol>
         )}
       </Body>
-
-      {selectedBooking && (
-        <BookingDetailModal
-          booking={selectedBooking}
-          onClose={() => setSelectedBookingId(null)}
-        />
-      )}
     </Page>
   );
 };

@@ -15,7 +15,7 @@ import { handleOAuthCallback, isOAuthCallback } from '@/features/travel/google-c
  * of a specific path. */
 if (isOAuthCallback()) {
   document.body.innerHTML = `
-    <div style="font-family: 'Inter', system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #fbfaf9; color: #242424;">
+    <div style="font-family: 'Inter', system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #DCE1DE; color: #242424;">
       <div style="text-align: center; padding: 32px;">
         <div style="font-weight: 600; font-size: 16px; margin-bottom: 6px;">Connecting Gmail…</div>
         <div id="oauth-status" style="font-size: 13px; color: rgba(36,36,36,0.6);">Handing the code off to the assistant.</div>

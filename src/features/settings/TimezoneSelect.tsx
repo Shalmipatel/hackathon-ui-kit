@@ -175,7 +175,7 @@ const OptionOffset = styled.span`
 const SelectedCheck = styled.span`
   display: flex;
   align-items: center;
-  color: #22c55e;
+  color: #49A078;
   flex-shrink: 0;
 `;
 

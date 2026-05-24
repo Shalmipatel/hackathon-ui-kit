@@ -143,7 +143,7 @@ const PasteButton = styled.button<{ $flash?: boolean }>`
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   background: ${({ $flash }) =>
-    $flash ? 'rgba(34, 197, 94, 0.85)' : 'rgba(30, 30, 30, 0.75)'};
+    $flash ? 'rgba(73, 160, 120, 0.85)' : 'rgba(30, 30, 30, 0.75)'};
   color: rgba(255, 255, 255, 0.9);
   display: flex;
   align-items: center;
@@ -236,7 +236,7 @@ export interface RemoteBrowserViewerProps {
   active: boolean;
   /** URL to open in the remote Chromium when the viewer connects. */
   navigateUrl?: string;
-  /** Spinner accent colour (e.g. '#feeb29') */
+  /** Spinner accent colour (e.g. '#216869') */
   spinnerColor?: string;
   /** Loading text shown while connecting */
   loadingText?: string;

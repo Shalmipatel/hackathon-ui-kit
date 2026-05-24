@@ -28,7 +28,7 @@ const Bar = styled.nav`
       56px
       calc(env(safe-area-inset-bottom, 0))
       56px;
-    background: #fbfaf9;
+    background: #DCE1DE;
     border-top: 1px solid rgba(36, 36, 36, 0.05);
     z-index: 60;
 

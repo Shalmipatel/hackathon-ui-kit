@@ -110,7 +110,7 @@ const IconButton = styled.button<{ $variant?: 'primary' | 'muted' | 'danger' }>`
             }
           `
         : css`
-            background-color: #feeb29;
+            background-color: #216869;
             color: #242424;
             &:hover:not(:disabled) {
               opacity: 0.85;
@@ -377,7 +377,7 @@ const LightboxClose = styled.button`
   border: none;
   border-radius: 50%;
   background: #242424;
-  color: #fbfaf9;
+  color: #DCE1DE;
   cursor: pointer;
   display: flex;
   align-items: center;

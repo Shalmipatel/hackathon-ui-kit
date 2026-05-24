@@ -1,39 +1,49 @@
+/**
+ * Palette (wanderbot, May 2026):
+ *   #1F2421 charcoal      → body text, dark surfaces
+ *   #216869 deep teal     → primary brand, links, primary buttons
+ *   #49A078 sage          → CTAs, success
+ *   #9CC5A1 pale sage     → highlights / active fills / soft badges
+ *   #DCE1DE near-white    → page background
+ *
+ * Source: https://coolors.co/1f2421-216869-49a078-9cc5a1-dce1de
+ */
 export const theme = {
   colors: {
-    primary: '#866af5',
-    primaryHover: '#7559e0',
-    primaryActive: '#6548cb',
-    primaryTint: '#f5f3ff',
-    primaryTintHover: '#f9f8ff',
-    primaryVivid: '#7c3aed',
-    gradient: 'linear-gradient(135deg, #866af5 0%, #7559e0 100%)',
+    primary: '#216869',
+    primaryHover: '#1a5253',
+    primaryActive: '#143f40',
+    primaryTint: '#e6f0f0',
+    primaryTintHover: '#dbe9e9',
+    primaryVivid: '#216869',
+    gradient: 'linear-gradient(135deg, #216869 0%, #49A078 100%)',
 
     surface: '#FFFFFF',
-    surfaceMuted: '#fafafc',
-    background: '#242424',
+    surfaceMuted: '#DCE1DE',
+    background: '#1F2421',
     white: '#ffffff',
 
-    textPrimary: '#18181b',
-    textSecondary: '#71717a',
-    textMuted: '#71717a',
+    textPrimary: '#1F2421',
+    textSecondary: '#4a524e',
+    textMuted: '#6b736e',
 
-    border: '#e4e4e7',
-    borderActive: '#d1d5db',
+    border: 'rgba(31, 36, 33, 0.12)',
+    borderActive: 'rgba(31, 36, 33, 0.25)',
 
-    userBubble: 'rgba(36, 36, 36, 0.1)',
-    userBubbleText: '#18181b',
-    assistantBubble: '#f4f4f5',
+    userBubble: 'rgba(33, 104, 105, 0.10)',
+    userBubbleText: '#1F2421',
+    assistantBubble: '#eef3ef',
 
     error: '#D93025',
     errorBg: '#FDF2F2',
-    info: '#4B8BEA',
-    infoBg: '#F0F5FE',
-    success: '#2DA07A',
-    successBg: 'rgba(45, 160, 122, 0.15)',
+    info: '#216869',
+    infoBg: '#e6f0f0',
+    success: '#49A078',
+    successBg: 'rgba(73, 160, 120, 0.15)',
 
-    streaming: '#866af5',
-    questionAsked: '#fb923c',
-    brand: '#feeb29',
+    streaming: '#216869',
+    questionAsked: '#d97757',
+    brand: '#216869',
   },
   shadows: {
     sm: '0px 1px 3px 0px rgba(0, 0, 0, 0.1), 0px 1px 2px 0px rgba(0, 0, 0, 0.06)',

@@ -1,7 +1,7 @@
 import styled, { keyframes, css } from 'styled-components';
 import { theme } from '@/components/theme';
 
-// Brand = #feeb29 = rgb(254, 235, 41)
+// Brand = #216869 = rgb(254, 235, 41)
 const B = '254, 235, 41';
 
 const fadeIn = keyframes`

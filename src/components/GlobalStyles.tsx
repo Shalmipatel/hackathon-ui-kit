@@ -23,11 +23,11 @@ export const GlobalStyles = createGlobalStyle`
   }
 
   /* On mobile, drop the #242424 desktop frame entirely — paint html/body
-     with the same color as the app content (#fbfaf9) so the page flows
+     with the same color as the app content (#DCE1DE) so the page flows
      continuously from under the iOS status bar through to the bottom,
      with no visible "bar" boundaries at the top or bottom. */
   @media (max-width: 768px) {
-    html, body { background-color: #fbfaf9; }
+    html, body { background-color: #DCE1DE; }
 
     /* iOS Safari auto-zooms when the focused input has font-size < 16px.
        Force a minimum 16px so tapping any text field stays at 1× zoom —

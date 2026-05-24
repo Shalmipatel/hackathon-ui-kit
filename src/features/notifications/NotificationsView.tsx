@@ -95,7 +95,7 @@ const GreenDot = styled.div`
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #22c55e;
+  background: #49A078;
   flex-shrink: 0;
 `;
 
@@ -183,7 +183,7 @@ const AlertItem = styled.button`
   gap: 8px;
   width: 100%;
   padding: 16px;
-  background: #fbfaf9;
+  background: #DCE1DE;
   border: none;
   border-radius: 16px;
   cursor: pointer;
