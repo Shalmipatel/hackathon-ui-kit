@@ -26,6 +26,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import SidePanelSessionItem from './SidePanelSessionItem';
+import { useFirebaseUser } from '@/features/auth/firebase-auth';
 import { useSessionActions } from '@/features/chat/useSessionActions';
 
 /* ── Styled Components ── */
@@ -917,9 +918,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   currentSessionId,
   isStreaming,
   activeView,
-  userDisplayName,
-  userEmail,
-  userPicture,
+  userDisplayName: _propDisplayName,
+  userEmail: propEmail,
+  userPicture: propPicture,
   onToggleCollapse,
   onNewTask,
   onNavigate,
@@ -932,6 +933,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   onLogout,
 }) => {
   const { timezone } = useTimezone();
+  /* Bottom profile chip: show "Shalmi + Shubh" as the team display name
+     regardless of who logged in, but surface the actual signed-in
+     email + Google avatar below it. Falls back to the stub-auth props
+     (e.g. for SSR or before Firebase Auth resolves). */
+  const firebaseUser = useFirebaseUser();
+  const firebaseAccount =
+    firebaseUser.status === 'authorized' ? firebaseUser.user : null;
+  const userDisplayName = 'Shalmi + Shubh';
+  const userEmail = firebaseAccount?.email ?? propEmail ?? '';
+  const userPicture = firebaseAccount?.photoURL ?? propPicture;
   /* Mobile (web + native) shows the bottom nav for Home and Calendar,
      so those entries don't need to live in the side drawer too. */
   const isMobile = useIsMobile();
