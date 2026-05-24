@@ -24,7 +24,6 @@ const DevSettingsOverlay = import.meta.env.DEV
   : null;
 import { NotificationsView, NotificationToast, SmartNotificationToast, NotificationBell } from '@/features/notifications';
 import SessionFilesPanel, { type SessionFilesPanelHandle } from '@/features/files/SessionFilesPanel';
-import MobileBottomNav from '@/features/app/components/MobileBottomNav';
 import PageHeader from '@/features/app/layouts/PageHeader';
 import { useAuth, useOnboarding } from '@/features/auth';
 import { usePushRegistration } from '@/features/auth/usePushRegistration';
@@ -2148,7 +2147,6 @@ export const TabPage: React.FC = () => {
             </DropOverlayContent>
           </DropOverlay>
         )}
-        <MobileBottomNav activeView={activeView} onNavigate={setActiveView} onGoToLatestChat={handleGoToLatestChat} />
       </PageShell>
       {newChatFabVisible && (
         <NewChatFab

@@ -588,8 +588,9 @@ export const RemoteBrowserViewer: React.FC<RemoteBrowserViewerProps> = ({
             <LogoImg>
               <svg width="48" height="48" viewBox="0 0 36 36" fill="none">
                 <rect width="36" height="36" rx="18" fill="#FEEB29" />
-                <path d="M18 7.5l9 3.5v7.7c0 4.7-3 8.8-9 10.8-6-2-9-6.1-9-10.8V11l9-3.5Z" fill="#242424" />
-                <path d="M13.4 18.2 16.8 22l6-7.8" stroke="#FEEB29" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                <g transform="translate(7.5 7.5) scale(0.875)">
+                  <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" fill="#242424" />
+                </g>
               </svg>
             </LogoImg>
           </LogoWrap>
@@ -638,8 +639,9 @@ export const RemoteBrowserViewer: React.FC<RemoteBrowserViewerProps> = ({
               <LogoImg>
               <svg width="48" height="48" viewBox="0 0 36 36" fill="none">
                 <rect width="36" height="36" rx="18" fill="#FEEB29" />
-                <path d="M18 7.5l9 3.5v7.7c0 4.7-3 8.8-9 10.8-6-2-9-6.1-9-10.8V11l9-3.5Z" fill="#242424" />
-                <path d="M13.4 18.2 16.8 22l6-7.8" stroke="#FEEB29" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                <g transform="translate(7.5 7.5) scale(0.875)">
+                  <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" fill="#242424" />
+                </g>
               </svg>
             </LogoImg>
             </LogoWrap>

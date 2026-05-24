@@ -4,7 +4,6 @@ import styled, { css } from 'styled-components';
 import { theme } from '@/components/theme';
 import type { ChatSessionSummary } from '@/types';
 import { useTimezone } from '@/features/settings/useTimezone';
-import { useA2HSStore } from '@/features/app/components/a2hs-store';
 import { useIsMobile } from '@/components/useIsMobile';
 import { default as TripList } from '@/features/travel/TripList';
 import {
@@ -27,6 +26,7 @@ import {
 } from '@dnd-kit/sortable';
 import SidePanelSessionItem from './SidePanelSessionItem';
 import { useFirebaseUser } from '@/features/auth/firebase-auth';
+// (Removed: useA2HSStore — A2HS / install-app affordance deleted.)
 import { useSessionActions } from '@/features/chat/useSessionActions';
 
 /* ── Styled Components ── */
@@ -947,14 +947,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
      so those entries don't need to live in the side drawer too. */
   const isMobile = useIsMobile();
 
-  // Add-to-Home-Screen prompt: surface the install entry point in the
-  // sidebar after the user dismisses the bottom banner so it doesn't
-  // disappear permanently. Only renders on mobile iOS Safari.
-  const a2hsEligible = useA2HSStore((s) => s.eligible);
-  const a2hsBannerDismissed = useA2HSStore((s) => s.bannerDismissed);
-  const a2hsOpenOverlay = useA2HSStore((s) => s.openOverlay);
-  const showInstallNav = a2hsEligible && a2hsBannerDismissed;
-
   const generalSession = sessions.find((s) => s.isGeneral || s.id === 'general') ?? null;
   const taskSessions = sessions.filter((s) => !s.isGeneral && s.id !== 'general');
   const pinnedSessions = useMemo(
@@ -1056,8 +1048,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
               <LogoWrap>
                 <svg width="28" height="28" viewBox="0 0 36 36" fill="none">
                   <rect width="36" height="36" rx="18" fill="#FEEB29" />
-                  <path d="M18 7.5l9 3.5v7.7c0 4.7-3 8.8-9 10.8-6-2-9-6.1-9-10.8V11l9-3.5Z" fill="#242424" />
-                  <path d="M13.4 18.2 16.8 22l6-7.8" stroke="#FEEB29" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                  <g transform="translate(7.5 7.5) scale(0.875)" stroke="#242424" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none">
+                    <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" fill="#242424" />
+                  </g>
                 </svg>
               </LogoWrap>
               <BrandName>AI Assistant</BrandName>
@@ -1071,23 +1064,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
         <ScrollableArea>
           {/* Navigation -- 5 main tabs */}
           <NavSection>
-            {showInstallNav && (
-              <InstallAppNavItem
-                type="button"
-                onClick={a2hsOpenOverlay}
-                aria-label="Install this app on your home screen"
-              >
-                <InstallAppIconWrap>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FEEB29" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                    {/* Phone with arrow-down → "save to phone" */}
-                    <rect x="6" y="2" width="12" height="20" rx="2" />
-                    <path d="M12 8v6" />
-                    <path d="m9 11 3 3 3-3" />
-                  </svg>
-                </InstallAppIconWrap>
-                <NavItemLabel $visible={!collapsed}>Install app</NavItemLabel>
-              </InstallAppNavItem>
-            )}
             <NavItem $active={activeView === 'trips'} onClick={() => onNavigate('trips')}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />

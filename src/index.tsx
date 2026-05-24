@@ -2,7 +2,6 @@ import { createRoot } from 'react-dom/client';
 import { GlobalStyles } from '@/components';
 import { TabPage, ConnectionGate, AppRoot } from '@/features/app/layouts';
 import { Toaster } from '@/features/toast';
-import { AddToHomeScreenBanner } from '@/features/app/components/AddToHomeScreenBanner';
 import { initSuperProperties } from '@/features/analytics';
 import { handleOAuthCallback, isOAuthCallback } from '@/features/travel/google-connect';
 
@@ -58,7 +57,6 @@ function bootApp() {
         <AppRoot>
           <ConnectionGate>
             <TabPage />
-            <AddToHomeScreenBanner />
           </ConnectionGate>
         </AppRoot>
         <Toaster />
