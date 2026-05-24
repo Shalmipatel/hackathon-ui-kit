@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import type { Booking } from './types';
 import {
@@ -54,7 +54,7 @@ const Backdrop = styled.div`
   }
 `;
 
-const Card = styled.div`
+const Card = styled.div<{ $dragOffset?: number; $dragging?: boolean }>`
   background: #fff;
   border-radius: 18px;
   width: min(560px, 100%);
@@ -70,6 +70,31 @@ const Card = styled.div`
     border-radius: 18px 18px 0 0;
     width: 100%;
     max-height: 92vh;
+    transform: translateY(${(p) => `${p.$dragOffset ?? 0}px`});
+    transition: ${(p) => (p.$dragging ? 'none' : 'transform 0.18s ease-out')};
+  }
+`;
+
+/* iOS-style drag handle. Only visible at mobile widths where the
+   modal is bottom-anchored — drag down to dismiss. */
+const DragHandle = styled.div`
+  display: none;
+  flex-shrink: 0;
+  padding: 9px 0 5px;
+  justify-content: center;
+  touch-action: none;
+  cursor: grab;
+  &::after {
+    content: '';
+    display: block;
+    width: 42px;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(36, 36, 36, 0.15);
+  }
+
+  @media (max-width: 600px) {
+    display: flex;
   }
 `;
 
@@ -446,6 +471,34 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
     commit({ end: replaceIsoTime(b.end, hh, mm) });
   };
 
+  /* Mobile drag-to-dismiss state. PointerEvents on the drag handle
+     translate the card; release past 100px triggers onClose, otherwise
+     the card snaps back. Desktop never sees the handle (CSS gates it
+     via @media), so these handlers are inert above 600px. */
+  const dragStartY = useRef<number | null>(null);
+  const [dragOffset, setDragOffset] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const onHandleDown = (e: React.PointerEvent) => {
+    dragStartY.current = e.clientY;
+    setDragging(true);
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onHandleMove = (e: React.PointerEvent) => {
+    if (dragStartY.current === null) return;
+    const dy = Math.max(0, e.clientY - dragStartY.current);
+    setDragOffset(dy);
+  };
+  const onHandleUp = () => {
+    if (dragStartY.current === null) return;
+    dragStartY.current = null;
+    setDragging(false);
+    if (dragOffset > 100) {
+      onClose();
+    } else {
+      setDragOffset(0);
+    }
+  };
+
   return (
     <Backdrop
       role="dialog"
@@ -455,7 +508,13 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <Card>
+      <Card $dragOffset={dragOffset} $dragging={dragging}>
+        <DragHandle
+          onPointerDown={onHandleDown}
+          onPointerMove={onHandleMove}
+          onPointerUp={onHandleUp}
+          onPointerCancel={onHandleUp}
+        />
         <Head>
           <HeadIcon $tone={TONE[b.type]}>{typeIcon(b.type)}</HeadIcon>
           <HeadMain>

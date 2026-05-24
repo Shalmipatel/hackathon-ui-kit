@@ -20,6 +20,7 @@ import { useTravelStore } from '@/features/travel/travel-store';
 import Itinerary from '@/features/travel/Itinerary';
 import TripMap from '@/features/travel/TripMap';
 import TripChatPanel from '@/features/travel/TripChatPanel';
+import BookingDetailModal from '@/features/travel/BookingDetailModal';
 import { signOutFirebase } from '@/features/auth/firebase-auth';
 import ConnectionsView from '@/features/settings/ConnectionsView';
 import SettingsView from '@/features/settings/SettingsView';
@@ -455,6 +456,16 @@ export const MobileApp: React.FC = () => {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [overlay, setOverlay] = useState<'connections' | 'settings' | null>(null);
 
+  /* Selected booking → renders BookingDetailModal as a bottom sheet
+     (the modal's own @media (max-width: 600px) styles handle the
+     iOS-native bottom-anchored look). */
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
+  const allBookings = useTravelStore((s) => s.bookings);
+  const selectedBooking = useMemo(
+    () => allBookings.find((b) => b.id === selectedBookingId) ?? null,
+    [allBookings, selectedBookingId],
+  );
+
   /* Positions / labels for the top bar. */
   const pageLabel =
     totalPages === 0
@@ -494,7 +505,12 @@ export const MobileApp: React.FC = () => {
                 </StickyMapWrap>
                 <PageBody>
                   {isPast && <PastBadge>Past trip</PastBadge>}
-                  <Itinerary tripId={trip.id} />
+                  <Itinerary
+                    tripId={trip.id}
+                    focusedBookingId={selectedBookingId}
+                    onBookingClick={setSelectedBookingId}
+                    onCollapseBooking={() => setSelectedBookingId(null)}
+                  />
                 </PageBody>
               </Page>
             );
@@ -563,6 +579,13 @@ export const MobileApp: React.FC = () => {
           {overlay === 'settings' && <SettingsView />}
         </OverlayBody>
       </FullscreenOverlay>
+
+      {selectedBooking && (
+        <BookingDetailModal
+          booking={selectedBooking}
+          onClose={() => setSelectedBookingId(null)}
+        />
+      )}
     </Root>
   );
 };
