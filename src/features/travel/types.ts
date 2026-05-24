@@ -18,6 +18,12 @@ interface BookingBase {
   start: string;
   /** ISO timestamp. Optional — flights/activities have explicit ends; hotels use checkout. */
   end?: string;
+  /** When false, the booking has no user-set time yet — the timestamp
+   *  holds only the calendar day and the UI should offer an "Add time"
+   *  affordance instead of rendering the placeholder hour. Undefined or
+   *  true means the time is real (extracted from email, picked by the
+   *  user, etc.) — that's the default so legacy bookings keep working. */
+  hasTime?: boolean;
   /** Confirmation / record locator from the booking provider. */
   confirmation?: string;
   /** "Delta", "Marriott", "Airbnb", etc. */

@@ -24,6 +24,40 @@ other phrase counts as a trigger):
 | `/wanderbot-sync rescan <tripId>` | the trip's date range ±7 days | Scoped to ONE trip |
 | `/wanderbot-sync` (no arg) | 7 days | Default to `shallow` |
 
+### Per-record CRUD (single-record edits)
+
+Beyond the bulk scan modes, the skill supports targeted edits when the
+user says things like "add a dinner reservation", "delete that hotel",
+"change the check-out time". All of these use the same `/wanderbot/trips/<id>`
+and `/wanderbot/bookings/<id>` paths — just narrower in scope.
+
+| Intent | Request shape |
+| ------ | ------------- |
+| **Add** one booking | `PUT /wanderbot/bookings/<bookingId>.json` with full Booking JSON (set `source: "agent"` and reuse a `tripId` that already exists) |
+| **Update** one booking | `PUT /wanderbot/bookings/<bookingId>.json` with the FULL updated record (PUT replaces — don't try to merge fields. Read first with `GET` if you only have a partial update) |
+| **Delete** one booking | `DELETE /wanderbot/bookings/<bookingId>.json` |
+| **Update** one trip | `PUT /wanderbot/trips/<tripId>.json` with the FULL updated record |
+| **Delete** a trip | `DELETE /wanderbot/trips/<tripId>.json` — and then DELETE every booking whose `tripId` matches (orphan bookings stay invisible but waste storage) |
+
+PUT is full-replace. To safely update a single field, fetch the
+record first:
+
+```bash
+# 1. Read current
+EXISTING=$(curl -s "https://gen-lang-client-0500673478-default-rtdb.firebaseio.com/wanderbot/bookings/bk-foo.json")
+
+# 2. Merge in jq
+UPDATED=$(echo "$EXISTING" | jq '.notes = "added a note"')
+
+# 3. PUT back
+curl -X PUT "https://gen-lang-client-0500673478-default-rtdb.firebaseio.com/wanderbot/bookings/bk-foo.json" \
+  -H "Content-Type: application/json" -d "$UPDATED"
+```
+
+CRUD ops should reply with a one-liner like `Added Le Bernardin (Jun 21).`
+or `Removed Renaissance Zurich Tower hotel.` — same conversational style
+as the bulk modes. No JSON in the reply.
+
 ### Scoped rescan (`rescan <tripId>`)
 
 Same write contract as the other modes, just narrower scope:

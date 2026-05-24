@@ -137,6 +137,42 @@ export function bookingDayKeys(booking: Booking): string[] {
   return keys;
 }
 
+/** Splice a wall-clock HH:MM into an ISO timestamp without disturbing
+ *  the calendar day or any timezone offset suffix. Examples:
+ *
+ *    replaceIsoTime("2026-06-15T09:30:00+09:00", "14", "00")
+ *      → "2026-06-15T14:00:00+09:00"
+ *    replaceIsoTime("2026-06-15T12:00:00", "08", "45")
+ *      → "2026-06-15T08:45:00"
+ *
+ *  Used when the user picks a time via `<input type="time">` — that
+ *  control yields "HH:MM" in 24-hour wall-clock form, no offset. */
+export function replaceIsoTime(iso: string, hh: string, mm: string): string {
+  const match = iso.match(
+    /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(.*)$/,
+  );
+  if (!match) {
+    const dateOnly = iso.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (!dateOnly) return iso;
+    return `${dateOnly[1]}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:00`;
+  }
+  const [, datePart, tzSuffix] = match;
+  return `${datePart}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:00${tzSuffix}`;
+}
+
+/** Splice a YYYY-MM-DD into an ISO timestamp, preserving time and tz. */
+export function replaceIsoDate(iso: string, newDateKey: string): string {
+  const match = iso.match(/^\d{4}-\d{2}-\d{2}(.*)$/);
+  if (!match) return newDateKey;
+  return `${newDateKey}${match[1]}`;
+}
+
+/** Extract "HH:MM" (24h) from an ISO timestamp for `<input type="time">`. */
+export function isoTimeOnly(iso: string): string {
+  const match = iso.match(/T(\d{2}):(\d{2})/);
+  return match ? `${match[1]}:${match[2]}` : '';
+}
+
 /** Returns a lat/lng pair representative of the booking's location. */
 export function bookingLocation(booking: Booking): { lat: number; lng: number; label: string } | null {
   switch (booking.type) {
