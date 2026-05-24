@@ -181,9 +181,9 @@ export const TripMap: React.FC<TripMapProps> = ({ focusedBookingId, onBookingCli
         zoom={points.length > 0 ? 4 : 2}
         scrollWheelZoom
         zoomControl={false}
+        attributionControl={false}
       >
         <TileLayer
-          attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
         <FitBounds points={points} focusedPoint={focusedPoint} />
