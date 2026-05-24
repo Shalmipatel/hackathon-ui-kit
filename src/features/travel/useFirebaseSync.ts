@@ -1,17 +1,22 @@
 /**
- * Mirrors the local travel store to Firebase RTDB.
+ * Bidirectional sync between the local travel store and Firebase RTDB.
  *
- * Pattern:
- *   1. On mount, fetch all trips + bookings from RTDB. Anything we
- *      already have locally but that's missing remotely gets pushed
- *      up (handles the first-run case where the user already has
- *      trips in localStorage from before Firebase was wired). Then
- *      we overlay the remote state on top of what's local so any
- *      trips/bookings created on a different device show up.
- *   2. After hydration, subscribe to the local store and mirror
- *      any subsequent change (add / update / delete on trips and
- *      bookings) to RTDB. Diff against the previous snapshot to
- *      figure out what actually changed — keeps writes minimal.
+ *   INBOUND  (RTDB → local): subscribeToRemote opens an onValue listener
+ *      on /wanderbot/trips and /wanderbot/bookings. Every snapshot:
+ *      drop tombstoned ids, add/update items that differ from local,
+ *      and drop local items that are missing from remote (without
+ *      recording a tombstone on this tab — the delete originated
+ *      somewhere else).
+ *
+ *   OUTBOUND (local → RTDB): a Zustand subscriber diffs the previous
+ *      snapshot against the new one and PUTs / DELETEs the changed
+ *      records.
+ *
+ * No infinite loops despite the bidirectional flow: when an inbound
+ * snapshot lands, the local change it triggers is content-identical
+ * to what RTDB already holds, so the outbound mirror's `shallowEqual`
+ * check short-circuits the write. Even if a redundant PUT slips
+ * through, RTDB writes with identical bodies don't re-fire onValue.
  *
  * No auth yet — the hackathon flow assumes open RTDB rules on
  * /wanderbot. Add real auth before going to prod.
@@ -22,10 +27,9 @@ import {
   deleteBookingRemote,
   deleteTripRemote,
   isFirebaseConfigured,
-  loadAllBookings,
-  loadAllTrips,
   saveBookingRemote,
   saveTripRemote,
+  subscribeToRemote,
 } from './firebase';
 import { tripFingerprint, useTravelStore } from './travel-store';
 import type { Booking, Trip } from './types';
@@ -40,109 +44,120 @@ export function useFirebaseSync(): void {
 
     let cancelled = false;
     let unsubFromStore: (() => void) | null = null;
+    let prevTrips = useTravelStore.getState().trips;
+    let prevBookings = useTravelStore.getState().bookings;
 
-    (async () => {
-      try {
-        const [remoteTrips, remoteBookings] = await Promise.all([
-          loadAllTrips(),
-          loadAllBookings(),
-        ]);
-        if (cancelled) return;
+    /* Outbound mirror — push local changes to RTDB. Capture the
+       pre-subscription baseline so the FIRST snapshot from RTDB
+       (which sets local state) doesn't trigger an immediate
+       round-trip write. */
+    unsubFromStore = useTravelStore.subscribe((state) => {
+      const trips = state.trips;
+      const bookings = state.bookings;
 
-        const state = useTravelStore.getState();
-        const localTripIds = new Set(state.trips.map((t) => t.id));
-        const localBookingIds = new Set(state.bookings.map((b) => b.id));
-
-        /* Tombstone gate — never hydrate a trip the user previously
-           deleted. RTDB might still have the row if the remote delete
-           is in flight or failed silently last time around. While
-           we're at it, fire a cleanup delete to RTDB so the row
-           doesn't keep coming back on every reload. */
-        const deletedIds = new Set(state.deletedTripIds);
-        const deletedFps = new Set(state.deletedTripFingerprints);
-        const isTombstoned = (t: typeof remoteTrips[number]) =>
-          deletedIds.has(t.id) || deletedFps.has(tripFingerprint(t));
-
-        const tombstonedRemoteTrips = remoteTrips.filter(isTombstoned);
-        if (tombstonedRemoteTrips.length > 0) {
-          console.warn(
-            `[firebase-sync] cleaning ${tombstonedRemoteTrips.length} zombie trip(s) from RTDB.`,
-          );
-          await Promise.all(
-            tombstonedRemoteTrips.map((t) => deleteTripRemote(t.id)),
-          );
-        }
-        const liveRemoteTrips = remoteTrips.filter((t) => !isTombstoned(t));
-
-        /* Same gate for bookings. Mirrors deleteBooking's tombstone. */
-        const deletedBookingIds = new Set(state.deletedBookingIds);
-        const tombstonedRemoteBookings = remoteBookings.filter((b) =>
-          deletedBookingIds.has(b.id),
-        );
-        if (tombstonedRemoteBookings.length > 0) {
-          console.warn(
-            `[firebase-sync] cleaning ${tombstonedRemoteBookings.length} zombie booking(s) from RTDB.`,
-          );
-          await Promise.all(
-            tombstonedRemoteBookings.map((b) => deleteBookingRemote(b.id)),
-          );
-        }
-        const liveRemoteBookings = remoteBookings.filter(
-          (b) => !deletedBookingIds.has(b.id),
-        );
-
-        /* Deliberately NOT pushing local-only items on hydrate.
-           That backfill was the resurrection vector: a locally-cached
-           row whose RTDB sibling was deleted elsewhere (another tab,
-           another device) would get pushed back up here, and any
-           tombstone on the other side wouldn't catch it.
-           New items get to RTDB via the mirror subscriber below
-           once the user adds/edits them. */
-
-        /* Merge remote-only items into the store. addTrip's tombstone
-           check is the last line of defence — even if liveRemoteTrips
-           somehow leaked through, addTrip itself would refuse the
-           insert with a console warning. */
-        const tripsToAdd = liveRemoteTrips.filter((t) => !localTripIds.has(t.id));
-        const bookingsToAdd = liveRemoteBookings.filter(
-          (b) => !localBookingIds.has(b.id),
-        );
-        if (tripsToAdd.length > 0 || bookingsToAdd.length > 0) {
-          const store = useTravelStore.getState();
-          for (const t of tripsToAdd) store.addTrip(t);
-          for (const b of bookingsToAdd) store.upsertBooking(b);
-        }
-      } catch (err) {
-        console.warn('[firebase-sync] initial hydrate failed', err);
+      if (trips !== prevTrips) {
+        mirrorTripChanges(prevTrips, trips);
+        prevTrips = trips;
       }
+      if (bookings !== prevBookings) {
+        mirrorBookingChanges(prevBookings, bookings);
+        prevBookings = bookings;
+      }
+    });
 
+    /* Inbound subscription — reconcile local to match remote on every
+       RTDB change. */
+    const unsubFromRemote = subscribeToRemote(({ trips: remoteTrips, bookings: remoteBookings }) => {
       if (cancelled) return;
-
-      /* Diff-and-mirror subscriber. Captures the *post-hydrate* state
-         as the baseline so the initial push above doesn't get re-fired. */
-      let prevTrips = useTravelStore.getState().trips;
-      let prevBookings = useTravelStore.getState().bookings;
-
-      unsubFromStore = useTravelStore.subscribe((state) => {
-        const trips = state.trips;
-        const bookings = state.bookings;
-
-        if (trips !== prevTrips) {
-          mirrorTripChanges(prevTrips, trips);
-          prevTrips = trips;
-        }
-        if (bookings !== prevBookings) {
-          mirrorBookingChanges(prevBookings, bookings);
-          prevBookings = bookings;
-        }
-      });
-    })();
+      reconcileFromRemote(remoteTrips, remoteBookings);
+    });
 
     return () => {
       cancelled = true;
       if (unsubFromStore) unsubFromStore();
+      unsubFromRemote();
     };
   }, []);
+}
+
+/** Apply a remote snapshot to local: clean tombstoned RTDB rows,
+ *  upsert new / changed remote items, drop local items missing from
+ *  remote. Reads + writes the live store. */
+function reconcileFromRemote(
+  remoteTrips: Trip[],
+  remoteBookings: Booking[],
+): void {
+  const state = useTravelStore.getState();
+
+  /* Tombstone gate — never let a tombstoned trip/booking sneak back
+     in via the snapshot. Fire an async delete to clean it from RTDB
+     for the next tab that hydrates. */
+  const deletedTripIds = new Set(state.deletedTripIds);
+  const deletedFps = new Set(state.deletedTripFingerprints);
+  const isTombstonedTrip = (t: Trip) =>
+    deletedTripIds.has(t.id) || deletedFps.has(tripFingerprint(t));
+  const zombieTrips = remoteTrips.filter(isTombstonedTrip);
+  if (zombieTrips.length > 0) {
+    console.warn(
+      `[firebase-sync] cleaning ${zombieTrips.length} zombie trip(s) from RTDB.`,
+    );
+    void Promise.all(zombieTrips.map((t) => deleteTripRemote(t.id)));
+  }
+  const liveRemoteTrips = remoteTrips.filter((t) => !isTombstonedTrip(t));
+
+  const deletedBookingIds = new Set(state.deletedBookingIds);
+  const zombieBookings = remoteBookings.filter((b) => deletedBookingIds.has(b.id));
+  if (zombieBookings.length > 0) {
+    console.warn(
+      `[firebase-sync] cleaning ${zombieBookings.length} zombie booking(s) from RTDB.`,
+    );
+    void Promise.all(zombieBookings.map((b) => deleteBookingRemote(b.id)));
+  }
+  const liveRemoteBookings = remoteBookings.filter((b) => !deletedBookingIds.has(b.id));
+
+  /* Upsert remote → local. Skip items that are content-identical to
+     what local already has so the outbound mirror has nothing to fire. */
+  const localTripById = new Map(state.trips.map((t) => [t.id, t]));
+  for (const t of liveRemoteTrips) {
+    const local = localTripById.get(t.id);
+    if (!local) {
+      state.addTrip(t);
+    } else if (!shallowEqualTrip(local, t)) {
+      state.updateTrip(t.id, t);
+    }
+  }
+  const localBookingById = new Map(state.bookings.map((b) => [b.id, b]));
+  for (const b of liveRemoteBookings) {
+    const local = localBookingById.get(b.id);
+    if (!local || !shallowEqualBooking(local, b)) {
+      state.upsertBooking(b);
+    }
+  }
+
+  /* Drop local items missing from remote. These were deleted on
+     another tab/device. Use raw setState so we don't add a tombstone
+     — the delete didn't originate here. */
+  const remoteTripIds = new Set(liveRemoteTrips.map((t) => t.id));
+  const remoteBookingIds = new Set(liveRemoteBookings.map((b) => b.id));
+  const localOnlyTrips = state.trips.filter((t) => !remoteTripIds.has(t.id));
+  const localOnlyBookings = state.bookings.filter(
+    (b) => !remoteBookingIds.has(b.id),
+  );
+  if (localOnlyTrips.length > 0 || localOnlyBookings.length > 0) {
+    useTravelStore.setState((s) => ({
+      trips: localOnlyTrips.length > 0
+        ? s.trips.filter((t) => remoteTripIds.has(t.id))
+        : s.trips,
+      bookings: localOnlyBookings.length > 0
+        ? s.bookings.filter((b) => remoteBookingIds.has(b.id))
+        : s.bookings,
+      /* If we just yanked the active trip out from under the user,
+         clear the selection so the UI doesn't dangle. */
+      activeTripId: localOnlyTrips.some((t) => t.id === s.activeTripId)
+        ? null
+        : s.activeTripId,
+    }));
+  }
 }
 
 function mirrorTripChanges(prev: Trip[], curr: Trip[]): void {
