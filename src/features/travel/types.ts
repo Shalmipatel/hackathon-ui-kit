@@ -26,6 +26,9 @@ interface BookingBase {
   notes?: string;
   /** Original email subject when source==='email'. */
   emailSubject?: string;
+  /** Deep-link back to the original record — Gmail message URL,
+   *  airline "Manage Trip" page, hotel reservation page, etc. */
+  link?: string;
   cost?: { amount: number; currency: string };
 }
 

@@ -620,11 +620,13 @@ export function createChatStore(deps: StoreDependencies) {
             console.warn('[ChatStore] Local delete failed:', err);
           });
 
-          // Server delete (background, non-blocking)
+          // Server delete (background, non-blocking). Without this, the
+          // next syncWithBackend / reconcileOnResume call would fetch the
+          // session back from openclaw and re-insert it client-side.
           import('@/features/app/bootstrap/providers').then(({ getGateway }) => {
             getGateway().request(GATEWAY_ENDPOINTS.TOOLS_INVOKE, {
               method: 'POST',
-              body: { tool: 'sessions_delete', args: { sessionKey: `agent:main:neoclaw-${id}`, kind: 'main', model: 'openclaw' } },
+              body: { tool: 'sessions.delete', args: { key: `agent:main:neoclaw-${id}`, deleteTranscript: true } },
               timeoutMs: 10_000,
             }).then((resp) => resp.json()).then((data) => {
               if (data?.ok) console.log('[ChatStore] Server session deleted:', id);

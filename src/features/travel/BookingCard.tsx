@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import type { Booking, BookingType } from './types';
-import { formatDuration, formatMoney, formatTimeOfDay } from './format';
+import { formatDuration, formatMoney, formatTimeOfDay, localDateKey } from './format';
 
 const Card = styled.div<{ $focused?: boolean }>`
   display: grid;
@@ -229,19 +229,58 @@ interface BookingCardProps {
   booking: Booking;
   focused?: boolean;
   onClick?: () => void;
+  /** YYYY-MM-DD of the day section this card is rendered under. For
+   *  multi-day bookings, the time column adapts: start day shows
+   *  check-in/departure time, end day shows check-out/arrival time,
+   *  middle days show "All day". Omit to fall back to start-time only. */
+  dayKey?: string;
+}
+
+function multiDayLabels(type: BookingType): { start: string; end: string } {
+  switch (type) {
+    case 'flight':
+    case 'transport':
+      return { start: 'Departs', end: 'Arrives' };
+    case 'hotel':
+      return { start: 'Check-in', end: 'Check-out' };
+    case 'activity':
+    case 'restaurant':
+      return { start: 'Starts', end: 'Ends' };
+  }
 }
 
 export const BookingCard: React.FC<BookingCardProps> = ({
   booking,
   focused,
   onClick,
+  dayKey,
 }) => {
-  const dur = formatDuration(booking.start, booking.end);
+  const startDay = localDateKey(booking.start);
+  const endDay = booking.end ? localDateKey(booking.end) : startDay;
+  const spansDays = endDay !== startDay;
+
+  /* Pick which timestamp to render on THIS day's card. Without dayKey
+     or for single-day bookings, keep the old "show start time" behavior. */
+  let displayTime = formatTimeOfDay(booking.start);
+  let displaySub: string | null = formatDuration(booking.start, booking.end);
+  if (spansDays && dayKey) {
+    const labels = multiDayLabels(booking.type);
+    if (dayKey === endDay) {
+      displayTime = formatTimeOfDay(booking.end!);
+      displaySub = labels.end;
+    } else if (dayKey === startDay) {
+      displaySub = labels.start;
+    } else {
+      displayTime = 'All day';
+      displaySub = null;
+    }
+  }
+
   return (
     <Card $focused={focused} onClick={onClick}>
       <TimeCol>
-        <Time>{formatTimeOfDay(booking.start)}</Time>
-        {dur && <SubTime>{dur}</SubTime>}
+        <Time>{displayTime}</Time>
+        {displaySub && <SubTime>{displaySub}</SubTime>}
       </TimeCol>
       <Body>
         <Title>

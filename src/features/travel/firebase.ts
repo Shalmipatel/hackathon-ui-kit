@@ -51,6 +51,7 @@ const ROOT = 'wanderbot';
 const TRIPS_PATH = `${ROOT}/trips`;
 const BOOKINGS_PATH = `${ROOT}/bookings`;
 const AUTH_REQUESTS_PATH = `${ROOT}/auth_requests`;
+const GMAIL_CONNECTION_PATH = `${ROOT}/connections/gmail`;
 
 interface FirebaseConfig {
   apiKey: string;
@@ -282,6 +283,45 @@ export function subscribeToAuthRequest(
   const path = ref(database, `${AUTH_REQUESTS_PATH}/${id}`);
   const handler = onValue(path, (snap) => {
     cb(snap.val() as AuthRequest | null);
+  });
+  return () => off(path, 'value', handler);
+}
+
+/* ─────────────── gmail connection (cross-device) ─────────────── */
+
+export interface GmailConnection {
+  email: string;
+  connectedAt: number;
+}
+
+export async function writeGmailConnection(email: string): Promise<void> {
+  const database = getDb();
+  if (!database) return;
+  try {
+    await set(ref(database, GMAIL_CONNECTION_PATH), { email, connectedAt: Date.now() });
+  } catch (err) {
+    console.warn('[firebase] writeGmailConnection failed', err);
+  }
+}
+
+export async function clearGmailConnection(): Promise<void> {
+  const database = getDb();
+  if (!database) return;
+  try {
+    await remove(ref(database, GMAIL_CONNECTION_PATH));
+  } catch (err) {
+    console.warn('[firebase] clearGmailConnection failed', err);
+  }
+}
+
+export function subscribeToGmailConnection(
+  cb: (conn: GmailConnection | null) => void,
+): () => void {
+  const database = getDb();
+  if (!database) return () => undefined;
+  const path = ref(database, GMAIL_CONNECTION_PATH);
+  const handler = onValue(path, (snap) => {
+    cb(snap.val() as GmailConnection | null);
   });
   return () => off(path, 'value', handler);
 }

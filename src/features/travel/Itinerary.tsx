@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import styled from 'styled-components';
 import { useTravelStore } from './travel-store';
 import {
-  bookingDayKey,
+  bookingDayKeys,
   formatDayLabel,
   formatTripRange,
   tripDayKeys,
@@ -216,10 +216,14 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   const bookingsByDay = useMemo(() => {
     const map = new Map<string, typeof bookings>();
     bookings.forEach((b) => {
-      const key = bookingDayKey(b);
-      const list = map.get(key) ?? [];
-      list.push(b);
-      map.set(key, list);
+      /* Multi-day bookings (hotels, multi-day activities) get bucketed
+         into every day they cover so the user sees them on each day's
+         section, not just the start day. */
+      for (const key of bookingDayKeys(b)) {
+        const list = map.get(key) ?? [];
+        list.push(b);
+        map.set(key, list);
+      }
     });
     return map;
   }, [bookings]);
@@ -357,6 +361,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
                     <div key={b.id} data-booking-id={b.id}>
                       <BookingCard
                         booking={b}
+                        dayKey={day}
                         focused={b.id === focusedBookingId}
                         onClick={() => onBookingClick?.(b.id)}
                       />

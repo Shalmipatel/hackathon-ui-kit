@@ -99,6 +99,52 @@ const NewBtn = styled.button`
   }
 `;
 
+const ScanMenu = styled.div`
+  position: absolute;
+  z-index: 50;
+  min-width: 220px;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-family: 'Inter', sans-serif;
+`;
+
+const ScanMenuItem = styled.button`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: left;
+  color: rgba(255, 255, 255, 0.92);
+  font-family: inherit;
+
+  strong {
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  span {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+    line-height: 14px;
+  }
+
+  &:hover { background: rgba(255, 255, 255, 0.06); }
+`;
+
+const ScanMenuOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+`;
+
 const Card = styled.button<{ $active: boolean; $accent: string }>`
   position: relative;
   display: flex;
@@ -350,10 +396,26 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
   const archiveTrip = useTravelStore((s) => s.archiveTrip);
   const unarchiveTrip = useTravelStore((s) => s.unarchiveTrip);
   const { scan, scanInFlight } = useScanForTrips();
-  const triggerCreate = onCreateTrip ?? scan;
+  const triggerCreate = onCreateTrip ? onCreateTrip : () => scan('shallow');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; left: number } | null>(null);
   const [pastOpen, setPastOpen] = useState(false);
+  const [scanMenuOpen, setScanMenuOpen] = useState(false);
+  const scanBtnRef = React.useRef<HTMLButtonElement>(null);
+  const [scanMenuPos, setScanMenuPos] = useState<{ top: number; left: number } | null>(null);
+
+  const openScanMenu = () => {
+    const rect = scanBtnRef.current?.getBoundingClientRect();
+    if (rect) {
+      setScanMenuPos({ top: rect.bottom + 6, left: Math.max(8, rect.right - 220) });
+    }
+    setScanMenuOpen(true);
+  };
+  const runScan = (depth: 'deep' | 'shallow') => {
+    setScanMenuOpen(false);
+    if (onCreateTrip) { onCreateTrip(); return; }
+    scan(depth);
+  };
 
   /* Close the portal'd popover if the rail scrolls — the anchor is
      captured against viewport coords and would drift otherwise. */
@@ -371,14 +433,40 @@ export const TripList: React.FC<TripListProps> = ({ onCreateTrip }) => {
     <Rail>
       <RailHeader>
         Trips
-        <NewBtn onClick={triggerCreate} disabled={scanInFlight} title="Scan connections for new trips">
+        <NewBtn
+          ref={scanBtnRef}
+          onClick={openScanMenu}
+          disabled={scanInFlight}
+          title="Scan connections for new trips"
+          aria-haspopup="menu"
+          aria-expanded={scanMenuOpen}
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
           {scanInFlight ? 'Scanning…' : 'Scan'}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
         </NewBtn>
       </RailHeader>
+      {scanMenuOpen && scanMenuPos && createPortal(
+        <>
+          <ScanMenuOverlay onClick={() => setScanMenuOpen(false)} />
+          <ScanMenu role="menu" style={{ top: scanMenuPos.top, left: scanMenuPos.left }}>
+            <ScanMenuItem role="menuitem" onClick={() => runScan('shallow')}>
+              <strong>Quick update</strong>
+              <span>Last 7 days · refresh recent bookings</span>
+            </ScanMenuItem>
+            <ScanMenuItem role="menuitem" onClick={() => runScan('deep')}>
+              <strong>Full sync</strong>
+              <span>Last 30 days · rebuild from scratch</span>
+            </ScanMenuItem>
+          </ScanMenu>
+        </>,
+        document.body,
+      )}
       {allTrips.length === 0 && (
         <SidebarEmpty>
           <strong>No trips yet</strong>

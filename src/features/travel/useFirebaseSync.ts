@@ -52,8 +52,6 @@ export function useFirebaseSync(): void {
         const state = useTravelStore.getState();
         const localTripIds = new Set(state.trips.map((t) => t.id));
         const localBookingIds = new Set(state.bookings.map((b) => b.id));
-        const remoteTripIds = new Set(remoteTrips.map((t) => t.id));
-        const remoteBookingIds = new Set(remoteBookings.map((b) => b.id));
 
         /* Tombstone gate — never hydrate a trip the user previously
            deleted. RTDB might still have the row if the remote delete
@@ -76,22 +74,37 @@ export function useFirebaseSync(): void {
         }
         const liveRemoteTrips = remoteTrips.filter((t) => !isTombstoned(t));
 
-        /* Push local-only items up. */
-        await Promise.all([
-          ...state.trips
-            .filter((t) => !remoteTripIds.has(t.id))
-            .map((t) => saveTripRemote(t)),
-          ...state.bookings
-            .filter((b) => !remoteBookingIds.has(b.id))
-            .map((b) => saveBookingRemote(b)),
-        ]);
+        /* Same gate for bookings. Mirrors deleteBooking's tombstone. */
+        const deletedBookingIds = new Set(state.deletedBookingIds);
+        const tombstonedRemoteBookings = remoteBookings.filter((b) =>
+          deletedBookingIds.has(b.id),
+        );
+        if (tombstonedRemoteBookings.length > 0) {
+          console.warn(
+            `[firebase-sync] cleaning ${tombstonedRemoteBookings.length} zombie booking(s) from RTDB.`,
+          );
+          await Promise.all(
+            tombstonedRemoteBookings.map((b) => deleteBookingRemote(b.id)),
+          );
+        }
+        const liveRemoteBookings = remoteBookings.filter(
+          (b) => !deletedBookingIds.has(b.id),
+        );
+
+        /* Deliberately NOT pushing local-only items on hydrate.
+           That backfill was the resurrection vector: a locally-cached
+           row whose RTDB sibling was deleted elsewhere (another tab,
+           another device) would get pushed back up here, and any
+           tombstone on the other side wouldn't catch it.
+           New items get to RTDB via the mirror subscriber below
+           once the user adds/edits them. */
 
         /* Merge remote-only items into the store. addTrip's tombstone
            check is the last line of defence — even if liveRemoteTrips
            somehow leaked through, addTrip itself would refuse the
            insert with a console warning. */
         const tripsToAdd = liveRemoteTrips.filter((t) => !localTripIds.has(t.id));
-        const bookingsToAdd = remoteBookings.filter(
+        const bookingsToAdd = liveRemoteBookings.filter(
           (b) => !localBookingIds.has(b.id),
         );
         if (tripsToAdd.length > 0 || bookingsToAdd.length > 0) {

@@ -85,6 +85,10 @@ interface TravelState {
    *  RTDB still has the row (the remote delete might race with the
    *  hydrate read, leaving the row in RTDB momentarily). */
   deletedTripIds: string[];
+  /** Booking ids the user deleted. Stops useFirebaseSync from
+   *  re-pushing a locally-cached booking that the user already
+   *  deleted on RTDB (the bk-x resurrection bug). */
+  deletedBookingIds: string[];
 
   setActiveTrip: (id: string | null) => void;
   addTrip: (trip: Trip) => void;
@@ -104,6 +108,10 @@ interface TravelState {
 
   setScanInFlight: (v: boolean) => void;
 
+  /** Clears all delete-tombstones. Used by Full sync so the agent can
+   *  re-ingest trips/bookings that were previously deleted. */
+  clearTombstones: () => void;
+
   /** Reset everything to the seed mocks — useful for the demo. */
   resetToMocks: () => void;
 }
@@ -119,6 +127,7 @@ export const useTravelStore = create<TravelState>()(
       scanInFlight: false,
       deletedTripFingerprints: [],
       deletedTripIds: [],
+      deletedBookingIds: [],
 
       setActiveTrip: (id) => set({ activeTripId: id }),
       addTrip: (trip) =>
@@ -204,7 +213,10 @@ export const useTravelStore = create<TravelState>()(
           };
         }),
       deleteBooking: (id) =>
-        set((s) => ({ bookings: s.bookings.filter((b) => b.id !== id) })),
+        set((s) => ({
+          bookings: s.bookings.filter((b) => b.id !== id),
+          deletedBookingIds: Array.from(new Set([...s.deletedBookingIds, id])),
+        })),
 
       setScan: (scan) => set({ scan }),
 
@@ -219,6 +231,16 @@ export const useTravelStore = create<TravelState>()(
         }),
 
       setScanInFlight: (v) => set({ scanInFlight: v }),
+
+      /* Wipe tombstones so a Full sync can re-ingest trips/bookings
+         that were previously deleted. Without this, the agent re-emits
+         the same ids and the tombstone gate silently drops them. */
+      clearTombstones: () =>
+        set({
+          deletedTripIds: [],
+          deletedTripFingerprints: [],
+          deletedBookingIds: [],
+        }),
 
       resetToMocks: () =>
         set({
@@ -238,6 +260,7 @@ export const useTravelStore = create<TravelState>()(
         tripChatSessions: state.tripChatSessions,
         deletedTripFingerprints: state.deletedTripFingerprints,
         deletedTripIds: state.deletedTripIds,
+        deletedBookingIds: state.deletedBookingIds,
       }),
       /* Run the dedupe pass once per app start so dupes that landed
          before the ingestion-level fix get collapsed automatically. */

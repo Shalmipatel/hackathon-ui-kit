@@ -109,6 +109,34 @@ export function bookingDayKey(booking: Booking): string {
   return localDateKey(booking.start);
 }
 
+/** Every YYYY-MM-DD a booking covers, inclusive. Single-day events
+ *  return a one-element array; a hotel from Jun 13 → Jun 17 returns
+ *  [Jun 13, Jun 14, Jun 15, Jun 16, Jun 17] so it renders on every
+ *  night of the stay, not just the check-in day. Uses local-date
+ *  semantics (same as `localDateKey`) so a JST stamp stays on its
+ *  own calendar regardless of the viewer's timezone. */
+export function bookingDayKeys(booking: Booking): string[] {
+  const startKey = localDateKey(booking.start);
+  if (!booking.end) return [startKey];
+  const endKey = localDateKey(booking.end);
+  if (endKey === startKey) return [startKey];
+
+  const [sy, sm, sd] = startKey.split('-').map(Number);
+  const [ey, em, ed] = endKey.split('-').map(Number);
+  /* Construct in local time to step calendar days without DST drift. */
+  const cur = new Date(sy, sm - 1, sd);
+  const end = new Date(ey, em - 1, ed);
+  if (end.getTime() < cur.getTime()) return [startKey];
+  const keys: string[] = [];
+  while (cur.getTime() <= end.getTime()) {
+    keys.push(
+      `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`,
+    );
+    cur.setDate(cur.getDate() + 1);
+  }
+  return keys;
+}
+
 /** Returns a lat/lng pair representative of the booking's location. */
 export function bookingLocation(booking: Booking): { lat: number; lng: number; label: string } | null {
   switch (booking.type) {

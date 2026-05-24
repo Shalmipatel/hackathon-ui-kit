@@ -57,10 +57,9 @@ export class SessionSyncClient implements ISessionSyncClient {
   }
 
   async deleteSession(sessionKey: string): Promise<void> {
-    await this.invoke('sessions_delete', {
-      sessionKey: toSessionKeyHeader(sessionKey),
-      kind: 'main',
-      model: 'openclaw',
+    await this.invoke('sessions.delete', {
+      key: toSessionKeyHeader(sessionKey),
+      deleteTranscript: true,
     });
   }
 

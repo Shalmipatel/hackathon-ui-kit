@@ -1098,8 +1098,33 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
             </NavItem>
             <NavItem $active={activeView === 'chat'} onClick={() => onNavigate('chat')}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              <NavItemLabel $visible={!collapsed}>Chat with assistant</NavItemLabel>
+              <NavItemLabel $visible={!collapsed}>Chat</NavItemLabel>
             </NavItem>
+            {activeView === 'chat' && !collapsed && (
+              <div style={{ padding: '4px 4px 4px 12px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {generalSession && (
+                  <SidePanelSessionItem
+                    key={generalSession.id}
+                    session={generalSession}
+                    onSwitchSession={onSwitchSession}
+                  />
+                )}
+                {pinnedSessions.map((s) => (
+                  <SidePanelSessionItem
+                    key={s.id}
+                    session={s}
+                    onSwitchSession={onSwitchSession}
+                  />
+                ))}
+                {unpinnedSessions.map((s) => (
+                  <SidePanelSessionItem
+                    key={s.id}
+                    session={s}
+                    onSwitchSession={onSwitchSession}
+                  />
+                ))}
+              </div>
+            )}
           </NavSection>
         </ScrollableArea>
 

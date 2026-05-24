@@ -1,16 +1,15 @@
 /**
  * Trigger a trip-discovery scan via the agent.
  *
- * The "+ New" button isn't a manual form anymore — it's an ask to
- * the agent: "look at my connections and tell me what trips you can
- * find". The agent replies with a wanderbot trips/v1 block (and
- * optionally bookings/v1 per trip), and useBookingIngestion picks
- * them up to populate the trip board.
+ * Sends a one-line command — `wanderbot-sync deep` or
+ * `wanderbot-sync shallow` — that triggers the openclaw skill
+ * (see skills/wanderbot-sync.md). The skill scans Gmail (and
+ * connected browser sources) and writes directly to RTDB under
+ * /wanderbot/trips and /wanderbot/bookings. The frontend picks the
+ * writes up on its next mount via loadAllTrips/Bookings.
  *
- * We send into the chat-store via useSendMessage. If there's no
- * active session we default to GENERAL_SESSION_ID so the message
- * always lands somewhere. Toasts cover the user-facing feedback —
- * the actual trip creation happens through the ingestion path.
+ * No schema, no rule list, no per-source guidance lives in chat
+ * anymore — it's all baked into the skill on the openclaw side.
  */
 
 import { useCallback } from 'react';
@@ -19,16 +18,16 @@ import { useSendMessage } from '@/features/chat/useSendMessage';
 import { toast } from '@/features/toast';
 import { GENERAL_SESSION_ID } from '@/types/chat-session';
 import { useTravelStore } from './travel-store';
-import { TRIP_DISCOVERY_PROMPT, BOOKING_CONTRACT_PROMPT } from './parser';
+import type { ScanDepth } from './parser';
 
 export function useScanForTrips(): {
-  scan: () => void;
+  scan: (depth?: ScanDepth) => void;
   scanInFlight: boolean;
 } {
   const sendMessage = useSendMessage();
   const scanInFlight = useTravelStore((s) => s.scanInFlight);
 
-  const scan = useCallback(() => {
+  const scan = useCallback((depth: ScanDepth = 'shallow') => {
     if (useTravelStore.getState().scanInFlight) return;
 
     /* Make sure something is selected so sendMessage has a target.
@@ -49,29 +48,24 @@ export function useScanForTrips(): {
       return;
     }
 
+    /* Full sync = explicit rebuild. Wipe tombstones first so the
+       agent can re-emit trips/bookings the user previously deleted
+       without them being silently dropped by the ingestion gate. */
+    if (depth === 'deep') {
+      useTravelStore.getState().clearTombstones();
+    }
+
     useTravelStore.getState().setScanInFlight(true);
     toast({
-      title: 'Scanning for trips…',
-      description: 'Asking the assistant to look through your connections.',
+      title: depth === 'deep' ? 'Full sync started…' : 'Quick update started…',
+      description:
+        depth === 'deep'
+          ? 'Sweeping the last 30 days across every connected source.'
+          : 'Checking the last 7 days for new bookings.',
       duration: 4000,
     });
 
-    /* Reset the agent's context first so prior conversation state
-       (acks, partial bookings, etc.) doesn't bleed into the scan. The
-       OpenClaw chat backend treats /reset as a control command. */
-    sendMessage('/reset');
-
-    const prompt = [
-      'I want you to discover new trips from my connected sources. Do not ask me for manual input — pull from Gmail, calendar, and any travel-site sessions you can reach.',
-      '',
-      TRIP_DISCOVERY_PROMPT,
-      '',
-      'After listing the trips, you may optionally include bookings for each one using this format:',
-      '',
-      BOOKING_CONTRACT_PROMPT,
-    ].join('\n');
-
-    sendMessage(prompt);
+    sendMessage(`/wanderbot-sync ${depth}`);
 
     /* Clear in-flight flag after a reasonable window — we don't know
        exactly when the agent finishes streaming, and the ingestion

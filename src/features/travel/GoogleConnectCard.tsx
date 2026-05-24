@@ -10,6 +10,7 @@ import { toast } from '@/features/toast';
 import { getChatStore } from '@/features/app/bootstrap';
 import { GENERAL_SESSION_ID } from '@/types/chat-session';
 import { useSendMessage } from '@/features/chat/useSendMessage';
+import { useNavigationStore } from '@/features/navigation';
 import {
   buildGogCommandPrompt,
   connectGmail,
@@ -17,8 +18,11 @@ import {
   getConnectedGmail,
 } from './google-connect';
 import {
+  clearGmailConnection,
   subscribeToAuthRequest,
+  subscribeToGmailConnection,
   writeAuthRequest,
+  writeGmailConnection,
   type AuthRequest,
 } from './firebase';
 
@@ -44,15 +48,23 @@ const Logo = styled.div`
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #ea4335 0%, #fbbc05 100%);
-  color: #fff;
-  font-weight: 700;
+  background: #fff;
+  border: 1px solid rgba(36, 36, 36, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
   flex-shrink: 0;
 `;
+
+const GmailLogo = () => (
+  <svg width="22" height="22" viewBox="52 42 88 66" xmlns="http://www.w3.org/2000/svg">
+    <path fill="#4285f4" d="M58 108h14V74L52 59v43c0 3.32 2.69 6 6 6" />
+    <path fill="#34a853" d="M120 108h14c3.32 0 6-2.69 6-6V59l-20 15" />
+    <path fill="#fbbc04" d="M120 48v26l20-15v-8c0-7.42-8.47-11.65-14.4-7.2" />
+    <path fill="#ea4335" d="M72 74V48l24 18 24-18v26L96 92" />
+    <path fill="#c5221f" d="M52 51v8l20 15V48l-5.6-4.2c-5.94-4.45-14.4-.22-14.4 7.2" />
+  </svg>
+);
 
 const HeadText = styled.div`
   display: flex;
@@ -203,8 +215,23 @@ export const GoogleConnectCard: React.FC = () => {
   const subRef = useRef<(() => void) | null>(null);
   const sendMessage = useSendMessage();
 
+  /* Boot from localStorage instantly so the card renders the right
+     state with no RTDB round-trip, then let the RTDB subscription
+     overwrite if a different device connected/disconnected. */
   useEffect(() => {
     setConnected(getConnectedGmail());
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeToGmailConnection((conn) => {
+      const email = conn?.email ?? null;
+      setConnected(email);
+      try {
+        if (email) localStorage.setItem('gog-connected-email', email);
+        else localStorage.removeItem('gog-connected-email');
+      } catch { /* non-fatal */ }
+    });
+    return unsub;
   }, []);
 
   /* Cleanup RTDB subscription on unmount so a stale subscription
@@ -248,12 +275,10 @@ export const GoogleConnectCard: React.FC = () => {
     await writeAuthRequest(authRequest);
 
     /* Route the gog command into the general chat session so it
-       doesn't pollute trip-specific transcripts. */
-    let previousSession: string | null = null;
+       doesn't pollute trip-specific transcripts, AND jump the UI
+       into that conversation so the user can watch the agent work. */
     try {
-      const chat = getChatStore();
-      previousSession = chat.getState().activeSessionId;
-      chat.getState().setActiveSession(GENERAL_SESSION_ID);
+      getChatStore().getState().setActiveSession(GENERAL_SESSION_ID);
     } catch (err) {
       console.warn('[gog-connect] chat store unavailable', err);
     }
@@ -266,13 +291,7 @@ export const GoogleConnectCard: React.FC = () => {
     });
     sendMessage(prompt);
 
-    setTimeout(() => {
-      if (previousSession && previousSession !== GENERAL_SESSION_ID) {
-        try {
-          getChatStore().getState().setActiveSession(previousSession);
-        } catch { /* non-fatal */ }
-      }
-    }, 50);
+    useNavigationStore.getState().goToChat(GENERAL_SESSION_ID);
 
     /* Subscribe to the RTDB record so we flip from Processing →
        Connected / Error the moment the agent writes status back. */
@@ -285,6 +304,9 @@ export const GoogleConnectCard: React.FC = () => {
         setProcessStatus('success');
         setProcessMessage(req.stdout?.trim() || 'gog reported success.');
         try { localStorage.setItem('gog-connected-email', authRequest.email); } catch { /* non-fatal */ }
+        /* Cross-device sync — every other tab / device reading
+           wanderbot/connections/gmail will flip to Connected. */
+        void writeGmailConnection(authRequest.email);
         setConnected(authRequest.email);
         setEmail('');
         toast({
@@ -312,6 +334,7 @@ export const GoogleConnectCard: React.FC = () => {
 
   function onDisconnect() {
     disconnectGmail();
+    void clearGmailConnection();
     setConnected(null);
     toast({
       title: 'Gmail disconnected',
@@ -322,7 +345,7 @@ export const GoogleConnectCard: React.FC = () => {
   return (
     <Card $connected={!!connected}>
       <Head>
-        <Logo>G</Logo>
+        <Logo><GmailLogo /></Logo>
         <HeadText>
           <Title>Gmail</Title>
           <Sub>Let the assistant read your inbox for trip confirmations.</Sub>

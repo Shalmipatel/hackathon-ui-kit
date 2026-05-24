@@ -362,9 +362,15 @@ export const TripChatPanel: React.FC<TripChatPanelProps> = () => {
   const send = (raw: string) => {
     const trimmed = raw.trim();
     if (!trimmed || isStreaming) return;
-    const ctx = buildTripContextString();
+    /* Attach the trip context ONLY on the first user message of the
+       session. The agent's chat history retains it after that — no
+       reason to re-paste it on every follow-up question. Also dropped
+       the booking contract from the per-message preamble: the
+       wanderbot-sync skill owns booking writes now. */
+    const isFirstUserMessage = !messages.some((m) => m.role === 'user');
+    const ctx = isFirstUserMessage ? buildTripContextString() : null;
     const composed = ctx
-      ? `Context — my current trip:\n${ctx}\n\n${BOOKING_CONTRACT_PROMPT}\n\nMessage: ${trimmed}`
+      ? `Context — my current trip:\n${ctx}\n\nMessage: ${trimmed}`
       : trimmed;
     sendMessage(composed);
     setText('');
