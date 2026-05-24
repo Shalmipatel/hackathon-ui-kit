@@ -21,6 +21,8 @@ import Itinerary from '@/features/travel/Itinerary';
 import TripMap from '@/features/travel/TripMap';
 import TripChatPanel from '@/features/travel/TripChatPanel';
 import BookingDetailModal from '@/features/travel/BookingDetailModal';
+import { useFirebaseSync } from '@/features/travel/useFirebaseSync';
+import { useBookingIngestion } from '@/features/travel/useBookingIngestion';
 import { signOutFirebase } from '@/features/auth/firebase-auth';
 import ConnectionsView from '@/features/settings/ConnectionsView';
 import SettingsView from '@/features/settings/SettingsView';
@@ -360,6 +362,13 @@ function todayYmd(): string {
 }
 
 export const MobileApp: React.FC = () => {
+  /* Same side-effect hooks TripsView mounts on desktop. Without these
+     the local travel-store stays empty: useFirebaseSync hydrates trips
+     + bookings from RTDB and mirrors local changes back; useBookingIngestion
+     listens for trips/v1 + bookings/v1 blocks in chat replies. */
+  useFirebaseSync();
+  useBookingIngestion();
+
   const trips = useTravelStore((s) => s.trips);
   const setActiveTrip = useTravelStore((s) => s.setActiveTrip);
   const activeTripId = useTravelStore((s) => s.activeTripId);
