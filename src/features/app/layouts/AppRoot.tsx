@@ -5,6 +5,7 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import styled, { keyframes, css } from 'styled-components';
 import { bootstrap } from '@/features/app/bootstrap';
+import AuthGate from '@/features/auth/AuthGate';
 
 const spin = keyframes`
   to { transform: rotate(360deg); }
@@ -162,5 +163,5 @@ export function AppRoot({ children, fallback }: AppRootProps) {
     );
   }
 
-  return <>{children}</>;
+  return <AuthGate>{children}</AuthGate>;
 }

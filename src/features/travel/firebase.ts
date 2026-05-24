@@ -102,6 +102,15 @@ export function isFirebaseConfigured(): boolean {
   return readEnvConfig() !== null;
 }
 
+/** Shared FirebaseApp accessor — the auth module needs the same
+ *  initialised app instance to attach Auth to. Idempotent. */
+export function getFirebaseApp(): FirebaseApp | null {
+  if (app) return app;
+  /* Side-effect of getDb: it calls initializeApp and caches `app`. */
+  getDb();
+  return app;
+}
+
 /* ─────────────── Trips ─────────────── */
 
 export async function loadAllTrips(): Promise<Trip[]> {
