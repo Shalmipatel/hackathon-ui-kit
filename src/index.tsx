@@ -1,9 +1,18 @@
 import { createRoot } from 'react-dom/client';
-import { GlobalStyles } from '@/components';
+import { GlobalStyles, useIsMobile } from '@/components';
 import { TabPage, ConnectionGate, AppRoot } from '@/features/app/layouts';
+import MobileApp from '@/features/mobile/MobileApp';
 import { Toaster } from '@/features/toast';
 import { initSuperProperties } from '@/features/analytics';
 import { handleOAuthCallback, isOAuthCallback } from '@/features/travel/google-connect';
+
+/* Picks MobileApp or TabPage based on viewport. Re-evaluates live via
+ * matchMedia, so rotating an iPad or resizing a desktop window swaps
+ * shells without a reload. */
+function Shell() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileApp /> : <TabPage />;
+}
 
 /* If this load is the Gmail OAuth popup landing back from Google,
  * branch BEFORE mounting the React tree — the popup just needs to
@@ -56,7 +65,7 @@ function bootApp() {
         <GlobalStyles />
         <AppRoot>
           <ConnectionGate>
-            <TabPage />
+            <Shell />
           </ConnectionGate>
         </AppRoot>
         <Toaster />
