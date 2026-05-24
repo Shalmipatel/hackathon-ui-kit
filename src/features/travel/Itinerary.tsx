@@ -6,6 +6,7 @@ import {
   bookingDayKeys,
   formatDayLabel,
   formatTripRange,
+  localDateKey,
   tripDayKeys,
 } from './format';
 import BookingCard from './BookingCard';
@@ -284,6 +285,21 @@ export const Itinerary: React.FC<ItineraryProps> = ({
         map.set(key, list);
       }
     });
+    /* Per-day sort: each event uses the timestamp RELEVANT to THIS day,
+       not its globally-sorted start. So a hotel that started Day 1 at
+       3pm sorts as 11am "Check-out" on Day 5, not as if it began 3pm
+       on Day 5 (which would push it after a 10am museum visit). */
+    const dayKeyForSort = (b: typeof bookings[number], dk: string): string => {
+      const sd = localDateKey(b.start);
+      const ed = b.end ? localDateKey(b.end) : sd;
+      if (sd === ed) return b.start; // single-day
+      if (dk === sd) return b.start; // start day — use start time
+      if (dk === ed) return b.end as string; // end day — use end time
+      return `${dk}T00:00:00`; // middle day — "All day" sorts to top
+    };
+    for (const [dk, list] of map) {
+      list.sort((a, b) => dayKeyForSort(a, dk).localeCompare(dayKeyForSort(b, dk)));
+    }
     return map;
   }, [bookings]);
 
