@@ -184,7 +184,10 @@ export const TripMap: React.FC<TripMapProps> = ({ focusedBookingId, onBookingCli
         attributionControl={false}
       >
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+          /* CartoDB Voyager — colored basemap (green parks, blue water,
+             beige labels) that reads closer to Google Maps than the
+             muted "light_all" style. Still free, no API key. */
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
         />
         <FitBounds points={points} focusedPoint={focusedPoint} />
         {items.map(({ booking, lat, lng, label }) => (
