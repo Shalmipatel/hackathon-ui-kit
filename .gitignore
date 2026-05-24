@@ -35,3 +35,4 @@ pnpm-debug.log*
 
 # Local HTTPS certs
 .certs/
+.vercel/
