@@ -54,12 +54,12 @@ const PopupMeta = styled.div`
 const TYPE_GLYPH: Record<BookingType, string> = {
   flight: '✈',
   hotel: 'H',
-  attraction: '★',  // monuments / landmarks
-  experience: '✦',  // classes / spa / wellness
-  event: '🎟',      // shows / concerts / games
-  activity: '◉',    // catch-all
+  attraction: '★',   // monuments / landmarks
+  experience: '✦',   // classes / spa / wellness
+  event: '🎟',       // shows / concerts / games
+  activity: '🥾',    // hike (catch-all for outdoor / walking)
   restaurant: '🍴',
-  transport: 'T',
+  transport: '🚗',   // ground transport
 };
 
 const TYPE_COLOR: Record<BookingType, string> = {

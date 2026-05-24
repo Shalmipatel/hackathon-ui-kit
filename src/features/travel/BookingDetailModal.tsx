@@ -126,7 +126,7 @@ const Head = styled.div`
   border-bottom: 1px solid rgba(36, 36, 36, 0.06);
 `;
 
-const HeadIcon = styled.div<{ $tone: string }>`
+const HeadIcon = styled.button<{ $tone: string }>`
   width: 44px;
   height: 44px;
   flex-shrink: 0;
@@ -136,6 +136,74 @@ const HeadIcon = styled.div<{ $tone: string }>`
   justify-content: center;
   background: ${(p) => p.$tone};
   color: #242424;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: transform 0.12s, box-shadow 0.12s;
+
+  &:hover { box-shadow: 0 2px 8px rgba(36, 36, 36, 0.18); }
+  &:active { transform: scale(0.94); }
+
+  /* Subtle chevron hint that this is tappable. */
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: 3px;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(36, 36, 36, 0.18);
+  }
+`;
+
+const TypePopover = styled.div`
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(36, 36, 36, 0.22);
+  border: 1px solid rgba(36, 36, 36, 0.08);
+  padding: 6px;
+  min-width: 200px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+`;
+
+const TypeOption = styled.button<{ $active: boolean; $tone: string }>`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: ${(p) => (p.$active ? p.$tone : 'transparent')};
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: ${(p) => (p.$active ? 600 : 500)};
+  color: #1F2421;
+  text-align: left;
+  text-transform: capitalize;
+
+  &:hover { background: ${(p) => p.$tone}; }
+`;
+
+const TypeOptionIcon = styled.span<{ $tone: string }>`
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: ${(p) => p.$tone};
+  color: #1F2421;
 `;
 
 const HeadMain = styled.div`
@@ -394,8 +462,11 @@ function typeIcon(type: Booking['type']): React.ReactElement {
     case 'activity':
       return (
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M3 12h18" /><path d="M12 3a14 14 0 0 0 0 18" /><path d="M12 3a14 14 0 0 1 0 18" />
+          <circle cx="14" cy="4" r="2" fill="currentColor" />
+          <path d="M16 21l-2-6 1-5 4 4 3 1" />
+          <path d="M15 10l-3-1-4 5 2 3" />
+          <path d="M8 21l2-4" />
+          <path d="M19 3v18" />
         </svg>
       );
     case 'attraction':
@@ -430,9 +501,10 @@ function typeIcon(type: Booking['type']): React.ReactElement {
     case 'transport':
       return (
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="4" y="3" width="16" height="16" rx="2" /><path d="M4 11h16" />
-          <path d="M8 15h.01" /><path d="M16 15h.01" />
-          <path d="m8 19-2 3" /><path d="m16 19 2 3" />
+          <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" />
+          <circle cx="7" cy="17" r="2" />
+          <path d="M9 17h6" />
+          <circle cx="17" cy="17" r="2" />
         </svg>
       );
   }
@@ -540,6 +612,45 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
     setTimeout(onClose, 440);
   };
 
+  /* Type picker. Only allow swaps WITHIN the same shape-group, since
+     flight/transport use from+to and everything else uses place — a
+     cross-group switch would mean the new record is missing required
+     fields. Most reclassifications (activity→attraction, etc.) live
+     within the "place" group, which covers the common case. */
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const PLACE_TYPES: BookingType[] = [
+    'attraction',
+    'experience',
+    'event',
+    'activity',
+    'hotel',
+    'restaurant',
+  ];
+  const ROUTE_TYPES: BookingType[] = ['flight', 'transport'];
+  const sameGroup = (a: BookingType, b: BookingType): boolean => {
+    const isRoute = (t: BookingType) => ROUTE_TYPES.includes(t);
+    return isRoute(a) === isRoute(b);
+  };
+  const availableTypes = ROUTE_TYPES.includes(b.type) ? ROUTE_TYPES : PLACE_TYPES;
+  const pickType = (next: BookingType) => {
+    setPickerOpen(false);
+    if (next === b.type || !sameGroup(b.type, next)) return;
+    commit({ type: next } as Partial<Booking>);
+  };
+  /* Click-outside to close. */
+  const headIconWrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+      if (headIconWrapRef.current?.contains(t)) return;
+      setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [pickerOpen]);
+
   /* Mobile drag-to-dismiss state. PointerEvents on the drag handle
      translate the card; release past 80px (Apple's typical dismiss
      threshold) AND/OR with fast downward velocity triggers close.
@@ -594,7 +705,38 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
           onPointerCancel={onHandleUp}
         />
         <Head>
-          <HeadIcon $tone={TONE[b.type]}>{typeIcon(b.type)}</HeadIcon>
+          <div ref={headIconWrapRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <HeadIcon
+              $tone={TONE[b.type]}
+              type="button"
+              onClick={() => setPickerOpen((v) => !v)}
+              aria-label={`Change booking type, currently ${b.type}`}
+              aria-haspopup="menu"
+              aria-expanded={pickerOpen}
+              title="Tap to change type"
+            >
+              {typeIcon(b.type)}
+            </HeadIcon>
+            {pickerOpen && (
+              <TypePopover role="menu">
+                {availableTypes.map((t) => (
+                  <TypeOption
+                    key={t}
+                    role="menuitemradio"
+                    aria-checked={t === b.type}
+                    $active={t === b.type}
+                    $tone={TONE[t]}
+                    onClick={() => pickType(t)}
+                  >
+                    <TypeOptionIcon $tone={TONE[t]}>
+                      {typeIcon(t)}
+                    </TypeOptionIcon>
+                    {t}
+                  </TypeOption>
+                ))}
+              </TypePopover>
+            )}
+          </div>
           <HeadMain>
             <TitleInput
               value={title}
