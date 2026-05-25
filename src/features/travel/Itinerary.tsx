@@ -204,16 +204,17 @@ const SortableItem: React.FC<{
     id: composeSortableId(dayKey, booking.id),
     disabled: { draggable: locked, droppable: false },
   });
-  /* The dragged card is rendered in a top-level `DragOverlay` so it
-     can float freely. The original DOM node stays IN PLACE but goes
-     fully transparent — that preserves the layout (so the cursor →
-     insertion math reads the same rects throughout the drag) without
-     ever showing a "ghost copy" of the card the user is moving. */
+  /* Dragged card renders only in the top-level `DragOverlay`. The
+     source DOM node is fully removed from layout (display:none) so
+     surrounding cards collapse the gap — the floating overlay is
+     the only on-screen representation while dragging. Insertion math
+     reads live DOM positions, so the collapsed layout is what
+     determines the drop target (matches what the user sees). */
   const style: React.CSSProperties = {
     cursor: locked ? 'default' : 'grab',
     touchAction: 'manipulation',
     position: 'relative',
-    visibility: isDragging ? 'hidden' : 'visible',
+    display: isDragging ? 'none' : undefined,
   };
   return (
     <div
@@ -620,18 +621,6 @@ export const Itinerary: React.FC<ItineraryProps> = ({
      final Y, not on the strategy's predicted index. */
   const noopStrategy = useMemo(() => () => null, []);
 
-  /* Snapshot of every booking card's bounding rect at drag START
-     — captured here so handleDragEnd can compute insertion against
-     the LAYOUT THE USER SAW WHEN THEY BEGAN DRAGGING, not against
-     the live mid-drag layout (which verticalListSortingStrategy is
-     actively transforming to predict the drop). Keyed by (dayKey,
-     bookingId) so multi-day items don't collide. */
-  type DragSnapshot = {
-    cards: Array<{ dayKey: string; bookingId: string; top: number; bottom: number; mid: number }>;
-    daySections: Array<{ dayKey: string; top: number; bottom: number }>;
-  };
-  const dragSnapshotRef = useRef<DragSnapshot | null>(null);
-
   /* Live insertion preview: where would the drop land RIGHT NOW?
      Updated on every drag move so the indicator stays glued to the
      pointer. `index` is the zero-based slot the active card would
@@ -641,13 +630,15 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     index: number;
   } | null>(null);
 
-  /** Pure: given the cursor Y, the drag snapshot, and the moved card,
-   *  return (targetDay, insertionIndex, prev, next). Used by both
-   *  the live preview (handleDragMove) and the commit (handleDragEnd)
-   *  so the indicator and the actual drop CAN'T disagree. */
+  /** Pure: given the cursor Y and the moved card's id, walk the LIVE
+   *  DOM (the source card is `display:none` while dragging so it's
+   *  naturally excluded) and return where the drop would land.
+   *
+   *  Live reads — not a drag-start snapshot — because we collapse the
+   *  source out of layout: surrounding cards shift up to fill the
+   *  gap, and the snapshot would be wrong about their positions. */
   const computeInsertion = (
     cursorY: number,
-    snap: DragSnapshot,
     movedId: string,
   ): {
     targetDay: string;
@@ -655,26 +646,43 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     prevBookingId: string | null;
     nextBookingId: string | null;
   } | null => {
+    /* Day-section closest to the cursor. */
     let targetDay: string | null = null;
     let bestDist = Infinity;
-    for (const sec of snap.daySections) {
-      if (cursorY >= sec.top && cursorY <= sec.bottom) {
-        targetDay = sec.dayKey;
+    for (const sec of document.querySelectorAll<HTMLElement>('[data-day-key]')) {
+      const dayKey = sec.dataset.dayKey;
+      if (!dayKey) continue;
+      const r = sec.getBoundingClientRect();
+      if (cursorY >= r.top && cursorY <= r.bottom) {
+        targetDay = dayKey;
         break;
       }
-      const dist = Math.min(
-        Math.abs(cursorY - sec.top),
-        Math.abs(cursorY - sec.bottom),
-      );
+      const dist = Math.min(Math.abs(cursorY - r.top), Math.abs(cursorY - r.bottom));
       if (dist < bestDist) {
         bestDist = dist;
-        targetDay = sec.dayKey;
+        targetDay = dayKey;
       }
     }
     if (!targetDay) return null;
-    const daySlots = snap.cards
-      .filter((s) => s.dayKey === targetDay && s.bookingId !== movedId)
-      .sort((a, b) => a.top - b.top);
+
+    /* Live rects for every visible card in that day (the dragged
+       source has display:none and is therefore absent here). */
+    type Slot = { bookingId: string; top: number; mid: number };
+    const daySlots: Slot[] = [];
+    const dayEl = document.querySelector<HTMLElement>(
+      `[data-day-key="${targetDay}"]`,
+    );
+    if (dayEl) {
+      for (const el of dayEl.querySelectorAll<HTMLElement>('[data-booking-id]')) {
+        const bookingId = el.dataset.bookingId;
+        if (!bookingId || bookingId === movedId) continue;
+        const r = el.getBoundingClientRect();
+        if (r.height === 0) continue; // skip display:none / un-rendered nodes
+        daySlots.push({ bookingId, top: r.top, mid: r.top + r.height / 2 });
+      }
+      daySlots.sort((a, b) => a.top - b.top);
+    }
+
     if (daySlots.length === 0) {
       return { targetDay, insertionIndex: 0, prevBookingId: null, nextBookingId: null };
     }
@@ -709,34 +717,14 @@ export const Itinerary: React.FC<ItineraryProps> = ({
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(String(event.active.id));
-    const cards: DragSnapshot['cards'] = [];
-    for (const el of document.querySelectorAll<HTMLElement>('[data-booking-id]')) {
-      const bookingId = el.dataset.bookingId;
-      if (!bookingId) continue;
-      const sec = el.closest('[data-day-key]') as HTMLElement | null;
-      const dayKey = sec?.dataset.dayKey;
-      if (!dayKey) continue;
-      const r = el.getBoundingClientRect();
-      cards.push({ dayKey, bookingId, top: r.top, bottom: r.bottom, mid: r.top + r.height / 2 });
-    }
-    const daySections: DragSnapshot['daySections'] = [];
-    for (const sec of document.querySelectorAll<HTMLElement>('[data-day-key]')) {
-      const dayKey = sec.dataset.dayKey;
-      if (!dayKey) continue;
-      const r = sec.getBoundingClientRect();
-      daySections.push({ dayKey, top: r.top, bottom: r.bottom });
-    }
-    dragSnapshotRef.current = { cards, daySections };
   };
 
   const handleDragMove = (event: DragMoveEvent) => {
-    const snap = dragSnapshotRef.current;
-    if (!snap) return;
     const cursorY = cursorYRef.current;
     if (cursorY === null) return;
     const activeParsed = parseSortableId(String(event.active.id));
     if (!activeParsed) return;
-    const next = computeInsertion(cursorY, snap, activeParsed.bookingId);
+    const next = computeInsertion(cursorY, activeParsed.bookingId);
     if (!next) {
       setInsertion(null);
       return;
@@ -763,10 +751,9 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     if (isBookingLocked(moved) || bookingSpansMultipleDays(moved)) return;
 
     const cursorY = cursorYRef.current;
-    const snap = dragSnapshotRef.current;
-    if (cursorY === null || !snap) return;
+    if (cursorY === null) return;
 
-    const result = computeInsertion(cursorY, snap, moved.id);
+    const result = computeInsertion(cursorY, moved.id);
     if (!result) return;
     const { targetDay, prevBookingId, nextBookingId } = result;
     const dayList = bookingsByDay.get(targetDay) ?? [];
