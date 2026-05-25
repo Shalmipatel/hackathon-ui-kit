@@ -461,12 +461,9 @@ function typeIcon(type: Booking['type']): React.ReactElement {
       );
     case 'activity':
       return (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="14" cy="4" r="2" fill="currentColor" />
-          <path d="M16 21l-2-6 1-5 4 4 3 1" />
-          <path d="M15 10l-3-1-4 5 2 3" />
-          <path d="M8 21l2-4" />
-          <path d="M19 3v18" />
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="13.5" cy="5.5" r="1.5" />
+          <path d="M17.5 10.78c-.86-.24-1.67-.6-2.4-1.07l-1.05-.7c-.34-.23-.72-.36-1.12-.4-.01 0-.04-.01-.04-.01-.05 0-.09-.01-.14-.01-.4 0-.78.11-1.11.32h-.01l-3.46 2.16c-.46.27-.7.78-.7 1.34 0 .07 0 .14.02.21l.94 4.78-2.34.46c-.27.05-.46.31-.41.59l.04.2c.05.27.31.46.59.41l3.16-.62c.46-.09.78-.51.78-.97 0-.05-.01-.11-.02-.16l-.65-3.21 2.1-1.42-.78 4.5L9.9 21H12l1.42-5.42 1.45 1.4-.05 4.02h2l.39-4.69-1.85-1.78.93-3.25c1.05.86 2.34 1.49 3.75 1.79z" />
         </svg>
       );
     case 'attraction':
