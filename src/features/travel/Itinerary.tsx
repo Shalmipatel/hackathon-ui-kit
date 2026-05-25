@@ -682,9 +682,10 @@ export const Itinerary: React.FC<ItineraryProps> = ({
    *  DOM (the source card is `display:none` while dragging so it's
    *  naturally excluded) and return where the drop would land.
    *
-   *  Live reads — not a drag-start snapshot — because we collapse the
-   *  source out of layout: surrounding cards shift up to fill the
-   *  gap, and the snapshot would be wrong about their positions. */
+   *  The line Y returned here is SNAPPED to a card boundary (top or
+   *  bottom of whichever card the cursor is currently over). It's the
+   *  Linear/Notion-style "drop indicator" pattern — a clear strip
+   *  between cards rather than a floating cursor follower. */
   const computeInsertion = (
     cursorY: number,
     movedId: string,
@@ -693,6 +694,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     insertionIndex: number;
     prevBookingId: string | null;
     nextBookingId: string | null;
+    lineY: number;
   } | null => {
     /* Day-section closest to the cursor. */
     let targetDay: string | null = null;
@@ -715,7 +717,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
 
     /* Live rects for every visible card in that day (the dragged
        source has display:none and is therefore absent here). */
-    type Slot = { bookingId: string; top: number; mid: number };
+    type Slot = { bookingId: string; top: number; bottom: number; mid: number };
     const daySlots: Slot[] = [];
     const dayEl = document.querySelector<HTMLElement>(
       `[data-day-key="${targetDay}"]`,
@@ -725,42 +727,75 @@ export const Itinerary: React.FC<ItineraryProps> = ({
         const bookingId = el.dataset.bookingId;
         if (!bookingId || bookingId === movedId) continue;
         const r = el.getBoundingClientRect();
-        if (r.height === 0) continue; // skip display:none / un-rendered nodes
-        daySlots.push({ bookingId, top: r.top, mid: r.top + r.height / 2 });
+        if (r.height === 0) continue;
+        daySlots.push({
+          bookingId,
+          top: r.top,
+          bottom: r.bottom,
+          mid: r.top + r.height / 2,
+        });
       }
       daySlots.sort((a, b) => a.top - b.top);
     }
 
     if (daySlots.length === 0) {
-      return { targetDay, insertionIndex: 0, prevBookingId: null, nextBookingId: null };
+      /* Empty day — line goes at the day's content top. */
+      const dayRect = dayEl?.getBoundingClientRect();
+      return {
+        targetDay,
+        insertionIndex: 0,
+        prevBookingId: null,
+        nextBookingId: null,
+        lineY: dayRect ? dayRect.top + 24 : cursorY,
+      };
     }
-    if (cursorY < daySlots[0].mid) {
+
+    /* Snap the line to the top of the card the cursor is over (or to
+       the bottom of the last card if the cursor is below them all).
+       Splits each card at its mid: top half ⇒ line at card.top
+       (insert before this card); bottom half ⇒ line at card.bottom
+       (insert after this card). */
+    if (cursorY < daySlots[0].top) {
       return {
         targetDay,
         insertionIndex: 0,
         prevBookingId: null,
         nextBookingId: daySlots[0].bookingId,
+        lineY: daySlots[0].top,
       };
     }
-    if (cursorY >= daySlots[daySlots.length - 1].mid) {
-      return {
-        targetDay,
-        insertionIndex: daySlots.length,
-        prevBookingId: daySlots[daySlots.length - 1].bookingId,
-        nextBookingId: null,
-      };
-    }
-    for (let i = 0; i < daySlots.length - 1; i++) {
-      if (cursorY >= daySlots[i].mid && cursorY < daySlots[i + 1].mid) {
+    for (let i = 0; i < daySlots.length; i++) {
+      const slot = daySlots[i];
+      if (cursorY <= slot.bottom) {
+        if (cursorY < slot.mid) {
+          /* Top half ⇒ insert BEFORE this card; line at card top. */
+          return {
+            targetDay,
+            insertionIndex: i,
+            prevBookingId: i > 0 ? daySlots[i - 1].bookingId : null,
+            nextBookingId: slot.bookingId,
+            lineY: slot.top,
+          };
+        }
+        /* Bottom half ⇒ insert AFTER this card; line at card bottom. */
         return {
           targetDay,
           insertionIndex: i + 1,
-          prevBookingId: daySlots[i].bookingId,
-          nextBookingId: daySlots[i + 1].bookingId,
+          prevBookingId: slot.bookingId,
+          nextBookingId: i + 1 < daySlots.length ? daySlots[i + 1].bookingId : null,
+          lineY: slot.bottom,
         };
       }
     }
-    return null;
+    /* Cursor below the last card ⇒ append. */
+    const last = daySlots[daySlots.length - 1];
+    return {
+      targetDay,
+      insertionIndex: daySlots.length,
+      prevBookingId: last.bookingId,
+      nextBookingId: null,
+      lineY: last.bottom,
+    };
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -871,7 +906,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     setInsertion({
       dayKey: next.targetDay,
       index: next.insertionIndex,
-      lineY: pointer.y,
+      lineY: next.lineY,
       lineLeft: refRect.left,
       lineWidth: refRect.width,
     });
