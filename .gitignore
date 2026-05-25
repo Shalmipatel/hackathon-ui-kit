@@ -36,3 +36,6 @@ pnpm-debug.log*
 # Local HTTPS certs
 .certs/
 .vercel/
+
+# Local OG-card render-script bundle output (regen with esbuild)
+scripts/.render-card.mjs

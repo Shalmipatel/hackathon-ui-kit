@@ -77,6 +77,41 @@ All values URL-encoded with `encodeURIComponent`. Common substitutions:
 | `cost`     | no       | 24  | Optional dark pill rendered in the top-right of the hero. **Pre-format** with the currency symbol — e.g. `$2,200`, `¥18,400`, `€420`. Skip for trip cards unless you have a meaningful total. |
 | `cta`      | no       | 48  | Override the right-side footer call-to-action. Defaults to `Open in Wanderbot →`. Use sparingly — e.g. for time-sensitive cards: `Check in now →`. |
 | `desc`     | no       | 220 | Override the iMessage preview's subtitle text (defaults to `subtitle`).                             |
+| `scene`    | no       | —   | Illustrated hero scene rendered BEHIND the title. One of: `mountain`, `city`, `coast`, `desert`, `forest`, `snow`, `aurora`, `river`. Defaults to `mountain` for trips and a generic gradient otherwise. **Pick to match the destination** — see "Picking a scene" below. |
+| `eyebrow`  | no       | 80  | Small uppercase line above the hero title. When omitted but `title` contains ` · `, the leading segment becomes the eyebrow automatically. Use to add a specific context phrase: `SAT JUN 20 · LANDS 3:45 PM · ZRH`, `DAY 1 OF 9`, `PACKING · SWITZERLAND`. |
+| `stats`    | no       | 240 | Up to 3 columns of label:value pairs separated by `\|`. Format: `LABEL:VALUE\|LABEL:VALUE\|LABEL:VALUE`. Labels are auto-uppercased. Use for trip overview cards. Example: `DATES:Jun 19–28\|LENGTH:9 days\|PARTY:2 travelers`. |
+| `items`    | no       | 480 | Up to 5 numbered agenda items. Each item: `<itemType>:<text>:<sideTag>`, separated by `\|`. `itemType` colors the numeral (use the same values as `type`: `activity`, `hotel`, `restaurant`, etc.). `sideTag` is small uppercase text on the right (PM, TICKETS, STAY, 6:00, etc.). Use for day-plan / itinerary answers. |
+| `note`     | no       | 200 | Free-form paragraph rendered below the hero. Use **instead of** items/stats for prose-y answers — packing tips, weather summary, currency notes, "Avg high 22°C this week", etc. Reads in a generous editorial body type. |
+
+### Picking a scene
+
+The illustration should match the destination's geographic/cultural character. Mapping:
+
+| Scene | When to use |
+| ----- | ----------- |
+| `mountain` | Alpine / mountainous destinations: Switzerland, Colorado, Patagonia, Nepal, New Zealand, Banff, Norway (fjords) |
+| `city` | Urban-first trips: Tokyo, NYC, London, Hong Kong, Mexico City, Berlin, Shanghai |
+| `coast` | Beach / tropical / Mediterranean: Bali, Hawaii, Greek islands, Croatia, Maldives, Phuket |
+| `desert` | Arid / sandy: Morocco, Dubai, Joshua Tree, Namibia, Atacama, Egypt |
+| `forest` | Wooded / Pacific Northwest: Oregon, Vancouver, Black Forest, Tasmania |
+| `snow` | Winter / ski destinations: Hokkaidō, Lapland, Aspen, Whistler, Quebec in winter |
+| `aurora` | Northern / arctic destinations: Iceland, Norway, Alaska, Yukon, Tromsø |
+| `river` | Riverine / canal cities: Bangkok, Amsterdam, Venice, Hanoi, Suzhou |
+
+When a destination fits multiple buckets, pick the **most photographically iconic** one. Tokyo could be `city` or `river` — `city` wins because the skyline is what people picture. Switzerland could be `mountain` or `snow` — `mountain` wins in summer, `snow` wins in winter or for ski trips.
+
+### Picking a content shape (stats vs items vs note)
+
+The body of the card flexes based on the question being answered:
+
+| Question type | Use | Example |
+| ------------- | --- | ------- |
+| Day plan / itinerary | `items` + `stats` | "what's the plan on day 1?" → numbered agenda with stats above |
+| Trip overview | `stats` only | "what's our next trip?" → DATES / LENGTH / PARTY columns |
+| Free-form answer | `note` | "what should I pack?" → prose paragraph |
+| Single fact | `note` (short) | "what time is it there?" → "12:42 AM JST — 16 hours ahead" |
+
+It's fine to combine `stats` + `note` (overview + a one-line caveat) or `stats` + `items` (the reference design). Don't combine `note` + `items` — one or the other, not both.
 
 ### Constructing a CONTEXTUAL title
 
@@ -133,7 +168,7 @@ Patterns:
 
 > User: "What's the plan when we land in Switzerland?"
 
-**Step 1 — prose reply** (numbered list, mirrors what the card will say):
+**Step 1 — prose reply** (numbered list, mirrors the card's agenda):
 ```
 You land Sat Jun 20 at 3:45 PM at ZRH. Plan:
 
@@ -145,10 +180,26 @@ You land Sat Jun 20 at 3:45 PM at ZRH. Plan:
 
 **Step 2 — photon tool call:**
 ```bash
-photon send "https://wanderbot-ai.vercel.app/p?title=Day%201%20%C2%B7%20Switzerland&subtitle=Sat%20Jun%2020%20%C2%B7%204%20plans&type=trip&loc=Arrive%20ZRH%203%3A45%20PM&meta=Switzerland%20trip&href=%2Ftrip%2Ftrip-zurich-2026"
+photon send "https://wanderbot-ai.vercel.app/p?title=Switzerland&eyebrow=SAT%20JUN%2020%20%C2%B7%20LANDS%203%3A45%20PM%20%C2%B7%20ZRH&type=trip&scene=mountain&stats=DATES%3AJun%2019%E2%80%9328%7CLENGTH%3A9%20days%7CPARTY%3A2%20travelers&items=activity%3AWalk%20around%20Z%C3%BCrich%3APM%7Cattraction%3ALindt%20Home%20of%20Chocolate%3ATICKETS%7Crestaurant%3ADinner%20at%20Haus%20Hiltl%3A6%3A00%7Chotel%3ARenaissance%20Z%C3%BCrich%20Tower%3ASTAY&meta=wanderbot-ai.vercel.app&href=%2Ftrip%2Ftrip-zurich-2026"
 ```
 
-Notice: the title is `Day 1 · Switzerland` (not just `Switzerland`) because the question is about the arrival day. The subtitle is `Sat Jun 20 · 4 plans` — gives the date *and* signals "there's a list of 4 things." The `loc` line surfaces the arrival detail (`Arrive ZRH 3:45 PM`). All three pieces work together to make the card feel like an answer to the specific question.
+This produces the rich layout: mountain illustration with moon, "SAT JUN 20 · LANDS 3:45 PM · ZRH" eyebrow, "Switzerland" in big serif italic, stats row (DATES/LENGTH/PARTY), and four color-coded numbered items mirroring the prose list. The agent picked `scene=mountain` because Switzerland → Alps; the agenda items each carry their type (activity / attraction / restaurant / hotel) which colors the numeral.
+
+### Packing / advice question (use `note`)
+
+> User: "What should I pack for Switzerland?"
+
+**Step 1 — prose reply:**
+```
+Layers + waterproof shell. Sturdy shoes for Day 5 glacier hike. Pack a bathing suit — thermal baths in Vals.
+```
+
+**Step 2 — photon tool call:**
+```bash
+photon send "https://wanderbot-ai.vercel.app/p?title=Pack%20Light&eyebrow=PACKING%20%C2%B7%20SWITZERLAND%20%C2%B7%20JUN%2019%E2%80%9328&type=trip&scene=snow&note=Layers%20%2B%20waterproof%20shell.%20Sturdy%20shoes%20for%20Day%205%20glacier%20hike.%20Pack%20a%20bathing%20suit%20%E2%80%94%20thermal%20baths%20in%20Vals.&meta=wanderbot-ai.vercel.app&href=%2Ftrip%2Ftrip-zurich-2026"
+```
+
+The `note` param holds the same content as the prose reply, so the card mirrors the answer in editorial form rather than copying an agenda structure.
 
 ### Trip question
 
