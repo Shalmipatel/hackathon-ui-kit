@@ -190,7 +190,11 @@ const SortableItem: React.FC<{
   onBookingClick?: (id: string) => void;
 }> = ({ booking, dayKey, onBookingClick }) => {
   /* Locked = confirmation-backed OR multi-day. Both render the lock
-     pill and skip dnd-kit's drag listeners. */
+     pill and skip dnd-kit's drag listeners.
+     CRITICAL: locked items are DRAGGABLE-disabled but still
+     DROPPABLE — otherwise the user can't drop an unlocked card
+     "next to" a confirmed flight/hotel, which silently breaks
+     reordering whenever locked items sit between two unlocked ones. */
   const locked = isBookingLocked(booking) || bookingSpansMultipleDays(booking);
   const {
     attributes,
@@ -203,7 +207,7 @@ const SortableItem: React.FC<{
     over,
   } = useSortable({
     id: composeSortableId(dayKey, booking.id),
-    disabled: locked,
+    disabled: { draggable: locked, droppable: false },
   });
   /* In-place drag: the dragged item itself follows the cursor via
      transform, and siblings reflow around it. No DragOverlay needed
