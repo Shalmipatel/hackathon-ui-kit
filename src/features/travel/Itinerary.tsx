@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import {
   DndContext,
-  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   TouchSensor,
@@ -204,27 +203,23 @@ const SortableItem: React.FC<{
     id: composeSortableId(dayKey, booking.id),
     disabled: locked,
   });
-  /* When DragOverlay is in use, the dragged item must NOT receive
-     dnd-kit's transform — only the SIBLINGS should reflow. Applying
-     the transform to the dragged item *and* showing it via overlay
-     creates a phantom that shifts the layout (the user reported the
-     card "jumping to the top of the day" on drag start). Keep the
-     dragged item static and invisible in place; the floating
-     DragOverlay handles the visible feedback. */
-  const style: React.CSSProperties = isDragging
-    ? {
-        opacity: 0,
-        cursor: 'grabbing',
-        position: 'relative',
-      }
-    : {
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: 1,
-        cursor: locked ? 'default' : 'grab',
-        touchAction: 'manipulation',
-        position: 'relative',
-      };
+  /* In-place drag: the dragged item itself follows the cursor via
+     transform, and siblings reflow around it. No DragOverlay needed
+     so there's no dual-positioning bug. Boost z-index + add a slight
+     scale + shadow so it visually lifts above the rest. */
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    cursor: locked ? 'default' : isDragging ? 'grabbing' : 'grab',
+    touchAction: 'manipulation',
+    position: 'relative',
+    zIndex: isDragging ? 100 : 'auto',
+    boxShadow: isDragging
+      ? '0 16px 40px rgba(31, 36, 33, 0.22)'
+      : undefined,
+    borderRadius: 14,
+    background: isDragging ? '#fff' : undefined,
+  };
   /* Draw a thin dashed insertion strip above this card when something
      else is being dragged over it. Tells the user exactly where the
      drop will land. */
@@ -425,9 +420,10 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   const upsertBooking = useTravelStore((s) => s.upsertBooking);
   const { rescan, rescanInFlight } = useRescanTrip();
 
-  /* @dnd-kit drag state. activeId is the booking being dragged so we
-     can render a DragOverlay (the floating card while the user holds).
-     Cross-list reorder is handled inside handleDragEnd. */
+  /* @dnd-kit drag state. activeId is the composite sortable id of the
+     booking being dragged ("<day>::<bookingId>") — used to (a) drive
+     the in-place transform/lift on the SortableItem, and (b) tell the
+     TailDropZone to expand into a visible drop slot during drag. */
   const [activeId, setActiveId] = useState<string | null>(null);
   const trip = useMemo(
     () => trips.find((t) => t.id === effectiveTripId) ?? null,
@@ -541,14 +537,6 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-
-  /* activeId is the composite "<day>::<bookingId>" sortable id. */
-  const activeBooking = useMemo(() => {
-    if (!activeId) return null;
-    const parsed = parseSortableId(activeId);
-    if (!parsed) return null;
-    return bookings.find((b) => b.id === parsed.bookingId) ?? null;
-  }, [activeId, bookings]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(String(event.active.id));
@@ -815,21 +803,6 @@ export const Itinerary: React.FC<ItineraryProps> = ({
               </Section>
             );
           })}
-          {/* Floating card that follows the cursor / finger during
-              drag — using DragOverlay (instead of letting dnd-kit
-              transform the original) ensures the dragged card appears
-              above any sticky map or scroll container without
-              clipping. */}
-          <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.32,0.72,0,1)' }}>
-            {activeBooking ? (
-              <div style={{ opacity: 0.95, transform: 'rotate(-0.5deg)' }}>
-                <BookingCard
-                  booking={activeBooking}
-                  dayKey={bookingDayKeys(activeBooking)[0]}
-                />
-              </div>
-            ) : null}
-          </DragOverlay>
         </DndContext>
       )}
     </Wrap>
