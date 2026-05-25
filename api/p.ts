@@ -48,19 +48,31 @@ export default async function handler(req: Request) {
   const url = new URL(req.url);
   const title = (url.searchParams.get('title') || 'Wanderbot').slice(0, 120);
   const subtitle = (url.searchParams.get('subtitle') || '').slice(0, 160);
+  const eyebrow = (url.searchParams.get('eyebrow') || '').slice(0, 80);
+  const scene = (url.searchParams.get('scene') || '').slice(0, 32);
+  const stats = (url.searchParams.get('stats') || '').slice(0, 240);
+  const items = (url.searchParams.get('items') || '').slice(0, 480);
+  const note = (url.searchParams.get('note') || '').slice(0, 200);
   const loc = (url.searchParams.get('loc') || '').slice(0, 120);
   const cost = (url.searchParams.get('cost') || '').slice(0, 24);
   const cta = (url.searchParams.get('cta') || '').slice(0, 48);
   const meta = (url.searchParams.get('meta') || '').slice(0, 80);
   const type = (url.searchParams.get('type') || 'activity').slice(0, 32);
-  const desc = (url.searchParams.get('desc') || subtitle).slice(0, 220);
+  const desc = (url.searchParams.get('desc') || subtitle || note).slice(0, 220);
   const href = safeHref(url.searchParams.get('href'));
 
-  /* The og:image URL is built from the same params so the picture
-     and the meta tags stay in sync. */
+  /* The og:image URL forwards ALL card params so what Apple's preview
+     daemon caches matches what the agent constructed. Missing this
+     was why early rich-layout deploys still rendered without
+     eyebrow/scene/stats — only title+meta+type were passing through. */
   const ogParams = new URLSearchParams();
   ogParams.set('title', title);
   if (subtitle) ogParams.set('subtitle', subtitle);
+  if (eyebrow) ogParams.set('eyebrow', eyebrow);
+  if (scene) ogParams.set('scene', scene);
+  if (stats) ogParams.set('stats', stats);
+  if (items) ogParams.set('items', items);
+  if (note) ogParams.set('note', note);
   if (loc) ogParams.set('loc', loc);
   if (cost) ogParams.set('cost', cost);
   if (cta) ogParams.set('cta', cta);
@@ -98,8 +110,13 @@ export default async function handler(req: Request) {
 <meta name="twitter:description" content="${escapeHtml(desc)}" />
 <meta name="twitter:image" content="${escapeHtml(ogImage)}" />
 
-<!-- Bounce real visitors into the app. Bots don't follow this. -->
-<meta http-equiv="refresh" content="0; url=${escapeHtml(target)}" />
+<!-- Real visitors are bounced into the SPA via the <script> at the
+     bottom of <body>. Previously we used <meta http-equiv="refresh">
+     too, but some preview daemons (Apple's Link Preview included)
+     follow meta-refresh BEFORE parsing og:* tags — they'd land on
+     the SPA root, find no OG metadata there, and fall back to the
+     "Tap to load preview" affordance instead of auto-rendering the
+     card. JS-only redirect keeps daemons on this OG-tagged page. -->
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: #fbfaf9;
