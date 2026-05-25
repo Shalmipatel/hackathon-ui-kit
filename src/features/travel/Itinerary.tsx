@@ -196,7 +196,8 @@ const SortableItem: React.FC<{
   onBookingClick?: (id: string) => void;
   editing: boolean;
   jiggleIndex: number;
-}> = ({ booking, dayKey, onBookingClick, editing, jiggleIndex }) => {
+  onLongPress: () => void;
+}> = ({ booking, dayKey, onBookingClick, editing, jiggleIndex, onLongPress }) => {
   /* Locked = confirmation-backed OR multi-day. Both render the lock
      pill and skip dnd-kit's drag listeners.
      CRITICAL: locked items are DRAGGABLE-disabled but still
@@ -204,6 +205,11 @@ const SortableItem: React.FC<{
      "next to" a confirmed flight/hotel, which silently breaks
      reordering whenever locked items sit between two unlocked ones. */
   const locked = isBookingLocked(booking) || bookingSpansMultipleDays(booking);
+  /* Drag is GATED on `editing` mode. Outside edit mode the sortable
+     reports disabled, so dnd-kit's sensors never see it — swipes,
+     scrolls, and taps all pass through to the browser unaltered.
+     Entering edit mode is a separate gesture handled by the
+     long-press listener below. */
   const {
     attributes,
     listeners,
@@ -211,8 +217,62 @@ const SortableItem: React.FC<{
     isDragging,
   } = useSortable({
     id: composeSortableId(dayKey, booking.id),
-    disabled: { draggable: locked, droppable: false },
+    disabled: { draggable: locked || !editing, droppable: false },
   });
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  /* Long-press → enter edit mode. Only listens while we're NOT
+     already editing (no point activating a state we're already in)
+     and for unlocked cards (locked items don't enter edit mode —
+     their lock pill is the affordance). Distinguished from a scroll
+     / swipe by the 4 px movement budget: any real swipe motion
+     cancels the timer immediately. */
+  useEffect(() => {
+    if (editing || locked) return;
+    const el = wrapRef.current;
+    if (!el) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let startX = 0;
+    let startY = 0;
+    let pointerId: number | null = null;
+    const cancel = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      pointerId = null;
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+      pointerId = e.pointerId;
+      startX = e.clientX;
+      startY = e.clientY;
+      timer = setTimeout(() => {
+        onLongPress();
+        timer = null;
+        if ('vibrate' in navigator) {
+          try { navigator.vibrate(12); } catch { /* swallow */ }
+        }
+      }, 700);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (pointerId === null || e.pointerId !== pointerId) return;
+      const dx = Math.abs(e.clientX - startX);
+      const dy = Math.abs(e.clientY - startY);
+      if (dx > 4 || dy > 4) cancel();
+    };
+    el.addEventListener('pointerdown', onDown);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', cancel);
+    document.addEventListener('pointercancel', cancel);
+    return () => {
+      cancel();
+      el.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', cancel);
+      document.removeEventListener('pointercancel', cancel);
+    };
+  }, [editing, locked, onLongPress]);
   /* `touch-action: manipulation` keeps native vertical scroll
      working when the user swipes a card — the dnd-kit TouchSensor
      still picks up a stationary press for activation (450 ms), so
@@ -240,13 +300,21 @@ const SortableItem: React.FC<{
     display: isDragging ? 'none' : undefined,
     animation,
   };
+  /* Only attach dnd-kit's drag listeners when we're already in edit
+     mode. Outside edit mode, the card behaves like any other view —
+     tap opens the detail modal, swipes pass through to the page
+     carousel. */
+  const dragListenersActive = editing && !locked;
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        setNodeRef(node);
+        wrapRef.current = node;
+      }}
       style={style}
       data-booking-id={booking.id}
-      {...(locked ? {} : attributes)}
-      {...(locked ? {} : listeners)}
+      {...(dragListenersActive ? attributes : {})}
+      {...(dragListenersActive ? listeners : {})}
     >
       <BookingCard
         booking={booking}
@@ -712,17 +780,15 @@ export const Itinerary: React.FC<ItineraryProps> = ({
      Within-day reorder interpolates a new start time between the
      dragged item's new neighbors; cross-day drops shift the
      booking to the target day (preserving time-of-day). */
-  /* Mouse: 4 px slop so a click still opens the detail modal.
-     Touch: 700 ms haptic-touch style hold — long enough that
-     scrolling NEVER triggers drag even if the finger pauses for a
-     beat mid-swipe, and that brief "I'll skim this card" hovers
-     never tip into edit mode. Tolerance tight (4 px) so any real
-     scroll gesture cancels the activation timer immediately. The
-     experience: a deliberate press-and-hold (≈¾ second), then a
-     haptic tap when drag arms — the "Force Touch" feel. */
+  /* Sensors only ever activate when we're already in edit mode (the
+     SortableItem reports `disabled` outside edit mode). Once editing,
+     a light touch is enough — the user already made the deliberate
+     long-press to get here. Touch delay of 120 ms is just enough to
+     distinguish a tap-to-open-modal from a tap-to-drag without
+     making drag feel sluggish. */
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 700, tolerance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
@@ -906,25 +972,10 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   };
 
   const handleDragStart = (event: DragStartEvent) => {
-    /* First drag implicitly enters edit mode (matches the iPhone
-       Springboard pattern: long-press the app and it both wiggles
-       AND becomes draggable in one gesture). Stays in edit mode
-       across subsequent drags so the user can move multiple cards
-       before committing. */
-    if (!editMode) setEditMode(true);
-    /* Haptic confirmation that the press has committed — a single
-       short vibration on Android / any device that exposes the
-       Vibration API. iOS Safari ignores it (no JS access to
-       CoreHaptics), but the long 700 ms hold already gives the
-       user a clear "I'm being deliberate" feel there. */
-    if ('vibrate' in navigator) {
-      try {
-        navigator.vibrate(12);
-      } catch {
-        /* some browsers throw if the call isn't user-gesture-initiated;
-           harmless. */
-      }
-    }
+    /* Drag can only fire from inside edit mode (the long-press
+       listener on each SortableItem is what enters edit mode in the
+       first place). The haptic confirmation already fired then;
+       don't double-buzz. */
     const activeIdStr = String(event.active.id);
     const parsed = parseSortableId(activeIdStr);
     /* Capture source rect SYNCHRONOUSLY (before the next React commit
@@ -1285,6 +1336,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
                           onBookingClick={onBookingClick}
                           editing={editMode}
                           jiggleIndex={jiggleIndex}
+                          onLongPress={() => setEditMode(true)}
                         />
                       ))}
                       <TailDropZone dayKey={day} isDraggingNow={isDraggingNow} />
