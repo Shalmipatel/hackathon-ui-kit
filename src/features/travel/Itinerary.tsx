@@ -6,6 +6,7 @@ import {
   PointerSensor,
   TouchSensor,
   closestCenter,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -258,14 +259,17 @@ const SortableItem: React.FC<{
 };
 
 /** Empty-day drop target so the user can drag a card onto a day that
- *  currently has no events. Renders the same dashed hint as before
- *  but is now an actual @dnd-kit droppable so dnd-kit knows where
- *  the drop landed. */
+ *  currently has no events. Uses `useDroppable` (NOT `useSortable`)
+ *  because this isn't a sortable item — it's a passive drop slot.
+ *  Putting it in `SortableContext.items` was confusing
+ *  verticalListSortingStrategy (which assumes uniform-height
+ *  sortables) and contributing to the "untimed card jumps to top"
+ *  bug. */
 const EmptyDayDropZone: React.FC<{ dayKey: string; isActive: boolean }> = ({
   dayKey,
   isActive,
 }) => {
-  const { setNodeRef, isOver } = useSortable({ id: `day:${dayKey}` });
+  const { setNodeRef, isOver } = useDroppable({ id: `day:${dayKey}` });
   return (
     <div ref={setNodeRef}>
       <DropHint $dragOver={isOver}>
@@ -282,13 +286,18 @@ const EmptyDayDropZone: React.FC<{ dayKey: string; isActive: boolean }> = ({
 /** Tail drop target rendered AFTER the last sortable item in a day.
  *  Catches drops that land below all items so dragging an item to the
  *  bottom of the day list isn't silently canceled by dnd-kit's lack of
- *  an `over` target in empty space. Uses the `tail:<day>` id sentinel
- *  that handleDragEnd interprets as "append to end of this day". */
+ *  an `over` target in empty space.
+ *
+ *  Uses `useDroppable` (NOT `useSortable`) so the tail does NOT enter
+ *  the SortableContext items list — mixing a 12-36px tail in with
+ *  80-120px cards under `verticalListSortingStrategy` was throwing off
+ *  the strategy's index math and making untimed cards snap to the top
+ *  of the day at drag start. */
 const TailDropZone: React.FC<{ dayKey: string; isDraggingNow: boolean }> = ({
   dayKey,
   isDraggingNow,
 }) => {
-  const { setNodeRef, isOver } = useSortable({ id: `tail:${dayKey}` });
+  const { setNodeRef, isOver } = useDroppable({ id: `tail:${dayKey}` });
   return (
     <div
       ref={setNodeRef}
@@ -489,6 +498,20 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     }
     return map;
   }, [bookings]);
+
+  /* Stable per-day SortableContext items arrays. Keyed by day so that
+     a re-render of Itinerary (e.g. when `activeId` flips at drag start)
+     doesn't hand SortableContext a brand-new array reference for every
+     day — dnd-kit re-measures on items-prop change, and that mid-drag
+     re-measurement was suspected as contributing to the "jump to top"
+     glitch on untimed cards. */
+  const sortableItemsByDay = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const [dk, list] of bookingsByDay) {
+      map.set(dk, list.map((b) => composeSortableId(dk, b.id)));
+    }
+    return map;
+  }, [bookingsByDay]);
 
   /* Build an ActivityBooking from a place picked in the day's
      AddPlaceButton popover. Noon-local timestamp keeps it sorting in
@@ -746,16 +769,13 @@ export const Itinerary: React.FC<ItineraryProps> = ({
             const dayLabel = formatDayLabel(day);
             /* Composite ids per day instance — guarantees uniqueness
                across SortableContexts even when a multi-day booking
-               appears in more than one bucket. */
-            const itemIds = dayBookings.map((b) => composeSortableId(day, b.id));
-            /* Include the empty-day sentinel as the only item in the
-               SortableContext when the day has nothing — so an empty
-               day is still a valid drop target. When the day has
-               items, also register a tail droppable so drops below
-               the last item don't get swallowed. */
-            const sortableItems = dayBookings.length === 0
-              ? [`day:${day}`]
-              : [...itemIds, `tail:${day}`];
+               appears in more than one bucket. Only REAL bookings go
+               in here; the tail/empty drop zones are top-level
+               droppables (not sortables) and would only confuse
+               verticalListSortingStrategy if mixed in. Pulled from a
+               memoized map so the array reference is stable across
+               re-renders. */
+            const sortableItems = sortableItemsByDay.get(day) ?? [];
             const isDraggingNow = activeId !== null;
             return (
               <Section key={day}>
