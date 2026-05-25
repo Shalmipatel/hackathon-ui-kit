@@ -17,7 +17,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@noble/hashes": "^1.8.0",
     "@novnc/novnc": "~1.5.0",
-    "@vercel/og": "^0.6.4",
+    "@vercel/og": "^0.11.1",
     "firebase": "^12.13.0",
     "hash-wasm": "^4.12.0",
     "leaflet": "^1.9.4",
