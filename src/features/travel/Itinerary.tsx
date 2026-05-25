@@ -194,10 +194,7 @@ const SortableItem: React.FC<{
   booking: Booking;
   dayKey: string;
   onBookingClick?: (id: string) => void;
-  editing: boolean;
-  jiggleIndex: number;
-  onLongPress: () => void;
-}> = ({ booking, dayKey, onBookingClick, editing, jiggleIndex, onLongPress }) => {
+}> = ({ booking, dayKey, onBookingClick }) => {
   /* Locked = confirmation-backed OR multi-day. Both render the lock
      pill and skip dnd-kit's drag listeners.
      CRITICAL: locked items are DRAGGABLE-disabled but still
@@ -205,11 +202,12 @@ const SortableItem: React.FC<{
      "next to" a confirmed flight/hotel, which silently breaks
      reordering whenever locked items sit between two unlocked ones. */
   const locked = isBookingLocked(booking) || bookingSpansMultipleDays(booking);
-  /* Drag is GATED on `editing` mode. Outside edit mode the sortable
-     reports disabled, so dnd-kit's sensors never see it — swipes,
-     scrolls, and taps all pass through to the browser unaltered.
-     Entering edit mode is a separate gesture handled by the
-     long-press listener below. */
+  /* Drag is initiated from a dedicated handle (the ☰ button on the
+     right of the card), not the card body. That way:
+       • taps on the body keep opening the detail modal,
+       • swipes on the body keep panning the trip carousel,
+       • only a deliberate press on the handle starts a drag — same
+         pattern Trello / Notion / Linear use for list reorder. */
   const {
     attributes,
     listeners,
@@ -217,65 +215,8 @@ const SortableItem: React.FC<{
     isDragging,
   } = useSortable({
     id: composeSortableId(dayKey, booking.id),
-    disabled: { draggable: locked || !editing, droppable: false },
+    disabled: { draggable: locked, droppable: false },
   });
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-
-  /* Long-press → enter edit mode. Only listens while we're NOT
-     already editing (no point activating a state we're already in)
-     and for unlocked cards (locked items don't enter edit mode —
-     their lock pill is the affordance). Distinguished from a scroll
-     / swipe by the 4 px movement budget: any real swipe motion
-     cancels the timer immediately. */
-  useEffect(() => {
-    if (editing || locked) return;
-    const el = wrapRef.current;
-    if (!el) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let startX = 0;
-    let startY = 0;
-    let pointerId: number | null = null;
-    const cancel = () => {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      pointerId = null;
-    };
-    const onDown = (e: PointerEvent) => {
-      /* All pointer types — touch on mobile, mouse on desktop. The
-         timing (700 ms hold + 4 px tolerance) is the same on both
-         platforms; works as a "haptic touch" on iOS, as a long-mouse-
-         press on macOS. */
-      pointerId = e.pointerId;
-      startX = e.clientX;
-      startY = e.clientY;
-      timer = setTimeout(() => {
-        onLongPress();
-        timer = null;
-        if ('vibrate' in navigator) {
-          try { navigator.vibrate(12); } catch { /* swallow */ }
-        }
-      }, 700);
-    };
-    const onMove = (e: PointerEvent) => {
-      if (pointerId === null || e.pointerId !== pointerId) return;
-      const dx = Math.abs(e.clientX - startX);
-      const dy = Math.abs(e.clientY - startY);
-      if (dx > 4 || dy > 4) cancel();
-    };
-    el.addEventListener('pointerdown', onDown);
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', cancel);
-    document.addEventListener('pointercancel', cancel);
-    return () => {
-      cancel();
-      el.removeEventListener('pointerdown', onDown);
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', cancel);
-      document.removeEventListener('pointercancel', cancel);
-    };
-  }, [editing, locked, onLongPress]);
   /* `touch-action: manipulation` keeps native vertical scroll
      working when the user swipes a card — the dnd-kit TouchSensor
      still picks up a stationary press for activation (450 ms), so
@@ -285,120 +226,97 @@ const SortableItem: React.FC<{
        • press + hold 450 ms ⇒ drag activates
      `user-select: none` + `-webkit-touch-callout: none` suppress the
      iOS text selection / callout menu during the long-press wait. */
-  /* Jiggle only the unlocked cards while the user is editing. Locked
-     cards stay still — their stillness is itself a signal that they
-     can't be reordered. Stagger each card's start offset so they
-     don't bob in lockstep (looks more "alive"). */
-  const animation =
-    editing && !locked
-      ? `wb-jiggle 0.45s ease-in-out ${(jiggleIndex % 5) * 0.04}s infinite`
-      : undefined;
   const style: React.CSSProperties = {
-    cursor: locked ? 'default' : 'grab',
-    touchAction: 'manipulation',
-    userSelect: 'none',
-    WebkitUserSelect: 'none',
-    WebkitTouchCallout: 'none',
     position: 'relative',
-    display: isDragging ? 'none' : undefined,
-    animation,
+    display: isDragging ? 'none' : 'flex',
+    alignItems: 'stretch',
+    gap: 6,
   };
-  /* Only attach dnd-kit's drag listeners when we're already in edit
-     mode. Outside edit mode, the card behaves like any other view —
-     tap opens the detail modal, swipes pass through to the page
-     carousel. */
-  const dragListenersActive = editing && !locked;
   return (
     <div
-      ref={(node) => {
-        setNodeRef(node);
-        wrapRef.current = node;
-      }}
+      ref={setNodeRef}
       style={style}
       data-booking-id={booking.id}
-      {...(dragListenersActive ? attributes : {})}
-      {...(dragListenersActive ? listeners : {})}
     >
-      <BookingCard
-        booking={booking}
-        dayKey={dayKey}
-        locked={locked}
-        onClick={() => onBookingClick?.(booking.id)}
-      />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <BookingCard
+          booking={booking}
+          dayKey={dayKey}
+          locked={locked}
+          onClick={() => onBookingClick?.(booking.id)}
+        />
+      </div>
+      {!locked && (
+        <DragHandle
+          {...attributes}
+          {...listeners}
+          aria-label={`Reorder ${booking.title}`}
+          title="Drag to reorder"
+        >
+          {/* Vertical grip icon — same affordance as Trello / Notion /
+              iOS Reminders. Two columns of three dots. */}
+          <svg
+            width="14"
+            height="18"
+            viewBox="0 0 14 18"
+            fill="currentColor"
+            aria-hidden
+          >
+            <circle cx="4" cy="3" r="1.4" />
+            <circle cx="10" cy="3" r="1.4" />
+            <circle cx="4" cy="9" r="1.4" />
+            <circle cx="10" cy="9" r="1.4" />
+            <circle cx="4" cy="15" r="1.4" />
+            <circle cx="10" cy="15" r="1.4" />
+          </svg>
+        </DragHandle>
+      )}
     </div>
   );
 };
+
+/* Dedicated drag handle on the right edge of each unlocked card.
+ *   touch-action: none keeps the browser from scrolling / panning
+ *     when the user presses the handle.
+ *   user-select: none kills the iOS text-selection magnifier.
+ *   cursor: grab → grabbing flips during drag to match expectation. */
+const DragHandle = styled.button`
+  appearance: none;
+  background: transparent;
+  border: 1px solid rgba(36, 36, 36, 0.08);
+  border-radius: 10px;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(36, 36, 36, 0.32);
+  cursor: grab;
+  flex-shrink: 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+
+  &:hover {
+    background: rgba(36, 36, 36, 0.04);
+    color: rgba(36, 36, 36, 0.65);
+    border-color: rgba(36, 36, 36, 0.18);
+  }
+
+  &:active {
+    cursor: grabbing;
+    background: rgba(33, 104, 105, 0.08);
+    color: #216869;
+    border-color: rgba(33, 104, 105, 0.35);
+  }
+`;
 
 /** Live insertion indicator. Rendered between cards (or above/below
  *  the day's items) at the predicted drop position. Replaces the
  *  per-card `isOver` hint with a SINGLE indicator that follows the
  *  cursor — clearer, calmer, and matches the way other modern DnD
  *  surfaces (Notion, Linear, Trello columns) handle reorder. */
-/* Jiggle animation for unlocked cards while editing — subtle
- * Springboard-style wiggle that signals "you can drag me now"
- * without being visually noisy. Staggered by index so all the cards
- * don't move in lockstep. */
-const jiggleKeyframes = `
-  @keyframes wb-jiggle {
-    0%   { transform: rotate(-0.6deg); }
-    50%  { transform: rotate(0.6deg); }
-    100% { transform: rotate(-0.6deg); }
-  }
-`;
-
-/** Floating bottom bar that surfaces while edit mode is active.
- * Cancel reverts pending reorders; Save commits them. */
-const EditModeBar = styled.div`
-  position: fixed;
-  left: 50%;
-  bottom: max(20px, env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  z-index: 1100;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 14px 10px 16px;
-  background: #1f2421;
-  color: #fff;
-  border-radius: 999px;
-  box-shadow: 0 16px 40px rgba(31, 36, 33, 0.28);
-  font-family: 'Inter', sans-serif;
-  font-size: 13.5px;
-  font-weight: 500;
-`;
-
-const EditModeCount = styled.span`
-  font-weight: 400;
-  color: rgba(255, 255, 255, 0.65);
-  min-width: 90px;
-  text-align: center;
-`;
-
-const EditModeBtn = styled.button<{ $primary?: boolean }>`
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 7px 14px;
-  border-radius: 999px;
-  border: none;
-  cursor: pointer;
-  font-family: inherit;
-  font-weight: 600;
-  font-size: 13px;
-  transition: background 0.12s, transform 0.12s;
-  background: ${(p) =>
-    p.$primary ? '#feeb29' : 'rgba(255, 255, 255, 0.12)'};
-  color: ${(p) => (p.$primary ? '#1f2421' : '#fff')};
-
-  &:hover {
-    background: ${(p) =>
-      p.$primary ? '#fff069' : 'rgba(255, 255, 255, 0.2)'};
-  }
-  &:active {
-    transform: scale(0.97);
-  }
-`;
-
 /** Floating insertion indicator that follows the cursor.
  *
  *  Rendered as `position: fixed` so it can sit precisely under the
@@ -666,32 +584,16 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     [allBookings, effectiveTripId],
   );
 
-  /* Edit mode: pending position changes the user has dragged around
-     but not yet saved. The active drag updates this, Save commits to
-     RTDB, Cancel discards it. */
-  const [editMode, setEditMode] = useState(false);
-  const [pendingChanges, setPendingChanges] = useState<
-    Map<string, { dayKey: string; position: number }>
-  >(new Map());
-
-  /** Effective dayKey for a booking — pending override wins. */
-  const effectiveDayKey = (b: Booking): string => {
-    const pending = pendingChanges.get(b.id);
-    return pending?.dayKey ?? bookingDayKey(b);
-  };
-  /** Effective position for a booking ON the given day — accounts for
-   *  pending drags AND for multi-day items whose end-day position is
-   *  derived from end-time, not start-time. */
+  /** Effective position for a booking ON the given day. For
+   *  multi-day items on their END day we derive position from
+   *  end-time, not start-time, so a hotel that started at 3 PM
+   *  yesterday sorts as 11 AM "Check-out" today instead of 3 PM. */
   const effectivePosition = (b: Booking, dayKey: string): number => {
-    const pending = pendingChanges.get(b.id);
-    if (pending && pending.dayKey === dayKey) return pending.position;
-    /* Single-day or on its start day → use stored position. */
     if (!b.start || !b.end) return b.position;
     const startDay = bookingDayKey(b);
     const endDay = localDateKey(b.end);
     if (dayKey === startDay) return b.position;
     if (dayKey === endDay) {
-      /* End day of a multi-day item: position derived from end time. */
       const m = b.end.match(/T(\d{2}):(\d{2})/);
       if (m) return Number(m[1]) * 3600 + Number(m[2]) * 60;
       return b.position;
@@ -704,25 +606,20 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   const bookingsByDay = useMemo(() => {
     const map = new Map<string, typeof bookings>();
     for (const b of bookings) {
-      /* If there's a pending drag for this booking, render it in the
-         pending day (and ONLY the pending day) — otherwise render it
-         in every day its native start/end span covers. */
-      const pending = pendingChanges.get(b.id);
-      const days = pending ? [pending.dayKey] : bookingDayKeys(b);
-      for (const key of days) {
+      for (const key of bookingDayKeys(b)) {
         const list = map.get(key) ?? [];
         list.push(b);
         map.set(key, list);
       }
     }
-    /* Sort each day's list by the effective position (pending override
-       first, then end-time-on-end-day for multi-day, then stored). */
+    /* Sort each day's list by the effective position (end-time-on-
+       end-day for multi-day, stored position otherwise). */
     for (const [dk, list] of map) {
       list.sort((a, b) => effectivePosition(a, dk) - effectivePosition(b, dk));
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookings, pendingChanges]);
+  }, [bookings]);
 
   /* Stable per-day SortableContext items arrays. Keyed by day so that
      a re-render of Itinerary (e.g. when `activeId` flips at drag start)
@@ -1129,62 +1026,34 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     else if (nextPos !== null) newPos = nextPos - 1000;
     else newPos = 43200; // empty day, default to noon-equivalent
 
-    /* Park in pendingChanges — RTDB only gets touched when the user
-       hits Save. */
-    setPendingChanges((prev) => {
-      const next = new Map(prev);
-      next.set(moved.id, { dayKey: targetDay, position: newPos });
-      return next;
-    });
+    /* Commit straight to RTDB. With the drag handle there's no
+       ambiguity about whether the user meant to reorder, so no
+       Save/Cancel step in between. */
+    const updated: Booking = { ...moved, dayKey: targetDay, position: newPos };
+    if (moved.start && bookingDayKey(moved) !== targetDay) {
+      updated.start = targetDay + moved.start.slice(10);
+      if (moved.end) {
+        const startDayShift =
+          new Date(`${targetDay}T00:00:00`).getTime() -
+          new Date(`${bookingDayKey(moved)}T00:00:00`).getTime();
+        const oldEndMs = new Date(moved.end).getTime();
+        updated.end = new Date(oldEndMs + startDayShift).toISOString();
+      }
+    }
+    upsertBooking(updated);
+    if (targetDay !== activeParsed.dayKey) {
+      toast({
+        title: `Moved to ${formatDayLabel(targetDay)}`,
+        description: moved.title,
+        duration: 2400,
+      });
+    }
   };
 
   const handleDragCancel = () => {
     setActiveId(null);
     setInsertion(null);
     setOverlay(null);
-  };
-
-  /** Commit pending position changes to RTDB and exit edit mode. */
-  const saveEdits = () => {
-    if (pendingChanges.size === 0) {
-      setEditMode(false);
-      return;
-    }
-    for (const [bookingId, { dayKey, position }] of pendingChanges) {
-      const b = bookings.find((x) => x.id === bookingId);
-      if (!b) continue;
-      const updated: Booking = { ...b, dayKey, position };
-      /* If the user moved the booking to a different day AND the item
-         has a `start` (timed booking), keep the time-of-day but swap
-         the date prefix so the timestamp's day matches dayKey. */
-      if (b.start && bookingDayKey(b) !== dayKey) {
-        updated.start = dayKey + b.start.slice(10);
-        if (b.end) {
-          /* Shift end by the same number of calendar days as start
-             so multi-day spans don't get torn apart. (Multi-day items
-             aren't draggable, so this path is mostly defensive.) */
-          const startDayShift =
-            new Date(`${dayKey}T00:00:00`).getTime() -
-            new Date(`${bookingDayKey(b)}T00:00:00`).getTime();
-          const oldEndMs = new Date(b.end).getTime();
-          updated.end = new Date(oldEndMs + startDayShift).toISOString();
-        }
-      }
-      upsertBooking(updated);
-    }
-    const movedCount = pendingChanges.size;
-    setPendingChanges(new Map());
-    setEditMode(false);
-    toast({
-      title: movedCount === 1 ? 'Saved 1 change' : `Saved ${movedCount} changes`,
-      duration: 2200,
-    });
-  };
-
-  /** Drop all uncommitted reorders and return to view mode. */
-  const cancelEdits = () => {
-    setPendingChanges(new Map());
-    setEditMode(false);
   };
 
   /* Scroll-spy: pan the map to whichever booking is currently closest
@@ -1330,15 +1199,12 @@ export const Itinerary: React.FC<ItineraryProps> = ({
                 <SortableContext items={sortableItems} strategy={noopStrategy}>
                   {dayBookings.length > 0 ? (
                     <DayItems data-day-items>
-                      {dayBookings.map((b, jiggleIndex) => (
+                      {dayBookings.map((b) => (
                         <SortableItem
                           key={b.id}
                           booking={b}
                           dayKey={day}
                           onBookingClick={onBookingClick}
-                          editing={editMode}
-                          jiggleIndex={jiggleIndex}
-                          onLongPress={() => setEditMode(true)}
                         />
                       ))}
                       <TailDropZone dayKey={day} isDraggingNow={isDraggingNow} />
@@ -1380,36 +1246,6 @@ export const Itinerary: React.FC<ItineraryProps> = ({
               })()
             : null}
         </DndContext>
-      )}
-      {editMode && (
-        <>
-          {/* Inject the jiggle keyframes once, scoped here. */}
-          <style>{jiggleKeyframes}</style>
-          <EditModeBar role="dialog" aria-label="Reorder mode">
-            <EditModeBtn
-              type="button"
-              onClick={cancelEdits}
-              aria-label="Cancel reorder"
-            >
-              Cancel
-            </EditModeBtn>
-            <EditModeCount>
-              {pendingChanges.size === 0
-                ? 'Drag to reorder'
-                : pendingChanges.size === 1
-                  ? '1 change'
-                  : `${pendingChanges.size} changes`}
-            </EditModeCount>
-            <EditModeBtn
-              type="button"
-              $primary
-              onClick={saveEdits}
-              aria-label="Save reorder"
-            >
-              {pendingChanges.size === 0 ? 'Done' : 'Save'}
-            </EditModeBtn>
-          </EditModeBar>
-        </>
       )}
     </Wrap>
   );
