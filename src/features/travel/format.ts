@@ -187,22 +187,32 @@ export function isBookingLocked(booking: Booking): boolean {
   return false;
 }
 
-/** Returns a lat/lng pair representative of the booking's location. */
+/** Returns a lat/lng pair representative of the booking's location,
+ *  or null if either coordinate is missing/invalid. RTDB writes from
+ *  the wanderbot-sync agent occasionally land without coordinates
+ *  (e.g. when the agent couldn't geocode an address); without this
+ *  guard those rows reach Leaflet which crashes with
+ *  `Invalid LatLng object: (undefined, undefined)` — the whole map
+ *  unmounts and the trip view shows a broken-React error overlay. */
 export function bookingLocation(booking: Booking): { lat: number; lng: number; label: string } | null {
+  const isValidCoord = (n: unknown): n is number =>
+    typeof n === 'number' && Number.isFinite(n);
   switch (booking.type) {
     case 'flight':
-    case 'transport':
-      return { lat: booking.to.lat, lng: booking.to.lng, label: booking.to.name };
+    case 'transport': {
+      const { lat, lng, name } = booking.to;
+      if (!isValidCoord(lat) || !isValidCoord(lng)) return null;
+      return { lat, lng, label: name };
+    }
     case 'hotel':
     case 'activity':
     case 'attraction':
     case 'experience':
     case 'event':
-    case 'restaurant':
-      return {
-        lat: booking.place.lat,
-        lng: booking.place.lng,
-        label: booking.place.name,
-      };
+    case 'restaurant': {
+      const { lat, lng, name } = booking.place;
+      if (!isValidCoord(lat) || !isValidCoord(lng)) return null;
+      return { lat, lng, label: name };
+    }
   }
 }
