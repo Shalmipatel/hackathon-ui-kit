@@ -42,19 +42,22 @@ type CardType =
   | 'transport'
   | 'trip';
 
-const TILE_BG: Record<CardType, string> = {
-  flight: 'rgba(56, 189, 248, 0.22)',
-  hotel: 'rgba(250, 204, 21, 0.28)',
-  attraction: 'rgba(217, 119, 6, 0.22)',
-  experience: 'rgba(20, 184, 166, 0.22)',
-  event: 'rgba(236, 72, 153, 0.22)',
-  activity: 'rgba(168, 85, 247, 0.22)',
-  restaurant: 'rgba(248, 113, 113, 0.22)',
-  transport: 'rgba(73, 160, 120, 0.22)',
-  /* Trips use the brand teal tint — they sit one level above the
-     per-booking colors, so the card visually reads as "the whole
-     trip" rather than any specific item within it. */
-  trip: 'rgba(33, 104, 105, 0.18)',
+/* Saturated, white-text-legible accent colors used for the masthead
+   band at the top of the card. Each is a darker / more confident
+   variant of the in-app TONE_BG tint so the card identity carries
+   the same hue family as the booking card but at much higher
+   chroma — the "pop" the design needs. All have ≥4.5:1 contrast
+   with #ffffff. */
+const TYPE_ACCENT: Record<CardType, string> = {
+  trip: '#216869',
+  flight: '#0284c7',
+  hotel: '#a16207',
+  attraction: '#9a3412',
+  experience: '#0f766e',
+  event: '#be185d',
+  activity: '#7e22ce',
+  restaurant: '#b91c1c',
+  transport: '#15803d',
 };
 
 const TYPE_LABEL: Record<CardType, string> = {
@@ -70,18 +73,23 @@ const TYPE_LABEL: Record<CardType, string> = {
 };
 
 function isCardType(s: string): s is CardType {
-  return s in TILE_BG;
+  return s in TYPE_ACCENT;
 }
 
 /* SVGs ported from BookingCard's <BookingIcon>. Inline so the edge
-   runtime has no asset-loader dependency. Sized to fit the 160px tile
-   with stroke=3.4 for the larger surface. */
-function Icon({ type }: { type: CardType }) {
-  const stroke = '#1F2421';
-  const sw = 3.4;
+   runtime has no asset-loader dependency. Stroke color and size are
+   parameterized so the same icon can render light-on-dark inside the
+   masthead (size 36, stroke #fff) and dark-on-light if ever needed
+   in the body. */
+function Icon({
+  type,
+  size = 36,
+  stroke = '#ffffff',
+}: { type: CardType; size?: number; stroke?: string }) {
+  const sw = 2.2;
   const common = {
-    width: 100,
-    height: 100,
+    width: size,
+    height: size,
     viewBox: '0 0 24 24',
     fill: 'none' as const,
     stroke,
@@ -220,11 +228,30 @@ export default async function handler(req: Request) {
   const rawType = url.searchParams.get('type') || 'activity';
   const type: CardType = isCardType(rawType) ? rawType : 'activity';
 
-  /* Title font scales down for long strings so it doesn't overflow.
-     Three tiers — keeps short titles dramatically large (the brand
-     hook) and lets long ones still fit without ellipsis tricks. */
-  const titleSize =
-    title.length > 36 ? 72 : title.length > 22 ? 92 : 116;
+  /* Magazine-cover title treatment: if the caller used the
+     "<question frame> · <entity>" pattern, split into a small
+     all-caps eyebrow above a single dominant hero title. When the
+     question frame *is* the entity (no ` · `), the whole title
+     becomes the hero — no eyebrow row. */
+  const titleParts = title.split(' · ');
+  const hasEyebrow = titleParts.length > 1;
+  const eyebrow = hasEyebrow ? titleParts[0] : '';
+  const heroTitle = hasEyebrow ? titleParts.slice(1).join(' · ') : title;
+
+  /* Hero font tiers — sized so the hero is genuinely "headline"
+     scale when short, with graceful step-downs for long entity
+     names like "Renaissance Zurich Tower Hotel" so they still fit
+     on one line in the 1088px-wide content column. */
+  const heroSize =
+    heroTitle.length > 36
+      ? 76
+      : heroTitle.length > 24
+        ? 102
+        : heroTitle.length > 14
+          ? 132
+          : 156;
+
+  const accent = TYPE_ACCENT[type];
 
   return new ImageResponse(
     (
@@ -234,217 +261,237 @@ export default async function handler(req: Request) {
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
-          /* Subtle type-tinted wash at the top fading to the warm
-             off-white — gives the card depth without competing with
-             the content. Stop at 38% so 60%+ of the canvas remains
-             clean for the hero and footer. */
-          background: `linear-gradient(180deg, ${TILE_BG[type]} 0%, #fbfaf9 38%)`,
+          background: '#fbfaf9',
           fontFamily: 'Inter, system-ui, sans-serif',
           color: '#1F2421',
         }}
       >
-        {/* ── HEADER ─────────────────────────────────────────── */}
+        {/* ── MASTHEAD ───────────────────────────────────────── */}
+        {/* Full-bleed saturated band at the top — the visual hook
+            that makes the card pop in a dark iMessage thread. White
+            wordmark and type indicator sit on the accent color. The
+            band itself carries the type identity, so the body can
+            be pure typography below. */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            padding: '36px 56px 24px',
+            padding: '36px 56px',
+            background: accent,
+            color: '#ffffff',
           }}
         >
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 12,
+              gap: 14,
             }}
           >
-            <PlaneGlyph />
+            {/* White paper plane inlined here so the masthead has no
+                external glyph dependency. Matches PlaneGlyph shape. */}
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#ffffff"
+              strokeWidth={2.2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M22 2L11 13" />
+              <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+            </svg>
             <span
               style={{
-                fontSize: 24,
+                fontSize: 30,
                 fontWeight: 700,
-                letterSpacing: '-0.6px',
-                color: '#216869',
+                letterSpacing: '-0.7px',
+                color: '#ffffff',
               }}
             >
               Wanderbot
             </span>
           </div>
+          {/* Type chip with icon + label — white-on-white-tint chip
+              inside the colored band. Reads as a category tag without
+              competing with the wordmark for attention. */}
           <div
             style={{
               display: 'flex',
-              padding: '8px 18px',
+              alignItems: 'center',
+              gap: 10,
+              padding: '10px 18px 10px 14px',
               borderRadius: 999,
-              background: TILE_BG[type],
-              color: '#1F2421',
-              fontSize: 18,
-              fontWeight: 700,
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase',
+              background: 'rgba(255, 255, 255, 0.16)',
+              color: '#ffffff',
             }}
           >
-            {TYPE_LABEL[type]}
+            <Icon type={type} size={26} stroke="#ffffff" />
+            <span
+              style={{
+                fontSize: 18,
+                fontWeight: 700,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+              }}
+            >
+              {TYPE_LABEL[type]}
+            </span>
           </div>
         </div>
 
-        {/* Thin teal divider between header and hero — gives the
-            card a discernible structure rather than feeling like
-            three floating chunks of text on a flat background. */}
+        {/* ── BODY ───────────────────────────────────────────── */}
         <div
           style={{
             display: 'flex',
-            height: 1,
-            background: 'rgba(33, 104, 105, 0.18)',
-            margin: '0 56px',
-          }}
-        />
-
-        {/* ── HERO ───────────────────────────────────────────── */}
-        <div
-          style={{
-            display: 'flex',
+            flexDirection: 'column',
             flex: 1,
-            alignItems: 'center',
-            gap: 36,
-            padding: '32px 56px',
+            padding: '48px 56px 36px',
             position: 'relative',
           }}
         >
-          {/* Cost — top-right of the hero. Refined treatment: no pill
-              chrome, just confident currency-style typography with a
-              hairline divider underneath. Reads as a price tag, not a
-              button. Only renders when the caller provides it. */}
-          {cost && (
+          {/* Eyebrow + optional cost row. Renders when EITHER the
+              title had a ` · ` split OR a cost was provided — keeps
+              the upper-body row from collapsing when only one half is
+              present. */}
+          {(hasEyebrow || cost) && (
             <div
               style={{
-                position: 'absolute',
-                top: 0,
-                right: 0,
                 display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-end',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                marginBottom: 14,
               }}
             >
               <div
                 style={{
                   display: 'flex',
-                  fontSize: 32,
+                  fontSize: 24,
                   fontWeight: 700,
-                  letterSpacing: '-0.6px',
-                  color: '#1F2421',
-                }}
-              >
-                {cost}
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  letterSpacing: '0.14em',
+                  letterSpacing: '0.16em',
                   textTransform: 'uppercase',
-                  color: 'rgba(31, 36, 33, 0.42)',
-                  marginTop: 2,
+                  color: accent,
                 }}
               >
-                Total
+                {eyebrow || ' '}
               </div>
+              {cost && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-end',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      fontSize: 36,
+                      fontWeight: 700,
+                      letterSpacing: '-0.6px',
+                      color: '#1F2421',
+                      lineHeight: 1,
+                    }}
+                  >
+                    {cost}
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      letterSpacing: '0.16em',
+                      textTransform: 'uppercase',
+                      color: 'rgba(31, 36, 33, 0.42)',
+                      marginTop: 4,
+                    }}
+                  >
+                    Total
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
+          {/* Hero title — magazine-cover headline. Tightly tracked,
+              flush with the body's left padding. */}
           <div
             style={{
               display: 'flex',
-              width: 180,
-              height: 180,
-              borderRadius: 40,
-              background: TILE_BG[type],
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
+              fontSize: heroSize,
+              fontWeight: 800,
+              letterSpacing: '-3px',
+              lineHeight: 0.96,
+              color: '#1F2421',
             }}
           >
-            <Icon type={type} />
+            {heroTitle}
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14,
-              flex: 1,
-              minWidth: 0,
-            }}
-          >
+          {subtitle && (
             <div
               style={{
-                fontSize: titleSize,
-                fontWeight: 700,
-                letterSpacing: '-2.6px',
-                lineHeight: 0.98,
-                color: '#1F2421',
+                display: 'flex',
+                fontSize: 36,
+                fontWeight: 500,
+                color: 'rgba(31, 36, 33, 0.72)',
+                letterSpacing: '-0.5px',
+                lineHeight: 1.2,
+                marginTop: 22,
               }}
             >
-              {title}
+              {subtitle}
             </div>
-            {subtitle && (
-              <div
-                style={{
-                  display: 'flex',
-                  fontSize: 38,
-                  fontWeight: 500,
-                  color: 'rgba(31, 36, 33, 0.72)',
-                  letterSpacing: '-0.5px',
-                  lineHeight: 1.2,
-                }}
-              >
-                {subtitle}
-              </div>
-            )}
-            {loc && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  fontSize: 28,
-                  fontWeight: 500,
-                  color: 'rgba(31, 36, 33, 0.56)',
-                  letterSpacing: '-0.3px',
-                  marginTop: 6,
-                }}
-              >
-                <PinGlyph />
-                <span>{loc}</span>
-              </div>
-            )}
-          </div>
-        </div>
+          )}
 
-        {/* ── FOOTER ─────────────────────────────────────────── */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            padding: '24px 56px 36px',
-            fontSize: 22,
-            color: 'rgba(31, 36, 33, 0.5)',
-            fontWeight: 500,
-            letterSpacing: '-0.2px',
-          }}
-        >
-          <div style={{ display: 'flex' }}>{meta || ' '}</div>
+          {loc && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                fontSize: 26,
+                fontWeight: 500,
+                color: 'rgba(31, 36, 33, 0.56)',
+                letterSpacing: '-0.3px',
+                marginTop: 14,
+              }}
+            >
+              <PinGlyph />
+              <span>{loc}</span>
+            </div>
+          )}
+
+          {/* Spacer pushes the footer to the bottom of the body. */}
+          <div style={{ display: 'flex', flex: 1 }} />
+
+          {/* Footer row — subtle, just enough to anchor the
+              tap-affordance and trip-name context. */}
           <div
             style={{
               display: 'flex',
-              color: '#216869',
-              fontWeight: 700,
-              letterSpacing: '-0.3px',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              fontSize: 22,
+              color: 'rgba(31, 36, 33, 0.5)',
+              fontWeight: 500,
+              letterSpacing: '-0.2px',
             }}
           >
-            {cta}
+            <div style={{ display: 'flex' }}>{meta || ' '}</div>
+            <div
+              style={{
+                display: 'flex',
+                color: accent,
+                fontWeight: 700,
+                letterSpacing: '-0.3px',
+              }}
+            >
+              {cta}
+            </div>
           </div>
         </div>
       </div>
