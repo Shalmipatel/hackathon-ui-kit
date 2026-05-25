@@ -15,9 +15,9 @@ import {
 import {
   SortableContext,
   arrayMove,
-  rectSortingStrategy,
   sortableKeyboardCoordinates,
   useSortable,
+  verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTravelStore } from './travel-store';
@@ -156,6 +156,28 @@ const DropHint = styled.div<{ $dragOver?: boolean }>`
   }
 `;
 
+/** Multi-day items (hotels spanning nights, overnight flights, etc.)
+ *  appear in multiple day buckets — registering the SAME id in
+ *  multiple SortableContexts confuses dnd-kit and causes the dragged
+ *  card to "jump" between day sections mid-drag. Lock them out of
+ *  drag entirely; they're effectively immovable in the real world
+ *  anyway. */
+function bookingSpansMultipleDays(b: Booking): boolean {
+  return bookingDayKeys(b).length > 1;
+}
+
+/** Each card is registered with a per-day-instance id (`<day>::<bookingId>`)
+ *  so multi-day bookings (which appear in 2+ day buckets) don't collide
+ *  on the same dnd-kit id across sortable contexts. handleDragEnd
+ *  parses these back into a (dayKey, bookingId) pair. */
+const composeSortableId = (dayKey: string, bookingId: string) =>
+  `${dayKey}::${bookingId}`;
+const parseSortableId = (id: string): { dayKey: string; bookingId: string } | null => {
+  const idx = id.indexOf('::');
+  if (idx === -1) return null;
+  return { dayKey: id.slice(0, idx), bookingId: id.slice(idx + 2) };
+};
+
 /** Sortable wrapper around a BookingCard. Disabled (no drag affordance,
  *  no listeners) for locked bookings — those are still tappable / open
  *  the modal, just not draggable. dnd-kit's transform is applied via
@@ -166,7 +188,9 @@ const SortableItem: React.FC<{
   dayKey: string;
   onBookingClick?: (id: string) => void;
 }> = ({ booking, dayKey, onBookingClick }) => {
-  const locked = isBookingLocked(booking);
+  /* Locked = confirmation-backed OR multi-day. Both render the lock
+     pill and skip dnd-kit's drag listeners. */
+  const locked = isBookingLocked(booking) || bookingSpansMultipleDays(booking);
   const {
     attributes,
     listeners,
@@ -174,14 +198,25 @@ const SortableItem: React.FC<{
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: booking.id, disabled: locked });
+    isOver,
+    over,
+  } = useSortable({
+    id: composeSortableId(dayKey, booking.id),
+    disabled: locked,
+  });
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0 : 1, // DragOverlay shows the floating one
     cursor: locked ? 'default' : 'grab',
     touchAction: 'manipulation',
+    position: 'relative',
   };
+  /* Draw a thin dashed insertion strip above this card when something
+     else is being dragged over it. Tells the user exactly where the
+     drop will land. */
+  const showInsertionHint =
+    isOver && over && String(over.id) !== composeSortableId(dayKey, booking.id);
   return (
     <div
       ref={setNodeRef}
@@ -190,6 +225,20 @@ const SortableItem: React.FC<{
       {...(locked ? {} : attributes)}
       {...(locked ? {} : listeners)}
     >
+      {showInsertionHint && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: -5,
+            left: 0,
+            right: 0,
+            height: 0,
+            borderTop: '2px dashed rgba(33, 104, 105, 0.7)',
+            pointerEvents: 'none',
+          }}
+        />
+      )}
       <BookingCard
         booking={booking}
         dayKey={dayKey}
@@ -456,19 +505,13 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const activeBooking = useMemo(
-    () => (activeId ? bookings.find((b) => b.id === activeId) ?? null : null),
-    [activeId, bookings],
-  );
-
-  /* Find which day-list contains a given booking id. Cards can appear
-     in multiple day-lists (multi-day spans), so we use the FIRST
-     day the booking starts on as its canonical home. */
-  const dayForBookingId = (id: string): string | null => {
-    const b = bookings.find((x) => x.id === id);
-    if (!b) return null;
-    return bookingDayKeys(b)[0] ?? null;
-  };
+  /* activeId is the composite "<day>::<bookingId>" sortable id. */
+  const activeBooking = useMemo(() => {
+    if (!activeId) return null;
+    const parsed = parseSortableId(activeId);
+    if (!parsed) return null;
+    return bookings.find((b) => b.id === parsed.bookingId) ?? null;
+  }, [activeId, bookings]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(String(event.active.id));
@@ -482,52 +525,47 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     const overIdStr = String(over.id);
     if (activeIdStr === overIdStr) return;
 
-    const moved = bookings.find((b) => b.id === activeIdStr);
+    const activeParsed = parseSortableId(activeIdStr);
+    if (!activeParsed) return;
+    const moved = bookings.find((b) => b.id === activeParsed.bookingId);
     if (!moved) return;
-    if (isBookingLocked(moved)) return; // safety — sortable should already block
+    if (isBookingLocked(moved) || bookingSpansMultipleDays(moved)) return;
 
-    /* `over.id` is either another booking's id (a sibling in the same
-       SortableContext) OR a day-key sentinel like "day:2026-06-21"
-       (when dropped on an empty day's drop zone). */
-    let targetDay: string | null;
-    let beforeId: string | null = null;
-    let afterId: string | null = null;
+    /* Resolve target day + neighbor booking from over.id. over.id is
+       EITHER a "day:<key>" sentinel (empty-day drop zone) OR a
+       composite "<day>::<bookingId>" of a sibling. */
+    let targetDay: string;
+    let overBookingId: string | null = null;
     if (overIdStr.startsWith('day:')) {
       targetDay = overIdStr.slice('day:'.length);
     } else {
-      targetDay = dayForBookingId(overIdStr);
-      if (!targetDay) return;
-      const overList = bookingsByDay.get(targetDay) ?? [];
-      const overIdx = overList.findIndex((b) => b.id === overIdStr);
-      /* When sorting within the same list dnd-kit hands us the item
-         being swapped with; we place active BEFORE over (matches the
-         visual feedback during drag). */
-      beforeId = overIdStr;
-      if (overIdx > 0) afterId = overList[overIdx - 1].id;
+      const overParsed = parseSortableId(overIdStr);
+      if (!overParsed) return;
+      targetDay = overParsed.dayKey;
+      overBookingId = overParsed.bookingId;
     }
-    if (!targetDay) return;
 
-    const sourceDay = dayForBookingId(activeIdStr);
-    if (sourceDay === targetDay) {
+    const sourceDay = activeParsed.dayKey;
+
+    if (sourceDay === targetDay && overBookingId) {
       /* Same-day reorder. Compute new effective time between the
          active's new neighbors. */
       const list = bookingsByDay.get(targetDay) ?? [];
-      const oldIdx = list.findIndex((b) => b.id === activeIdStr);
-      const newIdx = list.findIndex((b) => b.id === overIdStr);
+      const oldIdx = list.findIndex((b) => b.id === moved.id);
+      const newIdx = list.findIndex((b) => b.id === overBookingId);
       if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return;
       const reordered = arrayMove(list, oldIdx, newIdx);
-      const newPos = reordered.findIndex((b) => b.id === activeIdStr);
+      const newPos = reordered.findIndex((b) => b.id === moved.id);
       const prev = newPos > 0 ? reordered[newPos - 1] : null;
       const next = newPos < reordered.length - 1 ? reordered[newPos + 1] : null;
       const newStart = computeInterpolatedStart(targetDay, moved, prev, next);
       upsertBooking({ ...moved, start: newStart } as Booking);
     } else {
-      /* Cross-day move. Preserve time-of-day; if the item is at the
-         start/end of the target list, also interpolate so it lands
-         in the right spot. */
+      /* Cross-day move. Preserve time-of-day; if a neighbor was
+         hovered, also interpolate so it lands in the right slot. */
       const targetList = bookingsByDay.get(targetDay) ?? [];
-      const overIdxInTarget = beforeId
-        ? targetList.findIndex((b) => b.id === beforeId)
+      const overIdxInTarget = overBookingId
+        ? targetList.findIndex((b) => b.id === overBookingId)
         : -1;
       const prev = overIdxInTarget > 0 ? targetList[overIdxInTarget - 1] : null;
       const next = overIdxInTarget >= 0 ? targetList[overIdxInTarget] : null;
@@ -657,7 +695,10 @@ export const Itinerary: React.FC<ItineraryProps> = ({
             const dayBookings = bookingsByDay.get(day) ?? [];
             const [, , d] = day.split('-').map(Number);
             const dayLabel = formatDayLabel(day);
-            const itemIds = dayBookings.map((b) => b.id);
+            /* Composite ids per day instance — guarantees uniqueness
+               across SortableContexts even when a multi-day booking
+               appears in more than one bucket. */
+            const itemIds = dayBookings.map((b) => composeSortableId(day, b.id));
             /* Include the empty-day sentinel as the only item in the
                SortableContext when the day has nothing — so an empty
                day is still a valid drop target. */
@@ -691,7 +732,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
                     onAdd={(place) => handleAddPlace(day, place)}
                   />
                 </DayHeader>
-                <SortableContext items={sortableItems} strategy={rectSortingStrategy}>
+                <SortableContext items={sortableItems} strategy={verticalListSortingStrategy}>
                   {dayBookings.length > 0 ? (
                     <DayItems>
                       {dayBookings.map((b) => (
