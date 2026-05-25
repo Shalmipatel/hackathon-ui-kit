@@ -6,7 +6,11 @@
 import { ImageResponse } from '@vercel/og';
 import { createElement } from 'react';
 
+/* Both the legacy `export const config = { runtime: 'edge' }` AND
+   the newer `export const runtime = 'edge'` to cover whichever
+   Vercel resolves first on this project. */
 export const config = { runtime: 'edge' };
+export const runtime = 'edge';
 
 export default async function handler(req: Request) {
   try {
