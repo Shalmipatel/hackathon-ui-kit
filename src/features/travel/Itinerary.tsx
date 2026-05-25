@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   TouchSensor,
@@ -11,16 +12,14 @@ import {
   useSensors,
   type CollisionDetection,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
 import {
   SortableContext,
-  arrayMove,
   sortableKeyboardCoordinates,
   useSortable,
-  verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { useTravelStore } from './travel-store';
 import {
   bookingDayKey,
@@ -200,37 +199,23 @@ const SortableItem: React.FC<{
     attributes,
     listeners,
     setNodeRef,
-    transform,
-    transition,
     isDragging,
-    isOver,
-    over,
   } = useSortable({
     id: composeSortableId(dayKey, booking.id),
     disabled: { draggable: locked, droppable: false },
   });
-  /* In-place drag: the dragged item itself follows the cursor via
-     transform, and siblings reflow around it. No DragOverlay needed
-     so there's no dual-positioning bug. Boost z-index + add a slight
-     scale + shadow so it visually lifts above the rest. */
+  /* The dragged card is rendered separately in a top-level
+     `DragOverlay` so it can float above the layout without
+     reflowing siblings. The original DOM node stays in place as a
+     muted "ghost" so the user remembers where it came from — and
+     so layout stays stable underneath. */
   const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    cursor: locked ? 'default' : isDragging ? 'grabbing' : 'grab',
+    cursor: locked ? 'default' : 'grab',
     touchAction: 'manipulation',
     position: 'relative',
-    zIndex: isDragging ? 100 : 'auto',
-    boxShadow: isDragging
-      ? '0 16px 40px rgba(31, 36, 33, 0.22)'
-      : undefined,
-    borderRadius: 14,
-    background: isDragging ? '#fff' : undefined,
+    opacity: isDragging ? 0.35 : 1,
+    transition: 'opacity 120ms ease',
   };
-  /* Draw a thin dashed insertion strip above this card when something
-     else is being dragged over it. Tells the user exactly where the
-     drop will land. */
-  const showInsertionHint =
-    isOver && over && String(over.id) !== composeSortableId(dayKey, booking.id);
   return (
     <div
       ref={setNodeRef}
@@ -239,20 +224,6 @@ const SortableItem: React.FC<{
       {...(locked ? {} : attributes)}
       {...(locked ? {} : listeners)}
     >
-      {showInsertionHint && (
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute',
-            top: -5,
-            left: 0,
-            right: 0,
-            height: 0,
-            borderTop: '2px dashed rgba(33, 104, 105, 0.7)',
-            pointerEvents: 'none',
-          }}
-        />
-      )}
       <BookingCard
         booking={booking}
         dayKey={dayKey}
@@ -262,6 +233,33 @@ const SortableItem: React.FC<{
     </div>
   );
 };
+
+/** Live insertion indicator. Rendered between cards (or above/below
+ *  the day's items) at the predicted drop position. Replaces the
+ *  per-card `isOver` hint with a SINGLE indicator that follows the
+ *  cursor — clearer, calmer, and matches the way other modern DnD
+ *  surfaces (Notion, Linear, Trello columns) handle reorder. */
+const InsertionLine = styled.div`
+  height: 0;
+  margin: 4px 0;
+  border-top: 3px solid #216869;
+  border-radius: 2px;
+  position: relative;
+  pointer-events: none;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #216869;
+    top: -5px;
+  }
+  &::before { left: -2px; }
+  &::after { right: -2px; }
+`;
 
 /** Empty-day drop target so the user can drag a card onto a day that
  *  currently has no events. Uses `useDroppable` (NOT `useSortable`)
@@ -439,6 +437,25 @@ export const Itinerary: React.FC<ItineraryProps> = ({
      the in-place transform/lift on the SortableItem, and (b) tell the
      TailDropZone to expand into a visible drop slot during drag. */
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  /* Live cursor Y position — captured continuously so handleDragEnd
+     can ignore dnd-kit's `over` (which is unreliable for variable-
+     height cards) and just find which DOM card the cursor is on top of
+     at drop time. This is the actual fix for "untimed cards land in
+     the wrong place": insertion is now driven by the cursor, not by
+     verticalListSortingStrategy's index math. */
+  const cursorYRef = useRef<number | null>(null);
+  useEffect(() => {
+    const onMove = (e: PointerEvent | MouseEvent) => {
+      cursorYRef.current = e.clientY;
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('mousemove', onMove);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('mousemove', onMove);
+    };
+  }, []);
   const trip = useMemo(
     () => trips.find((t) => t.id === effectiveTripId) ?? null,
     [trips, effectiveTripId],
@@ -560,9 +577,15 @@ export const Itinerary: React.FC<ItineraryProps> = ({
      Within-day reorder interpolates a new start time between the
      dragged item's new neighbors; cross-day drops shift the
      booking to the target day (preserving time-of-day). */
+  /* Mouse: a 4 px slop avoids stealing single-click events from the
+     underlying card (which opens the detail modal). Touch: a 200 ms
+     long-press is the iOS standard for "this is a drag, not a tap"
+     and matches the cadence of native reorder UI (Reminders, Photos).
+     `tolerance` lets the finger drift up to 8 px during the press
+     without cancelling. */
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
@@ -589,88 +612,182 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     [],
   );
 
+  /* No-op sortable strategy: siblings DON'T reflow around the
+     active item during drag. This is intentional — locked
+     cards (flights, hotels) sitting between the active and the
+     drop target were blocking the strategy's reflow, making the
+     drag feel "stuck". We don't need predictive reflow because
+     handleDragEnd places the moved card based on the cursor's
+     final Y, not on the strategy's predicted index. */
+  const noopStrategy = useMemo(() => () => null, []);
+
+  /* Snapshot of every booking card's bounding rect at drag START
+     — captured here so handleDragEnd can compute insertion against
+     the LAYOUT THE USER SAW WHEN THEY BEGAN DRAGGING, not against
+     the live mid-drag layout (which verticalListSortingStrategy is
+     actively transforming to predict the drop). Keyed by (dayKey,
+     bookingId) so multi-day items don't collide. */
+  type DragSnapshot = {
+    cards: Array<{ dayKey: string; bookingId: string; top: number; bottom: number; mid: number }>;
+    daySections: Array<{ dayKey: string; top: number; bottom: number }>;
+  };
+  const dragSnapshotRef = useRef<DragSnapshot | null>(null);
+
+  /* Live insertion preview: where would the drop land RIGHT NOW?
+     Updated on every drag move so the indicator stays glued to the
+     pointer. `index` is the zero-based slot the active card would
+     occupy in the day's list (0 = top, N = below all current items). */
+  const [insertion, setInsertion] = useState<{
+    dayKey: string;
+    index: number;
+  } | null>(null);
+
+  /** Pure: given the cursor Y, the drag snapshot, and the moved card,
+   *  return (targetDay, insertionIndex, prev, next). Used by both
+   *  the live preview (handleDragMove) and the commit (handleDragEnd)
+   *  so the indicator and the actual drop CAN'T disagree. */
+  const computeInsertion = (
+    cursorY: number,
+    snap: DragSnapshot,
+    movedId: string,
+  ): {
+    targetDay: string;
+    insertionIndex: number;
+    prevBookingId: string | null;
+    nextBookingId: string | null;
+  } | null => {
+    let targetDay: string | null = null;
+    let bestDist = Infinity;
+    for (const sec of snap.daySections) {
+      if (cursorY >= sec.top && cursorY <= sec.bottom) {
+        targetDay = sec.dayKey;
+        break;
+      }
+      const dist = Math.min(
+        Math.abs(cursorY - sec.top),
+        Math.abs(cursorY - sec.bottom),
+      );
+      if (dist < bestDist) {
+        bestDist = dist;
+        targetDay = sec.dayKey;
+      }
+    }
+    if (!targetDay) return null;
+    const daySlots = snap.cards
+      .filter((s) => s.dayKey === targetDay && s.bookingId !== movedId)
+      .sort((a, b) => a.top - b.top);
+    if (daySlots.length === 0) {
+      return { targetDay, insertionIndex: 0, prevBookingId: null, nextBookingId: null };
+    }
+    if (cursorY < daySlots[0].mid) {
+      return {
+        targetDay,
+        insertionIndex: 0,
+        prevBookingId: null,
+        nextBookingId: daySlots[0].bookingId,
+      };
+    }
+    if (cursorY >= daySlots[daySlots.length - 1].mid) {
+      return {
+        targetDay,
+        insertionIndex: daySlots.length,
+        prevBookingId: daySlots[daySlots.length - 1].bookingId,
+        nextBookingId: null,
+      };
+    }
+    for (let i = 0; i < daySlots.length - 1; i++) {
+      if (cursorY >= daySlots[i].mid && cursorY < daySlots[i + 1].mid) {
+        return {
+          targetDay,
+          insertionIndex: i + 1,
+          prevBookingId: daySlots[i].bookingId,
+          nextBookingId: daySlots[i + 1].bookingId,
+        };
+      }
+    }
+    return null;
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(String(event.active.id));
+    const cards: DragSnapshot['cards'] = [];
+    for (const el of document.querySelectorAll<HTMLElement>('[data-booking-id]')) {
+      const bookingId = el.dataset.bookingId;
+      if (!bookingId) continue;
+      const sec = el.closest('[data-day-key]') as HTMLElement | null;
+      const dayKey = sec?.dataset.dayKey;
+      if (!dayKey) continue;
+      const r = el.getBoundingClientRect();
+      cards.push({ dayKey, bookingId, top: r.top, bottom: r.bottom, mid: r.top + r.height / 2 });
+    }
+    const daySections: DragSnapshot['daySections'] = [];
+    for (const sec of document.querySelectorAll<HTMLElement>('[data-day-key]')) {
+      const dayKey = sec.dataset.dayKey;
+      if (!dayKey) continue;
+      const r = sec.getBoundingClientRect();
+      daySections.push({ dayKey, top: r.top, bottom: r.bottom });
+    }
+    dragSnapshotRef.current = { cards, daySections };
+  };
+
+  const handleDragMove = (event: DragMoveEvent) => {
+    const snap = dragSnapshotRef.current;
+    if (!snap) return;
+    const cursorY = cursorYRef.current;
+    if (cursorY === null) return;
+    const activeParsed = parseSortableId(String(event.active.id));
+    if (!activeParsed) return;
+    const next = computeInsertion(cursorY, snap, activeParsed.bookingId);
+    if (!next) {
+      setInsertion(null);
+      return;
+    }
+    setInsertion((prev) =>
+      prev &&
+      prev.dayKey === next.targetDay &&
+      prev.index === next.insertionIndex
+        ? prev
+        : { dayKey: next.targetDay, index: next.insertionIndex },
+    );
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
+    const { active } = event;
     setActiveId(null);
-    if (!over) return;
-    const activeIdStr = String(active.id);
-    const overIdStr = String(over.id);
-    if (activeIdStr === overIdStr) return;
+    setInsertion(null);
 
+    const activeIdStr = String(active.id);
     const activeParsed = parseSortableId(activeIdStr);
     if (!activeParsed) return;
     const moved = bookings.find((b) => b.id === activeParsed.bookingId);
     if (!moved) return;
     if (isBookingLocked(moved) || bookingSpansMultipleDays(moved)) return;
 
-    /* Resolve target day + neighbor booking from over.id. over.id is
-       one of:
-         - "day:<key>"        — empty-day drop zone (day has no items)
-         - "tail:<key>"       — tail drop zone (append below last item)
-         - "<day>::<bookingId>" — sibling sortable id
-    */
-    let targetDay: string;
-    let overBookingId: string | null = null;
-    let appendToEnd = false;
-    if (overIdStr.startsWith('day:')) {
-      targetDay = overIdStr.slice('day:'.length);
-    } else if (overIdStr.startsWith('tail:')) {
-      targetDay = overIdStr.slice('tail:'.length);
-      appendToEnd = true;
-    } else {
-      const overParsed = parseSortableId(overIdStr);
-      if (!overParsed) return;
-      targetDay = overParsed.dayKey;
-      overBookingId = overParsed.bookingId;
-    }
+    const cursorY = cursorYRef.current;
+    const snap = dragSnapshotRef.current;
+    if (cursorY === null || !snap) return;
+
+    const result = computeInsertion(cursorY, snap, moved.id);
+    if (!result) return;
+    const { targetDay, prevBookingId, nextBookingId } = result;
+    const dayList = bookingsByDay.get(targetDay) ?? [];
+    const prev = prevBookingId
+      ? dayList.find((b) => b.id === prevBookingId) ?? null
+      : null;
+    const next = nextBookingId
+      ? dayList.find((b) => b.id === nextBookingId) ?? null
+      : null;
 
     const sourceDay = activeParsed.dayKey;
 
-    if (sourceDay === targetDay && (overBookingId || appendToEnd)) {
-      /* Same-day reorder. Compute new effective time between the
-         active's new neighbors. The "append to end" path (drop past
-         the last item) skips the arrayMove and picks the last
-         remaining item as `prev` directly. */
-      const list = bookingsByDay.get(targetDay) ?? [];
-      let prev: Booking | null;
-      let next: Booking | null;
-      if (appendToEnd) {
-        const remaining = list.filter((b) => b.id !== moved.id);
-        prev = remaining[remaining.length - 1] ?? null;
-        next = null;
-        /* If the moved item is already last, nothing to do. */
-        if (list[list.length - 1]?.id === moved.id) return;
-      } else {
-        const oldIdx = list.findIndex((b) => b.id === moved.id);
-        const newIdx = list.findIndex((b) => b.id === overBookingId);
-        if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return;
-        const reordered = arrayMove(list, oldIdx, newIdx);
-        const newPos = reordered.findIndex((b) => b.id === moved.id);
-        prev = newPos > 0 ? reordered[newPos - 1] : null;
-        next = newPos < reordered.length - 1 ? reordered[newPos + 1] : null;
-      }
+    if (sourceDay === targetDay) {
+      if (!prev && !next) return;
       const newStart = computeInterpolatedStart(targetDay, moved, prev, next);
+      if (newStart === moved.start) return;
       upsertBooking({ ...moved, start: newStart } as Booking);
     } else {
-      /* Cross-day move. Preserve time-of-day; if a neighbor was
-         hovered, also interpolate so it lands in the right slot.
-         tail:<day> appends to the end of the target list. */
-      const targetList = bookingsByDay.get(targetDay) ?? [];
-      const overIdxInTarget = overBookingId
-        ? targetList.findIndex((b) => b.id === overBookingId)
-        : -1;
-      const prev = appendToEnd
-        ? targetList[targetList.length - 1] ?? null
-        : overIdxInTarget > 0 ? targetList[overIdxInTarget - 1] : null;
-      const next = appendToEnd
-        ? null
-        : overIdxInTarget >= 0 ? targetList[overIdxInTarget] : null;
       const shifted = shiftBookingToDay(moved, targetDay);
-      const finalStart = (prev || next)
+      const finalStart = prev || next
         ? computeInterpolatedStart(targetDay, shifted, prev, next)
         : shifted.start;
       upsertBooking({ ...shifted, start: finalStart } as Booking);
@@ -682,7 +799,10 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     }
   };
 
-  const handleDragCancel = () => setActiveId(null);
+  const handleDragCancel = () => {
+    setActiveId(null);
+    setInsertion(null);
+  };
 
   /* Scroll-spy: pan the map to whichever booking is currently closest
      to the top of the viewport. Booking cards advertise themselves
@@ -788,6 +908,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
           sensors={sensors}
           collisionDetection={collisionDetection}
           onDragStart={handleDragStart}
+          onDragMove={handleDragMove}
           onDragEnd={handleDragEnd}
           onDragCancel={handleDragCancel}
         >
@@ -795,18 +916,12 @@ export const Itinerary: React.FC<ItineraryProps> = ({
             const dayBookings = bookingsByDay.get(day) ?? [];
             const [, , d] = day.split('-').map(Number);
             const dayLabel = formatDayLabel(day);
-            /* Composite ids per day instance — guarantees uniqueness
-               across SortableContexts even when a multi-day booking
-               appears in more than one bucket. Only REAL bookings go
-               in here; the tail/empty drop zones are top-level
-               droppables (not sortables) and would only confuse
-               verticalListSortingStrategy if mixed in. Pulled from a
-               memoized map so the array reference is stable across
-               re-renders. */
             const sortableItems = sortableItemsByDay.get(day) ?? [];
             const isDraggingNow = activeId !== null;
+            const showInsertionAt = (slot: number) =>
+              insertion?.dayKey === day && insertion.index === slot;
             return (
-              <Section key={day}>
+              <Section key={day} data-day-key={day}>
                 <DayHeader>
                   <DayBadge $empty={dayBookings.length === 0}>
                     <DayBadgeNum>{d}</DayBadgeNum>
@@ -831,26 +946,60 @@ export const Itinerary: React.FC<ItineraryProps> = ({
                     onAdd={(place) => handleAddPlace(day, place)}
                   />
                 </DayHeader>
-                <SortableContext items={sortableItems} strategy={verticalListSortingStrategy}>
+                <SortableContext items={sortableItems} strategy={noopStrategy}>
                   {dayBookings.length > 0 ? (
                     <DayItems>
-                      {dayBookings.map((b) => (
-                        <SortableItem
-                          key={b.id}
-                          booking={b}
-                          dayKey={day}
-                          onBookingClick={onBookingClick}
-                        />
+                      {dayBookings.map((b, i) => (
+                        <React.Fragment key={b.id}>
+                          {showInsertionAt(i) && <InsertionLine aria-hidden />}
+                          <SortableItem
+                            booking={b}
+                            dayKey={day}
+                            onBookingClick={onBookingClick}
+                          />
+                        </React.Fragment>
                       ))}
+                      {showInsertionAt(dayBookings.length) && (
+                        <InsertionLine aria-hidden />
+                      )}
                       <TailDropZone dayKey={day} isDraggingNow={isDraggingNow} />
                     </DayItems>
                   ) : (
-                    <EmptyDayDropZone dayKey={day} isActive={isDraggingNow} />
+                    <>
+                      {showInsertionAt(0) && <InsertionLine aria-hidden />}
+                      <EmptyDayDropZone dayKey={day} isActive={isDraggingNow} />
+                    </>
                   )}
                 </SortableContext>
               </Section>
             );
           })}
+          <DragOverlay
+            dropAnimation={{ duration: 220, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' }}
+            zIndex={1000}
+          >
+            {activeId
+              ? (() => {
+                  const parsed = parseSortableId(activeId);
+                  const b = parsed
+                    ? bookings.find((bk) => bk.id === parsed.bookingId)
+                    : null;
+                  if (!b || !parsed) return null;
+                  return (
+                    <div
+                      style={{
+                        transform: 'scale(1.02) rotate(-0.6deg)',
+                        boxShadow: '0 24px 56px rgba(31, 36, 33, 0.32)',
+                        borderRadius: 14,
+                        cursor: 'grabbing',
+                      }}
+                    >
+                      <BookingCard booking={b} dayKey={parsed.dayKey} />
+                    </div>
+                  );
+                })()
+              : null}
+          </DragOverlay>
         </DndContext>
       )}
     </Wrap>
@@ -872,12 +1021,74 @@ export default Itinerary;
  *  shift `end` (if present) by the same number of calendar days so
  *  the span survives the move.
  */
+/** Extract the tz suffix from a single ISO string, or empty if naïve. */
+function isoTzSuffix(iso: string | undefined): string {
+  if (!iso) return '';
+  const m = iso.match(/(Z|[+-]\d{2}:\d{2})$/);
+  return m ? m[1] : '';
+}
+
+/** Tz suffix for the timestamp that REPRESENTS this booking on the
+ *  given day. Mirrors `effMs` — for a multi-day item on its END day
+ *  we want the end timestamp's tz (e.g. ZRH arrival "+02:00"), not
+ *  the start timestamp's tz (which might be a SFO departure
+ *  "-07:00"). Mixing them is what was tagging dropped cards with the
+ *  wrong offset and silently mis-sorting them. */
+function effTzSuffix(b: Booking | null | undefined, dayKey: string): string {
+  if (!b) return '';
+  const sd = b.start.slice(0, 10);
+  const ed = b.end ? b.end.slice(0, 10) : sd;
+  if (dayKey === ed && ed !== sd && b.end) return isoTzSuffix(b.end);
+  return isoTzSuffix(b.start);
+}
+
+/** Pick the FIRST tz suffix from a list of (booking, dayKey) pairs.
+ *  Used to format an interpolated timestamp in the same offset as its
+ *  neighbors so that string-sort agrees with chronological order. */
+function pickTzSuffix(
+  dayKey: string,
+  ...bookings: Array<Booking | null | undefined>
+): string {
+  for (const b of bookings) {
+    const tz = effTzSuffix(b, dayKey);
+    if (tz) return tz;
+  }
+  return '';
+}
+
+/** Format `ms` as HH:MM under a specific UTC offset (or local time if
+ *  `offset` is empty). Returns a two-tuple [hh, mm]. */
+function hhmmInOffset(ms: number, offset: string): [string, string] {
+  let hh: number, mm: number;
+  if (offset === '') {
+    const d = new Date(ms);
+    hh = d.getHours();
+    mm = d.getMinutes();
+  } else if (offset === 'Z') {
+    const d = new Date(ms);
+    hh = d.getUTCHours();
+    mm = d.getUTCMinutes();
+  } else {
+    const sign = offset[0] === '-' ? -1 : 1;
+    const [oh, om] = offset.slice(1).split(':').map(Number);
+    const offsetMs = sign * (oh * 60 + om) * 60 * 1000;
+    const d = new Date(ms + offsetMs);
+    hh = d.getUTCHours();
+    mm = d.getUTCMinutes();
+  }
+  return [String(hh).padStart(2, '0'), String(mm).padStart(2, '0')];
+}
+
 /** Compute a new ISO start timestamp that places `moved` between
  *  `prev` and `next` in the day's chronological list. Both neighbors
  *  are optional (first or last slot). Always returns an ISO string
  *  whose YYYY-MM-DD prefix matches `dayKey` so the booking buckets
  *  back into the right day. `hasTime: false` items keep their
- *  hasTime flag — the parent should preserve that on upsert. */
+ *  hasTime flag — the parent should preserve that on upsert.
+ *
+ *  CRITICAL: the returned string is formatted in the same tz offset
+ *  as the neighbors (e.g. "+02:00" for a Zurich day) so that the
+ *  string-based sort in `bookingsByDay` agrees with chronology. */
 function computeInterpolatedStart(
   dayKey: string,
   moved: Booking,
@@ -892,7 +1103,13 @@ function computeInterpolatedStart(
     if (dayKey === ed && ed !== sd) return new Date(b.end as string).getTime();
     return new Date(b.start).getTime();
   };
-  const dayMidnightMs = new Date(`${dayKey}T00:00:00`).getTime();
+  /* Pick the tz suffix from the neighbors — prefer prev, then next,
+     and fall back to whatever `moved` itself uses. Crucially, use the
+     END timestamp's tz when a multi-day neighbor is on its end day
+     (so a Zurich-arrival flight tags the new card "+02:00" not the
+     SFO-departure "-07:00"). */
+  const offset = pickTzSuffix(dayKey, prev, next, moved);
+  const dayMidnightMs = new Date(`${dayKey}T00:00:00${offset || ''}`).getTime();
   const dayEndMs = dayMidnightMs + 24 * 60 * 60 * 1000 - 1;
   const prevMs = prev ? effMs(prev) : dayMidnightMs;
   const nextMs = next ? effMs(next) : dayEndMs;
@@ -903,11 +1120,8 @@ function computeInterpolatedStart(
   else if (prev) pickedMs = prevMs + 60 * 60 * 1000; // 1h after prev
   else pickedMs = dayMidnightMs + 12 * 60 * 60 * 1000; // noon
 
-  /* Rebuild as ISO string anchored to dayKey to dodge timezone drift. */
-  const d = new Date(pickedMs);
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${dayKey}T${hh}:${mm}:00`;
+  const [hh, mm] = hhmmInOffset(pickedMs, offset);
+  return `${dayKey}T${hh}:${mm}:00${offset}`;
 }
 
 function shiftBookingToDay(booking: Booking, newDayKey: string): Booking {

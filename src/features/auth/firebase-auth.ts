@@ -87,16 +87,28 @@ export type AuthState =
   /** Signed in and allowed — render the app. */
   | { status: 'authorized'; user: User };
 
+/** Dev-only bypass: set VITE_BYPASS_AUTH=1 in `.env.local` to skip
+ *  the Firebase auth gate entirely (lets you load the app at
+ *  localhost:5173 without signing in). Tree-shaken out of prod builds
+ *  via the `import.meta.env.DEV` guard. */
+function isDevAuthBypassed(): boolean {
+  if (!import.meta.env.DEV) return false;
+  const flag = import.meta.env.VITE_BYPASS_AUTH;
+  return flag === '1' || flag === 'true';
+}
+
 /** React hook over Firebase Auth's onAuthStateChanged with the
  *  allow-list applied. Suitable for top-level gate components. */
 export function useFirebaseUser(): AuthState {
   const [state, setState] = useState<AuthState>(() => {
+    if (isDevAuthBypassed()) return { status: 'bypassed' };
     const auth = getAuthInstance();
     if (!auth) return { status: 'bypassed' };
     return { status: 'loading' };
   });
 
   useEffect(() => {
+    if (isDevAuthBypassed()) return;
     const auth = getAuthInstance();
     if (!auth) return;
     const unsub = onAuthStateChanged(auth, (user) => {
