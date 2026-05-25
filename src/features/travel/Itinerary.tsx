@@ -271,6 +271,30 @@ const EmptyDayDropZone: React.FC<{ dayKey: string; isActive: boolean }> = ({
   );
 };
 
+/** Tail drop target rendered AFTER the last sortable item in a day.
+ *  Catches drops that land below all items so dragging an item to the
+ *  bottom of the day list isn't silently canceled by dnd-kit's lack of
+ *  an `over` target in empty space. Uses the `tail:<day>` id sentinel
+ *  that handleDragEnd interprets as "append to end of this day". */
+const TailDropZone: React.FC<{ dayKey: string; isDraggingNow: boolean }> = ({
+  dayKey,
+  isDraggingNow,
+}) => {
+  const { setNodeRef, isOver } = useSortable({ id: `tail:${dayKey}` });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        height: isDraggingNow ? 36 : 12,
+        margin: isOver ? '4px 0' : '0',
+        borderTop: isOver ? '2px dashed rgba(33, 104, 105, 0.7)' : 'none',
+        transition: 'height 0.12s, border-top 0.12s',
+      }}
+      aria-hidden
+    />
+  );
+};
+
 const DayHeader = styled.div`
   display: flex;
   align-items: center;
@@ -532,12 +556,19 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     if (isBookingLocked(moved) || bookingSpansMultipleDays(moved)) return;
 
     /* Resolve target day + neighbor booking from over.id. over.id is
-       EITHER a "day:<key>" sentinel (empty-day drop zone) OR a
-       composite "<day>::<bookingId>" of a sibling. */
+       one of:
+         - "day:<key>"        — empty-day drop zone (day has no items)
+         - "tail:<key>"       — tail drop zone (append below last item)
+         - "<day>::<bookingId>" — sibling sortable id
+    */
     let targetDay: string;
     let overBookingId: string | null = null;
+    let appendToEnd = false;
     if (overIdStr.startsWith('day:')) {
       targetDay = overIdStr.slice('day:'.length);
+    } else if (overIdStr.startsWith('tail:')) {
+      targetDay = overIdStr.slice('tail:'.length);
+      appendToEnd = true;
     } else {
       const overParsed = parseSortableId(overIdStr);
       if (!overParsed) return;
@@ -547,30 +578,47 @@ export const Itinerary: React.FC<ItineraryProps> = ({
 
     const sourceDay = activeParsed.dayKey;
 
-    if (sourceDay === targetDay && overBookingId) {
+    if (sourceDay === targetDay && (overBookingId || appendToEnd)) {
       /* Same-day reorder. Compute new effective time between the
-         active's new neighbors. */
+         active's new neighbors. The "append to end" path (drop past
+         the last item) skips the arrayMove and picks the last
+         remaining item as `prev` directly. */
       const list = bookingsByDay.get(targetDay) ?? [];
-      const oldIdx = list.findIndex((b) => b.id === moved.id);
-      const newIdx = list.findIndex((b) => b.id === overBookingId);
-      if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return;
-      const reordered = arrayMove(list, oldIdx, newIdx);
-      const newPos = reordered.findIndex((b) => b.id === moved.id);
-      const prev = newPos > 0 ? reordered[newPos - 1] : null;
-      const next = newPos < reordered.length - 1 ? reordered[newPos + 1] : null;
+      let prev: Booking | null;
+      let next: Booking | null;
+      if (appendToEnd) {
+        const remaining = list.filter((b) => b.id !== moved.id);
+        prev = remaining[remaining.length - 1] ?? null;
+        next = null;
+        /* If the moved item is already last, nothing to do. */
+        if (list[list.length - 1]?.id === moved.id) return;
+      } else {
+        const oldIdx = list.findIndex((b) => b.id === moved.id);
+        const newIdx = list.findIndex((b) => b.id === overBookingId);
+        if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return;
+        const reordered = arrayMove(list, oldIdx, newIdx);
+        const newPos = reordered.findIndex((b) => b.id === moved.id);
+        prev = newPos > 0 ? reordered[newPos - 1] : null;
+        next = newPos < reordered.length - 1 ? reordered[newPos + 1] : null;
+      }
       const newStart = computeInterpolatedStart(targetDay, moved, prev, next);
       upsertBooking({ ...moved, start: newStart } as Booking);
     } else {
       /* Cross-day move. Preserve time-of-day; if a neighbor was
-         hovered, also interpolate so it lands in the right slot. */
+         hovered, also interpolate so it lands in the right slot.
+         tail:<day> appends to the end of the target list. */
       const targetList = bookingsByDay.get(targetDay) ?? [];
       const overIdxInTarget = overBookingId
         ? targetList.findIndex((b) => b.id === overBookingId)
         : -1;
-      const prev = overIdxInTarget > 0 ? targetList[overIdxInTarget - 1] : null;
-      const next = overIdxInTarget >= 0 ? targetList[overIdxInTarget] : null;
+      const prev = appendToEnd
+        ? targetList[targetList.length - 1] ?? null
+        : overIdxInTarget > 0 ? targetList[overIdxInTarget - 1] : null;
+      const next = appendToEnd
+        ? null
+        : overIdxInTarget >= 0 ? targetList[overIdxInTarget] : null;
       const shifted = shiftBookingToDay(moved, targetDay);
-      const finalStart = next
+      const finalStart = (prev || next)
         ? computeInterpolatedStart(targetDay, shifted, prev, next)
         : shifted.start;
       upsertBooking({ ...shifted, start: finalStart } as Booking);
@@ -701,10 +749,12 @@ export const Itinerary: React.FC<ItineraryProps> = ({
             const itemIds = dayBookings.map((b) => composeSortableId(day, b.id));
             /* Include the empty-day sentinel as the only item in the
                SortableContext when the day has nothing — so an empty
-               day is still a valid drop target. */
+               day is still a valid drop target. When the day has
+               items, also register a tail droppable so drops below
+               the last item don't get swallowed. */
             const sortableItems = dayBookings.length === 0
               ? [`day:${day}`]
-              : itemIds;
+              : [...itemIds, `tail:${day}`];
             const isDraggingNow = activeId !== null;
             return (
               <Section key={day}>
@@ -743,6 +793,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
                           onBookingClick={onBookingClick}
                         />
                       ))}
+                      <TailDropZone dayKey={day} isDraggingNow={isDraggingNow} />
                     </DayItems>
                   ) : (
                     <EmptyDayDropZone dayKey={day} isActive={isDraggingNow} />
