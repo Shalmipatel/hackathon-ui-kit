@@ -5,10 +5,11 @@ import {
   KeyboardSensor,
   PointerSensor,
   TouchSensor,
-  closestCenter,
+  closestCorners,
   useDroppable,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
@@ -561,6 +562,29 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  /* Collision detection that EXCLUDES the active item from the pool.
+   *
+   * dnd-kit's built-in `closestCenter` / `closestCorners` compare the
+   * active item's collision rect against every droppable's rect — and
+   * the active item's OWN droppable rect is in the pool. At drag start
+   * the active is, by definition, closest to itself (distance 0), so
+   * `over` resolves to `active`, our `activeIdStr === overIdStr` guard
+   * fires, and the drop is silently cancelled. Visually the card snaps
+   * back to its sorted position — which, for an untimed item
+   * (`start: T12:00:00`) in a day full of afternoon bookings, IS the
+   * top of the day. That's the "untimed cards jump to top" report.
+   *
+   * Filtering the active out lets `over` resolve to a real sibling
+   * even when the cursor hasn't moved past the active's own rect. */
+  const collisionDetection: CollisionDetection = useMemo(
+    () => (args) => {
+      const { active, droppableContainers } = args;
+      const others = droppableContainers.filter((c) => c.id !== active.id);
+      return closestCorners({ ...args, droppableContainers: others });
+    },
+    [],
+  );
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(String(event.active.id));
   };
@@ -758,7 +782,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
       ) : (
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={collisionDetection}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           onDragCancel={handleDragCancel}
