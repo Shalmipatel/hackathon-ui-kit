@@ -204,14 +204,27 @@ const SortableItem: React.FC<{
     id: composeSortableId(dayKey, booking.id),
     disabled: locked,
   });
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0 : 1, // DragOverlay shows the floating one
-    cursor: locked ? 'default' : 'grab',
-    touchAction: 'manipulation',
-    position: 'relative',
-  };
+  /* When DragOverlay is in use, the dragged item must NOT receive
+     dnd-kit's transform — only the SIBLINGS should reflow. Applying
+     the transform to the dragged item *and* showing it via overlay
+     creates a phantom that shifts the layout (the user reported the
+     card "jumping to the top of the day" on drag start). Keep the
+     dragged item static and invisible in place; the floating
+     DragOverlay handles the visible feedback. */
+  const style: React.CSSProperties = isDragging
+    ? {
+        opacity: 0,
+        cursor: 'grabbing',
+        position: 'relative',
+      }
+    : {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: 1,
+        cursor: locked ? 'default' : 'grab',
+        touchAction: 'manipulation',
+        position: 'relative',
+      };
   /* Draw a thin dashed insertion strip above this card when something
      else is being dragged over it. Tells the user exactly where the
      drop will land. */
