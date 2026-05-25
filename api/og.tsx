@@ -793,6 +793,22 @@ function parseItems(
 }
 
 export default async function handler(req: Request) {
+  try {
+    return await renderCard(req);
+  } catch (e) {
+    /* Surface the real error so we can see it in the iMessage
+       preview fetch / curl output instead of the opaque Vercel
+       "FUNCTION_INVOCATION_FAILED" wrapper. Will roll this back
+       once the bug is found. */
+    const msg = e instanceof Error ? `${e.name}: ${e.message}\n${e.stack ?? ''}` : String(e);
+    return new Response(`OG render failed:\n${msg}`, {
+      status: 500,
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    });
+  }
+}
+
+async function renderCard(req: Request) {
   const url = new URL(req.url);
   const title = (url.searchParams.get('title') || 'Wanderbot').slice(0, 120);
   const eyebrowParam = (url.searchParams.get('eyebrow') || '').slice(0, 80);
@@ -849,30 +865,15 @@ export default async function handler(req: Request) {
         ? 420
         : 490;
 
-  /* Custom fonts. When custom fonts are passed to ImageResponse, the
-     default Geist fallback disappears — so we MUST also load Inter,
-     otherwise every text node renders in whatever single font we
-     provided. Load in parallel; tolerate individual failures so the
-     card still renders (sans Playfair) if the network blips. */
-  const [playfairItalic, interMedium, interBold] = await Promise.all([
-    loadFont(req, 'PlayfairDisplay-Italic.ttf').catch((e) => {
-      console.warn('[og] Playfair font load failed:', e);
-      return null as ArrayBuffer | null;
-    }),
-    loadFont(req, 'Inter-Medium.ttf').catch((e) => {
-      console.warn('[og] Inter Medium font load failed:', e);
-      return null as ArrayBuffer | null;
-    }),
-    loadFont(req, 'Inter-Bold.ttf').catch((e) => {
-      console.warn('[og] Inter Bold font load failed:', e);
-      return null as ArrayBuffer | null;
-    }),
-  ]);
-
+  /* Custom font loading via same-origin fetch (Inter + Playfair from
+     /public/fonts/) crashed Vercel Edge with FUNCTION_INVOCATION_FAILED
+     — the self-fetch from inside an edge function back to its own
+     /public assets doesn't work the way it does in node. Until we
+     bundle the fonts inline (base64), fall back to @vercel/og's
+     default Geist font. The hero title's serif italic look is lost
+     but everything else still renders. Tracked as a follow-up. */
+  const playfairItalic: ArrayBuffer | null = null;
   const fonts: { name: string; data: ArrayBuffer; weight: 400 | 500 | 700; style: 'normal' | 'italic' }[] = [];
-  if (interMedium) fonts.push({ name: 'Inter', data: interMedium, weight: 500, style: 'normal' });
-  if (interBold) fonts.push({ name: 'Inter', data: interBold, weight: 700, style: 'normal' });
-  if (playfairItalic) fonts.push({ name: 'Playfair Display', data: playfairItalic, weight: 700, style: 'italic' });
 
   return new ImageResponse(
     (
