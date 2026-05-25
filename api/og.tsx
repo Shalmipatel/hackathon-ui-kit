@@ -62,35 +62,22 @@ import { ImageResponse } from '@vercel/og';
 export const config = { runtime: 'edge' };
 
 /* Load a font file shipped in /public/fonts/ as a binary buffer.
-   Two code paths because the same handler runs in two contexts:
+   Edge-runtime-only path: just fetch from same-origin. Vercel
+   serves /public/* at root, so `/fonts/<file>.ttf` resolves to the
+   font bundled in this repo.
 
-     - Vercel Edge Runtime (production): no fs, so we fetch via
-       same-origin HTTP. Files in /public are served at the root.
-     - Local node (scripts/render-card.tsx for visual iteration):
-       no real server, so we read from disk directly.
+   PREVIOUSLY: this had a node-fs fallback for local rendering. That
+   crashed in Edge Runtime — Vercel disallows `new Function()` (the
+   trick used to hide the dynamic import from the bundler), and a
+   plain `await import('node:fs/promises')` also fails because the
+   edge bundler statically analyzes all imports. Both forms 500'd
+   the function.
 
-   Detection via `process.versions.node` is a runtime check Satori-
-   bundling won't choke on, unlike a static node:fs import. */
+   For local visual iteration, scripts/render-card.tsx now monkey-
+   patches globalThis.fetch BEFORE importing this handler — it
+   intercepts requests for `/fonts/*` and serves them from disk,
+   so this same code path Just Works in both environments. */
 async function loadFont(req: Request, filename: string): Promise<ArrayBuffer> {
-  const proc = (globalThis as { process?: { versions?: { node?: string } } }).process;
-  const isNode = !!proc?.versions?.node;
-  if (isNode) {
-    /* Hidden from Vercel's edge-bundle static analyzer via Function
-       constructor — a plain `await import('node:fs/promises')` is
-       still picked up and fails the edge build even though this
-       branch can never execute there. */
-    const importFs = new Function('return import("node:fs/promises")') as () => Promise<typeof import('node:fs/promises')>;
-    const importPath = new Function('return import("node:path")') as () => Promise<typeof import('node:path')>;
-    const fs = await importFs();
-    const path = await importPath();
-    const buf = await fs.readFile(path.resolve('public/fonts', filename));
-    /* Slice into a tight ArrayBuffer view — readFile returns a Buffer
-       whose underlying pool may include unrelated bytes beyond ours. */
-    return buf.buffer.slice(
-      buf.byteOffset,
-      buf.byteOffset + buf.byteLength,
-    ) as ArrayBuffer;
-  }
   const fontUrl = new URL(`/fonts/${filename}`, req.url).href;
   const res = await fetch(fontUrl);
   if (!res.ok) throw new Error(`Font fetch failed: ${res.status}`);
@@ -728,13 +715,16 @@ const SCENE_BUILDERS: Record<SceneName, () => string> = {
    Node we use Buffer.from for symmetry. */
 function sceneDataUrl(scene: SceneName): string {
   const svg = SCENE_BUILDERS[scene]();
-  const proc = (globalThis as { process?: { versions?: { node?: string } } }).process;
-  const isNode = !!proc?.versions?.node;
-  const b64 = isNode
-    ? // eslint-disable-next-line @typescript-eslint/no-require-imports
-      (globalThis as unknown as { Buffer: { from: (s: string) => { toString: (e: string) => string } } }).Buffer.from(svg).toString('base64')
-    : btoa(svg);
-  return `data:image/svg+xml;base64,${b64}`;
+  /* Plain btoa rejects any char above 0xFF (raw em-dashes in our SVG
+     comments would crash it). UTF-8-encode first, then base64 the
+     resulting byte string. Works in both Edge Runtime and Node 18+
+     (both have TextEncoder + btoa as globals). */
+  const bytes = new TextEncoder().encode(svg);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return `data:image/svg+xml;base64,${btoa(binary)}`;
 }
 
 /* Parse the `stats` query param into up to 3 label/value pairs.

@@ -17,8 +17,37 @@
  * Edit the URL_QUERY below to test different card variants.
  */
 
-import handler from '../api/og.tsx';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+/* Monkey-patch fetch BEFORE importing the handler. The edge handler
+   loads fonts via `fetch('https://.../fonts/<file>.ttf')`; locally
+   that URL has no server behind it. We intercept any fetch whose
+   path is `/fonts/<filename>` and serve the matching file from
+   `public/fonts/<filename>` on disk so the handler's single fetch
+   path Just Works in both Vercel Edge AND node.
+
+   Equivalent in spirit to running `vercel dev` — but with zero
+   external setup and a sub-second turnaround. */
+const realFetch = globalThis.fetch;
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  const u = new URL(urlStr);
+  if (u.pathname.startsWith('/fonts/')) {
+    const filename = u.pathname.slice('/fonts/'.length);
+    const buf = readFileSync(resolve('public/fonts', filename));
+    /* Tight ArrayBuffer view — Buffer's pool may include unrelated bytes. */
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    return new Response(ab as ArrayBuffer, {
+      status: 200,
+      headers: { 'content-type': 'font/ttf' },
+    });
+  }
+  return realFetch(input, init);
+}) as typeof fetch;
+
+/* Now safe to import — the handler's fetch calls will hit our shim. */
+const { default: handler } = await import('../api/og.tsx');
 
 const VARIANTS: { name: string; query: string }[] = [
   {
