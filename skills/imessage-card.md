@@ -102,16 +102,25 @@ When a destination fits multiple buckets, pick the **most photographically iconi
 
 ### Picking a content shape (stats vs items vs note)
 
-The body of the card flexes based on the question being answered:
+**Most important rule: the card MUST NOT duplicate the prose reply.** The user already saw your text message — repeating its content inside the card is wasted real estate and feels redundant.
 
-| Question type | Use | Example |
-| ------------- | --- | ------- |
-| Day plan / itinerary | `items` + `stats` | "what's the plan on day 1?" → numbered agenda with stats above |
-| Trip overview | `stats` only | "what's our next trip?" → DATES / LENGTH / PARTY columns |
-| Free-form answer | `note` | "what should I pack?" → prose paragraph |
-| Single fact | `note` (short) | "what time is it there?" → "12:42 AM JST — 16 hours ahead" |
+The card's job is to be a **visual identity + complementary facts** layer:
+- ✅ **Always**: illustrated hero (scene + eyebrow + title) — gives the answer visual context the prose can't.
+- ✅ **Usually**: `stats` row — at-a-glance metadata the prose probably didn't mention (dates, length, party size, cost). 3 facts, 3 columns.
+- ⚠️ **Rarely**: `items` or `note` — only when they add information NOT already in the prose.
 
-It's fine to combine `stats` + `note` (overview + a one-line caveat) or `stats` + `items` (the reference design). Don't combine `note` + `items` — one or the other, not both.
+Decision tree for the body:
+
+| Your prose reply is… | Card body should be… | Why |
+| -------------------- | -------------------- | --- |
+| A list / day plan (4 numbered things) | `stats` only — NO `items` | Prose already listed the items; card duplicating them is pure waste. Use stats to show overview metadata (date, # plans, arrival time). |
+| One short sentence ("Switzerland, Jun 19–28") | `stats` (mandatory) + optionally `items` as a teaser of unmentioned highlights | Prose is short and lacks color; items can surface 3-4 highlights of the trip the prose didn't name. Items must be DIFFERENT from anything in the prose. |
+| Free-form advice ("Pack layers + waterproof…") | `stats` only — NO `note` | Same duplication risk as items. Stats can show dates/destination context. |
+| A single fact ("Local time: 12:42 AM JST") | `stats` (with the fact as one of the columns) | Fact becomes a stats column; rest of stats are complementary. |
+
+It's almost always **just `stats`**. Reach for `items` / `note` only when you've checked: "is this same content in my prose?". If yes → drop it.
+
+The 3 things every card should still carry: `title`, `eyebrow`, `scene`. Plus `stats` for facts. That's the default — clean, visual, complementary.
 
 ### Constructing a CONTEXTUAL title
 
@@ -168,7 +177,7 @@ Patterns:
 
 > User: "What's the plan when we land in Switzerland?"
 
-**Step 1 — prose reply** (numbered list, mirrors the card's agenda):
+**Step 1 — prose reply** (the actual answer; this is where the agenda content lives):
 ```
 You land Sat Jun 20 at 3:45 PM at ZRH. Plan:
 
@@ -178,28 +187,44 @@ You land Sat Jun 20 at 3:45 PM at ZRH. Plan:
 4. Sleep at Renaissance Zurich Tower Hotel
 ```
 
-**Step 2 — photon tool call:**
+**Step 2 — photon tool call** (note: **no `items` param** — the prose already lists them; card carries the visual context + complementary facts):
 ```bash
-photon send "https://wanderbot-ai.vercel.app/p?title=Switzerland&eyebrow=SAT%20JUN%2020%20%C2%B7%20LANDS%203%3A45%20PM%20%C2%B7%20ZRH&type=trip&scene=mountain&stats=DATES%3AJun%2019%E2%80%9328%7CLENGTH%3A9%20days%7CPARTY%3A2%20travelers&items=activity%3AWalk%20around%20Z%C3%BCrich%3APM%7Cattraction%3ALindt%20Home%20of%20Chocolate%3ATICKETS%7Crestaurant%3ADinner%20at%20Haus%20Hiltl%3A6%3A00%7Chotel%3ARenaissance%20Z%C3%BCrich%20Tower%3ASTAY&meta=wanderbot-ai.vercel.app&href=%2Ftrip%2Ftrip-zurich-2026"
+photon send "https://wanderbot-ai.vercel.app/p?title=Switzerland&eyebrow=SAT%20JUN%2020%20%C2%B7%20LANDS%203%3A45%20PM%20%C2%B7%20ZRH&type=trip&scene=mountain&stats=DATES%3AJun%2019%E2%80%9328%7CDAY%201%20OF%3A9%7CPLANS%3A4%20today&meta=wanderbot-ai.vercel.app&href=%2Ftrip%2Ftrip-zurich-2026"
 ```
 
-This produces the rich layout: mountain illustration with moon, "SAT JUN 20 · LANDS 3:45 PM · ZRH" eyebrow, "Switzerland" in big serif italic, stats row (DATES/LENGTH/PARTY), and four color-coded numbered items mirroring the prose list. The agent picked `scene=mountain` because Switzerland → Alps; the agenda items each carry their type (activity / attraction / restaurant / hotel) which colors the numeral.
+Notice the stats columns: `DATES / Jun 19–28` + `DAY 1 OF / 9` + `PLANS / 4 today`. None of those facts are in the prose reply — they complement it. The visual hero (Switzerland in serif italic over a mountain scene at moonrise) carries the "where" the prose couldn't.
 
-### Packing / advice question (use `note`)
+### Packing / advice question
 
 > User: "What should I pack for Switzerland?"
 
-**Step 1 — prose reply:**
+**Step 1 — prose reply** (the actual advice):
 ```
 Layers + waterproof shell. Sturdy shoes for Day 5 glacier hike. Pack a bathing suit — thermal baths in Vals.
 ```
 
-**Step 2 — photon tool call:**
+**Step 2 — photon tool call** (no `note` param — would duplicate the prose; stats columns surface dates/temp/forecast that the prose didn't mention):
 ```bash
-photon send "https://wanderbot-ai.vercel.app/p?title=Pack%20Light&eyebrow=PACKING%20%C2%B7%20SWITZERLAND%20%C2%B7%20JUN%2019%E2%80%9328&type=trip&scene=snow&note=Layers%20%2B%20waterproof%20shell.%20Sturdy%20shoes%20for%20Day%205%20glacier%20hike.%20Pack%20a%20bathing%20suit%20%E2%80%94%20thermal%20baths%20in%20Vals.&meta=wanderbot-ai.vercel.app&href=%2Ftrip%2Ftrip-zurich-2026"
+photon send "https://wanderbot-ai.vercel.app/p?title=Pack%20Light&eyebrow=PACKING%20%C2%B7%20SWITZERLAND%20%C2%B7%20JUN%2019%E2%80%9328&type=trip&scene=snow&stats=AVG%20HIGH%3A22%C2%B0C%7CAVG%20LOW%3A8%C2%B0C%7CRAIN%3A4%20days&meta=wanderbot-ai.vercel.app&href=%2Ftrip%2Ftrip-zurich-2026"
 ```
 
-The `note` param holds the same content as the prose reply, so the card mirrors the answer in editorial form rather than copying an agenda structure.
+The stats are the value-add: at-a-glance climate facts that justify the prose advice ("oh, that's why layers + waterproof"). The card complements the prose instead of repeating it.
+
+### Trip overview question (short prose → items as teaser is OK)
+
+> User: "What's our next trip?"
+
+**Step 1 — prose reply** (one short sentence — leaves room for the card to add color):
+```
+Switzerland, Jun 19–28.
+```
+
+**Step 2 — photon tool call** (prose was minimal, so `items` can tease highlights NOT in prose — but make sure they're genuinely new info):
+```bash
+photon send "https://wanderbot-ai.vercel.app/p?title=Switzerland&eyebrow=NEXT%20TRIP%20%C2%B7%20JUN%2019%E2%80%9328&type=trip&scene=mountain&stats=DATES%3AJun%2019%E2%80%9328%7CLENGTH%3A9%20days%7CPARTY%3A2%20travelers&items=attraction%3AMatterhorn%20%26%20Glacier%20Express%7Cexperience%3AThermal%20baths%20at%20Vals%7Crestaurant%3AFondue%20in%20Lauterbrunnen%7Cactivity%3ABern%20Old%20Town%20walk&href=%2Ftrip%2Ftrip-zurich-2026"
+```
+
+The items here are **trip highlights** — things the user will do but that the one-sentence prose didn't name. This is a legitimate non-duplicate use of `items`.
 
 ### Trip question
 

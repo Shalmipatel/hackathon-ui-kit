@@ -843,13 +843,15 @@ export default async function handler(req: Request) {
      a full agenda, we leave maximum room for it below (hero=290).
      When the body is lighter, the hero extends into the unused
      space so the card never feels half-empty. Tested values:
-     290 (full body) / 360 (stats or note) / 470 (title only). */
-  const hasBodyContent = items.length > 0 || note.length > 0;
+     290 (items present) / 340 (items+stats borderline) /
+     420 (stats-only or note-only) / 490 (title only). */
   const heroHeight = items.length > 0
     ? 290
-    : hasBodyContent || stats.length > 0
-      ? 360
-      : 470;
+    : note.length > 0
+      ? 380
+      : stats.length > 0
+        ? 420
+        : 490;
 
   /* Custom fonts. When custom fonts are passed to ImageResponse, the
      default Geist fallback disappears — so we MUST also load Inter,
@@ -938,8 +940,8 @@ export default async function handler(req: Request) {
             }}
           >
             <svg
-              width="26"
-              height="26"
+              width="32"
+              height="32"
               viewBox="0 0 24 24"
               fill="none"
               stroke="#ffffff"
@@ -952,7 +954,7 @@ export default async function handler(req: Request) {
             </svg>
             <span
               style={{
-                fontSize: 26,
+                fontSize: 30,
                 fontWeight: 700,
                 letterSpacing: '-0.5px',
                 color: '#ffffff',
@@ -969,11 +971,11 @@ export default async function handler(req: Request) {
               right: 40,
               display: 'flex',
               alignItems: 'center',
-              padding: '9px 18px',
+              padding: '10px 20px',
               borderRadius: 999,
-              border: '1.5px solid rgba(255,255,255,0.55)',
+              border: '1.5px solid rgba(255,255,255,0.6)',
               color: '#ffffff',
-              fontSize: 16,
+              fontSize: 20,
               fontWeight: 700,
               letterSpacing: '0.16em',
               textTransform: 'uppercase',
@@ -997,11 +999,11 @@ export default async function handler(req: Request) {
               <div
                 style={{
                   display: 'flex',
-                  fontSize: 18,
+                  fontSize: 24,
                   fontWeight: 700,
-                  letterSpacing: '0.22em',
+                  letterSpacing: '0.2em',
                   textTransform: 'uppercase',
-                  color: 'rgba(255,255,255,0.92)',
+                  color: 'rgba(255,255,255,0.94)',
                 }}
               >
                 {eyebrow}
@@ -1050,11 +1052,11 @@ export default async function handler(req: Request) {
                 <div
                   style={{
                     display: 'flex',
-                    fontSize: 13,
+                    fontSize: 18,
                     fontWeight: 700,
                     letterSpacing: '0.18em',
                     textTransform: 'uppercase',
-                    color: 'rgba(28,54,64,0.55)',
+                    color: 'rgba(28,54,64,0.6)',
                   }}
                 >
                   {s.label}
@@ -1062,9 +1064,9 @@ export default async function handler(req: Request) {
                 <div
                   style={{
                     display: 'flex',
-                    fontSize: 26,
+                    fontSize: 36,
                     fontWeight: 700,
-                    letterSpacing: '-0.3px',
+                    letterSpacing: '-0.4px',
                     color: '#1c3640',
                   }}
                 >
@@ -1080,12 +1082,12 @@ export default async function handler(req: Request) {
           <div
             style={{
               display: 'flex',
-              padding: '4px 40px 0',
-              fontSize: 28,
+              padding: '8px 40px 0',
+              fontSize: 36,
               fontWeight: 500,
               color: '#1c3640',
-              letterSpacing: '-0.3px',
-              lineHeight: 1.3,
+              letterSpacing: '-0.4px',
+              lineHeight: 1.25,
             }}
           >
             {note}
@@ -1120,12 +1122,12 @@ export default async function handler(req: Request) {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    width: 44,
-                    height: 44,
-                    borderRadius: 10,
+                    width: 52,
+                    height: 52,
+                    borderRadius: 12,
                     background: TYPE_ACCENT[it.type],
                     color: '#fbf7f0',
-                    fontSize: 22,
+                    fontSize: 26,
                     fontWeight: 800,
                     flexShrink: 0,
                   }}
@@ -1136,7 +1138,7 @@ export default async function handler(req: Request) {
                   style={{
                     display: 'flex',
                     flex: 1,
-                    fontSize: 26,
+                    fontSize: 30,
                     fontWeight: 600,
                     color: '#1c3640',
                     letterSpacing: '-0.3px',
@@ -1148,7 +1150,7 @@ export default async function handler(req: Request) {
                   <div
                     style={{
                       display: 'flex',
-                      fontSize: 15,
+                      fontSize: 19,
                       fontWeight: 700,
                       letterSpacing: '0.2em',
                       textTransform: 'uppercase',
@@ -1172,11 +1174,11 @@ export default async function handler(req: Request) {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'baseline',
-            padding: '10px 40px 18px',
-            fontSize: 17,
-            color: 'rgba(28,54,64,0.5)',
+            padding: '12px 40px 22px',
+            fontSize: 22,
+            color: 'rgba(28,54,64,0.55)',
             fontWeight: 500,
-            letterSpacing: '-0.1px',
+            letterSpacing: '-0.15px',
           }}
         >
           <div style={{ display: 'flex' }}>{meta || ' '}</div>

@@ -22,22 +22,31 @@ import { writeFileSync } from 'node:fs';
 
 const VARIANTS: { name: string; query: string }[] = [
   {
-    /* The exact reference scenario — Switzerland Day 1 with mountain
-       scene, stats row, and 4 color-coded agenda items. */
+    /* Day-plan question — prose already has the agenda; card carries
+       complementary facts (Day 1 of 9, 4 plans today) NOT in prose. */
     name: 'switzerland-day1',
     query:
       'title=Switzerland&eyebrow=SAT%20JUN%2020%20%C2%B7%20LANDS%203%3A45%20PM%20%C2%B7%20ZRH&type=trip&scene=mountain' +
-      '&stats=DATES%3AJun%2019%E2%80%9328%7CLENGTH%3A9%20days%7CPARTY%3A2%20travelers' +
-      '&items=activity%3AWalk%20around%20Z%C3%BCrich%3APM%7Cattraction%3ALindt%20Home%20of%20Chocolate%3ATICKETS%7Crestaurant%3ADinner%20at%20Haus%20Hiltl%3A6%3A00%7Chotel%3ARenaissance%20Z%C3%BCrich%20Tower%3ASTAY' +
+      '&stats=DATES%3AJun%2019%E2%80%9328%7CDAY%201%20OF%3A9%7CPLANS%3A4%20today' +
       '&meta=wanderbot-ai.vercel.app',
   },
   {
-    /* Note-driven variant — agent's answer is free-form prose,
-       no agenda. The model picks `note` instead of `items`. */
+    /* Trip-highlights teaser — short prose ("Switzerland, Jun 19-28")
+       leaves room for items to surface things the prose didn't name. */
+    name: 'switzerland-highlights',
+    query:
+      'title=Switzerland&eyebrow=NEXT%20TRIP%20%C2%B7%20JUN%2019%E2%80%9328&type=trip&scene=mountain' +
+      '&stats=DATES%3AJun%2019%E2%80%9328%7CLENGTH%3A9%20days%7CPARTY%3A2%20travelers' +
+      '&items=attraction%3AMatterhorn%20%26%20Glacier%20Express%7Cexperience%3AThermal%20baths%20at%20Vals%7Crestaurant%3AFondue%20in%20Lauterbrunnen%7Cactivity%3ABern%20Old%20Town%20walk' +
+      '&meta=wanderbot-ai.vercel.app',
+  },
+  {
+    /* Packing question — prose has the advice; card surfaces climate
+       facts the prose didn't mention (no `note`, just stats). */
     name: 'switzerland-packing',
     query:
       'title=Pack%20Light&eyebrow=PACKING%20%C2%B7%20SWITZERLAND%20%C2%B7%20JUN%2019%E2%80%9328&type=trip&scene=snow' +
-      '&note=Layers%20%2B%20waterproof%20shell.%20Sturdy%20shoes%20for%20Day%205%20glacier%20hike.%20Pack%20a%20bathing%20suit%20%E2%80%94%20thermal%20baths%20in%20Vals.' +
+      '&stats=AVG%20HIGH%3A22%C2%B0C%7CAVG%20LOW%3A8%C2%B0C%7CRAIN%3A4%20days' +
       '&meta=wanderbot-ai.vercel.app',
   },
   {
