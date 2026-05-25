@@ -211,15 +211,19 @@ const SortableItem: React.FC<{
     id: composeSortableId(dayKey, booking.id),
     disabled: { draggable: locked, droppable: false },
   });
-  /* Dragged card renders only in the top-level `DragOverlay`. The
+  /* Dragged card is rendered separately as a floating overlay; the
      source DOM node is fully removed from layout (display:none) so
-     surrounding cards collapse the gap — the floating overlay is
-     the only on-screen representation while dragging. Insertion math
-     reads live DOM positions, so the collapsed layout is what
-     determines the drop target (matches what the user sees). */
+     surrounding cards collapse the gap immediately. `touch-action:
+     none` prevents the browser from scrolling / zooming while the
+     finger is held on the card (otherwise the press-to-drag gesture
+     fights with native scroll) and stops the text selection that the
+     user reported. */
   const style: React.CSSProperties = {
     cursor: locked ? 'default' : 'grab',
-    touchAction: 'manipulation',
+    touchAction: locked ? 'manipulation' : 'none',
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
+    WebkitTouchCallout: 'none',
     position: 'relative',
     display: isDragging ? 'none' : undefined,
   };
@@ -601,14 +605,16 @@ export const Itinerary: React.FC<ItineraryProps> = ({
      dragged item's new neighbors; cross-day drops shift the
      booking to the target day (preserving time-of-day). */
   /* Mouse: a 4 px slop avoids stealing single-click events from the
-     underlying card (which opens the detail modal). Touch: a 200 ms
-     long-press is the iOS standard for "this is a drag, not a tap"
-     and matches the cadence of native reorder UI (Reminders, Photos).
-     `tolerance` lets the finger drift up to 8 px during the press
-     without cancelling. */
+     underlying card (which opens the detail modal). Touch: a 220 ms
+     long-press feels close to iOS Reminders' reorder cadence and is
+     long enough that a normal scroll/tap doesn't accidentally start
+     a drag. `tolerance` lets the finger drift up to 6 px during the
+     press without cancelling. The card itself has touch-action:none
+     so the long-press doesn't kick off the OS text-selection magnifier
+     while we're waiting for the activation timer. */
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
@@ -782,33 +788,52 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     setOverlay({ width, height, pointer });
     setActiveId(activeIdStr);
 
-    /* Belt-and-suspenders against the "page scrolls to top of day"
-       bug. Even with overflow-anchor: none, the layout shift from
-       collapsing the source can still nudge scroll position. Snap
-       every scrollable ancestor back to its pre-drag scrollTop on
-       the next frame (after React's commit). */
-    const scrollers: Array<{ el: Element | Window; top: number }> = [
+    /* Stop the "page jumps to top of day" bug. When the source
+       collapses (display:none) the browser sometimes nudges scroll
+       position — auto-anchor compensation, focused-element scroll-
+       into-view, scroll-snap re-snap, take your pick. Cheapest
+       reliable fix: blur whatever was focused (no scroll-to-focus),
+       snapshot every scrollable ancestor's scrollTop now, and
+       hard-lock them back for a few frames after the React commit.
+       Three frames is enough to outlast the layout-shift fallout
+       without trapping the user (subsequent intentional scrolls
+       during drag still work, they just don't fire in the first
+       16ms × 3 window). */
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    const scrollers: Array<{ el: HTMLElement | Window; top: number }> = [
       { el: window, top: window.scrollY },
     ];
-    let node: HTMLElement | null = rootRef.current;
-    while (node) {
-      if (
-        node.scrollHeight > node.clientHeight + 1 &&
-        getComputedStyle(node).overflowY !== 'visible'
-      ) {
-        scrollers.push({ el: node, top: node.scrollTop });
+    const collectScrollers = (root: HTMLElement | null) => {
+      let node: HTMLElement | null = root;
+      while (node) {
+        if (node.scrollHeight > node.clientHeight + 1) {
+          const oy = getComputedStyle(node).overflowY;
+          if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') {
+            scrollers.push({ el: node, top: node.scrollTop });
+          }
+        }
+        node = node.parentElement;
       }
-      node = node.parentElement;
-    }
-    requestAnimationFrame(() => {
+    };
+    collectScrollers(rootRef.current);
+    const restore = () => {
       for (const s of scrollers) {
         if (s.el === window) {
-          if (window.scrollY !== s.top) window.scrollTo({ top: s.top, behavior: 'instant' as ScrollBehavior });
+          if (window.scrollY !== s.top) window.scrollTo(window.scrollX, s.top);
         } else {
           const el = s.el as HTMLElement;
           if (el.scrollTop !== s.top) el.scrollTop = s.top;
         }
       }
+    };
+    requestAnimationFrame(() => {
+      restore();
+      requestAnimationFrame(() => {
+        restore();
+        requestAnimationFrame(restore);
+      });
     });
   };
 
