@@ -1,14 +1,11 @@
 import { ImageResponse } from '@vercel/og';
 
-/* Node.js runtime instead of edge.
-   Background: a fresh `edge` deploy of even a minimal hello-world
-   that imports @vercel/og crashes this Vercel project with
-   FUNCTION_INVOCATION_FAILED — the edge bundler isn't including
-   @vercel/og's WASM/font assets (resvg.wasm, yoga.wasm,
-   Geist-Regular.ttf) for some reason specific to this project's
-   setup. The Node runtime path bundles its own copy of all three
-   from node_modules/@vercel/og/dist, so it Just Works. */
-export const config = { runtime: 'nodejs' };
+/* NO runtime config = Node.js default.
+   Edge runtime was crashing every invocation on this project with
+   FUNCTION_INVOCATION_FAILED — even a minimal hello-world that
+   imports @vercel/og — looks like the edge bundler isn't including
+   @vercel/og's WASM/font assets here. Node runtime bundles them
+   directly from node_modules/@vercel/og/dist. */
 
 export default async function handler(req: Request) {
   try {
