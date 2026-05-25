@@ -269,8 +269,12 @@ export const TripsView: React.FC<TripsViewProps> = () => {
                 />
               </MapStrip>
               <ItineraryScroll>
+                {/* Don't pass focusedBookingId — that would expand the
+                    inline BookingCard editor under the modal, leaving
+                    two editors stacked. BookingDetailModal is the
+                    canonical edit surface; map pin still highlights
+                    via TripMap's own focusedBookingId above. */}
                 <Itinerary
-                  focusedBookingId={selectedBookingId}
                   onBookingClick={setSelectedBookingId}
                   onScrollFocus={setScrollFocusedBookingId}
                 />
