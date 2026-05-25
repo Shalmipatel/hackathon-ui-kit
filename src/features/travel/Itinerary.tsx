@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import {
   DndContext,
-  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   TouchSensor,
@@ -14,7 +13,6 @@ import {
   type DragEndEvent,
   type DragMoveEvent,
   type DragStartEvent,
-  type Modifier,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -455,16 +453,16 @@ export const Itinerary: React.FC<ItineraryProps> = ({
      TailDropZone to expand into a visible drop slot during drag. */
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  /* Live cursor Y position — captured continuously so handleDragEnd
-     can ignore dnd-kit's `over` (which is unreliable for variable-
-     height cards) and just find which DOM card the cursor is on top of
-     at drop time. This is the actual fix for "untimed cards land in
-     the wrong place": insertion is now driven by the cursor, not by
-     verticalListSortingStrategy's index math. */
-  const cursorYRef = useRef<number | null>(null);
+  /* Live pointer position — captured continuously. `cursorPosRef` is
+     a ref (sub-frame freshness, no re-render) for handleDragMove /
+     handleDragEnd to read. We don't use dnd-kit's DragOverlay, so the
+     overlay position is driven directly off these coords via state
+     below (updated only during an active drag, to avoid spamming
+     re-renders on every mousemove). */
+  const cursorPosRef = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     const onMove = (e: PointerEvent | MouseEvent) => {
-      cursorYRef.current = e.clientY;
+      cursorPosRef.current = { x: e.clientX, y: e.clientY };
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('mousemove', onMove);
@@ -653,6 +651,18 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     lineWidth: number;
   } | null>(null);
 
+  /* Active drag context driving the floating overlay render. We don't
+     use dnd-kit's DragOverlay (couldn't measure the source after
+     display:none, which broke its sizing + snap-center modifier) —
+     we render the floating card ourselves as a `position: fixed`
+     element centered on `overlay.pointer`, sized by the source's
+     captured rect. */
+  const [overlay, setOverlay] = useState<{
+    width: number;
+    height: number;
+    pointer: { x: number; y: number };
+  } | null>(null);
+
   /** Pure: given the cursor Y and the moved card's id, walk the LIVE
    *  DOM (the source card is `display:none` while dragging so it's
    *  naturally excluded) and return where the drop would land.
@@ -739,22 +749,53 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   };
 
   const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(String(event.active.id));
+    const activeIdStr = String(event.active.id);
+    const parsed = parseSortableId(activeIdStr);
+    /* Capture source rect SYNCHRONOUSLY (before the next React commit
+       collapses it via display:none) — used both to size the floating
+       overlay and to position it. Use the pointer's current position
+       as the initial overlay pointer; if we missed a pointermove
+       (touch press-and-hold) fall back to the card's center. */
+    let width = 0;
+    let height = 0;
+    let initialCenter = { x: 0, y: 0 };
+    if (parsed) {
+      const el = document.querySelector<HTMLElement>(
+        `[data-day-key="${parsed.dayKey}"] [data-booking-id="${parsed.bookingId}"]`,
+      );
+      if (el) {
+        const r = el.getBoundingClientRect();
+        width = r.width;
+        height = r.height;
+        initialCenter = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }
+    }
+    const pointer = cursorPosRef.current ?? initialCenter;
+    setOverlay({ width, height, pointer });
+    setActiveId(activeIdStr);
   };
 
   const handleDragMove = (event: DragMoveEvent) => {
-    const cursorY = cursorYRef.current;
-    if (cursorY === null) return;
+    const pointer = cursorPosRef.current;
+    if (!pointer) return;
     const activeParsed = parseSortableId(String(event.active.id));
     if (!activeParsed) return;
-    const next = computeInsertion(cursorY, activeParsed.bookingId);
+
+    /* Move overlay to follow cursor (centered on pointer). */
+    setOverlay((prev) =>
+      prev && prev.pointer.x === pointer.x && prev.pointer.y === pointer.y
+        ? prev
+        : prev
+        ? { ...prev, pointer }
+        : prev,
+    );
+
+    /* Update the insertion line indicator + slot info for handleDragEnd. */
+    const next = computeInsertion(pointer.y, activeParsed.bookingId);
     if (!next) {
       setInsertion(null);
       return;
     }
-    /* Line width: span the day section's `DayItems` content area
-       (which is indented under the day badge on desktop). Fall back
-       to the section bounds if the items column isn't found. */
     const dayEl = document.querySelector<HTMLElement>(
       `[data-day-key="${next.targetDay}"]`,
     );
@@ -767,7 +808,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     setInsertion({
       dayKey: next.targetDay,
       index: next.insertionIndex,
-      lineY: cursorY,
+      lineY: pointer.y,
       lineLeft: refRect.left,
       lineWidth: refRect.width,
     });
@@ -777,6 +818,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     const { active } = event;
     setActiveId(null);
     setInsertion(null);
+    setOverlay(null);
 
     const activeIdStr = String(active.id);
     const activeParsed = parseSortableId(activeIdStr);
@@ -785,10 +827,10 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     if (!moved) return;
     if (isBookingLocked(moved) || bookingSpansMultipleDays(moved)) return;
 
-    const cursorY = cursorYRef.current;
-    if (cursorY === null) return;
+    const pointer = cursorPosRef.current;
+    if (!pointer) return;
 
-    const result = computeInsertion(cursorY, moved.id);
+    const result = computeInsertion(pointer.y, moved.id);
     if (!result) return;
     const { targetDay, prevBookingId, nextBookingId } = result;
     const dayList = bookingsByDay.get(targetDay) ?? [];
@@ -823,6 +865,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   const handleDragCancel = () => {
     setActiveId(null);
     setInsertion(null);
+    setOverlay(null);
   };
 
   /* Scroll-spy: pan the map to whichever booking is currently closest
@@ -993,69 +1036,48 @@ export const Itinerary: React.FC<ItineraryProps> = ({
               $width={insertion.lineWidth}
             />
           )}
-          <DragOverlay
-            dropAnimation={{ duration: 220, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' }}
-            zIndex={1000}
-            modifiers={[snapCenterToCursor]}
-          >
-            {activeId
-              ? (() => {
-                  const parsed = parseSortableId(activeId);
-                  const b = parsed
-                    ? bookings.find((bk) => bk.id === parsed.bookingId)
-                    : null;
-                  if (!b || !parsed) return null;
-                  return (
-                    <div
-                      style={{
-                        transform: 'rotate(-0.6deg)',
-                        boxShadow: '0 24px 56px rgba(31, 36, 33, 0.32)',
-                        borderRadius: 14,
-                        cursor: 'grabbing',
-                      }}
-                    >
-                      <BookingCard booking={b} dayKey={parsed.dayKey} />
-                    </div>
-                  );
-                })()
-              : null}
-          </DragOverlay>
+          {activeId && overlay && overlay.width > 0
+            ? (() => {
+                const parsed = parseSortableId(activeId);
+                const b = parsed
+                  ? bookings.find((bk) => bk.id === parsed.bookingId)
+                  : null;
+                if (!b || !parsed) return null;
+                return (
+                  <FloatingDragCard
+                    style={{
+                      width: overlay.width,
+                      height: overlay.height,
+                      left: overlay.pointer.x - overlay.width / 2,
+                      top: overlay.pointer.y - overlay.height / 2,
+                    }}
+                  >
+                    <BookingCard booking={b} dayKey={parsed.dayKey} />
+                  </FloatingDragCard>
+                );
+              })()
+            : null}
         </DndContext>
       )}
     </Wrap>
   );
 };
 
-/* DragOverlay modifier: re-centers the floating card on the cursor.
- * Without this, dnd-kit anchors the overlay to wherever the pointer
- * first landed on the card — grab the top edge and the card hovers
- * "north" of your finger for the rest of the drag, which is what
- * was making the overlay feel detached from the cursor. */
-const snapCenterToCursor: Modifier = ({
-  activatorEvent,
-  draggingNodeRect,
-  transform,
-}) => {
-  if (!draggingNodeRect || !activatorEvent) return transform;
-  const pointer = activatorEvent as PointerEvent | MouseEvent | TouchEvent;
-  let pointerX: number | null = null;
-  let pointerY: number | null = null;
-  if ('clientX' in pointer && 'clientY' in pointer) {
-    pointerX = pointer.clientX;
-    pointerY = pointer.clientY;
-  } else if ('touches' in pointer && pointer.touches[0]) {
-    pointerX = pointer.touches[0].clientX;
-    pointerY = pointer.touches[0].clientY;
-  }
-  if (pointerX === null || pointerY === null) return transform;
-  const offsetX = pointerX - draggingNodeRect.left;
-  const offsetY = pointerY - draggingNodeRect.top;
-  return {
-    ...transform,
-    x: transform.x + offsetX - draggingNodeRect.width / 2,
-    y: transform.y + offsetY - draggingNodeRect.height / 2,
-  };
-};
+/* Floating card while dragging — replaces dnd-kit's `DragOverlay`.
+ * Positioned manually via `left/top` derived from the live cursor and
+ * the source's captured size, so the card is always centered exactly
+ * on the pointer regardless of where on the source the user grabbed.
+ * pointer-events: none so it doesn't interfere with drop detection. */
+const FloatingDragCard = styled.div`
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  cursor: grabbing;
+  border-radius: 14px;
+  box-shadow: 0 24px 56px rgba(31, 36, 33, 0.32);
+  transform: rotate(-0.6deg);
+  will-change: transform, left, top;
+`;
 
 export default Itinerary;
 
