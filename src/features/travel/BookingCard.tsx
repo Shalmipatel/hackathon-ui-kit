@@ -431,13 +431,12 @@ function BookingIcon({ type }: { type: BookingType }) {
         </svg>
       );
     case 'activity':
-      /* Hiker — Material Icons "hiking" silhouette: backpacker mid-stride
-         with walking stick. Solid fill so it reads at small sizes like
-         the user's reference. */
+      /* Hiker — user-supplied stroke-based path (svgrepo "hiking"),
+         backpacker mid-stride with walking stick. Matches the rest
+         of the type icons' stroke aesthetic. */
       return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="13.5" cy="5.5" r="1.5" />
-          <path d="M17.5 10.78c-.86-.24-1.67-.6-2.4-1.07l-1.05-.7c-.34-.23-.72-.36-1.12-.4-.01 0-.04-.01-.04-.01-.05 0-.09-.01-.14-.01-.4 0-.78.11-1.11.32h-.01l-3.46 2.16c-.46.27-.7.78-.7 1.34 0 .07 0 .14.02.21l.94 4.78-2.34.46c-.27.05-.46.31-.41.59l.04.2c.05.27.31.46.59.41l3.16-.62c.46-.09.78-.51.78-.97 0-.05-.01-.11-.02-.16l-.65-3.21 2.1-1.42-.78 4.5L9.9 21H12l1.42-5.42 1.45 1.4-.05 4.02h2l.39-4.69-1.85-1.78.93-3.25c1.05.86 2.34 1.49 3.75 1.79z" />
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 22V16L12 14M12 14L13 8M12 14H10M13 8C14 9.16667 15.6 11 18 11M13 8L12.8212 7.82124C12.2565 7.25648 11.2902 7.54905 11.1336 8.33223L10 14M10 14L8 22M18 9.5V22M8 7H7.72076C7.29033 7 6.90819 7.27543 6.77208 7.68377L5.5 11.5L7 12L8 7ZM14.5 3.5C14.5 4.05228 14.0523 4.5 13.5 4.5C12.9477 4.5 12.5 4.05228 12.5 3.5C12.5 2.94772 12.9477 2.5 13.5 2.5C14.0523 2.5 14.5 2.94772 14.5 3.5Z" />
         </svg>
       );
     case 'attraction':
