@@ -173,6 +173,18 @@ export function isoTimeOnly(iso: string): string {
   return match ? `${match[1]}:${match[2]}` : '';
 }
 
+/** A booking is "locked" when it represents a real-world confirmation
+ *  the user can't unilaterally move on the timeline. Anything pulled
+ *  from email (flight itineraries, hotel reservations, ticketed
+ *  events) and anything with an explicit confirmation/PNR is locked.
+ *  Manual / agent-discovered activities without a confirmation are
+ *  free-form and can be reordered. */
+export function isBookingLocked(booking: Booking): boolean {
+  if (booking.source === 'email') return true;
+  if (booking.confirmation && booking.confirmation.trim().length > 0) return true;
+  return false;
+}
+
 /** Returns a lat/lng pair representative of the booking's location. */
 export function bookingLocation(booking: Booking): { lat: number; lng: number; label: string } | null {
   switch (booking.type) {

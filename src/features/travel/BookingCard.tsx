@@ -579,6 +579,10 @@ interface BookingCardProps {
    *  check-in/departure time, end day shows check-out/arrival time,
    *  middle days show "All day". Omit to fall back to start-time only. */
   dayKey?: string;
+  /** When true, render a small lock chip in the tail to communicate
+   *  the card can't be dragged on the timeline. Tap-to-edit still
+   *  works via the detail modal. */
+  locked?: boolean;
 }
 
 function multiDayLabels(type: BookingType): { start: string; end: string } {
@@ -603,6 +607,7 @@ export const BookingCard: React.FC<BookingCardProps> = ({
   onClick,
   onCollapse,
   dayKey,
+  locked,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const dur = formatDuration(booking.start, booking.end);
@@ -988,6 +993,29 @@ export const BookingCard: React.FC<BookingCardProps> = ({
           <Sub>{bookingSubtitle(booking)}</Sub>
         </BodyCol>
         <Tail>
+          {locked && (
+            <span
+              title="Anchored to a confirmed time — open to edit details"
+              aria-label="Locked"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 3,
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: 'rgba(36, 36, 36, 0.55)',
+                background: 'rgba(36, 36, 36, 0.05)',
+                padding: '2px 7px 2px 5px',
+                borderRadius: 999,
+              }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              Locked
+            </span>
+          )}
           <Pill $tone={booking.source}>
             {booking.source === 'email' ? 'From email' : booking.source}
           </Pill>

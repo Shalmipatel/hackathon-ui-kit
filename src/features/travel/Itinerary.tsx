@@ -1,11 +1,32 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useTravelStore } from './travel-store';
 import {
   bookingDayKey,
   bookingDayKeys,
   formatDayLabel,
   formatTripRange,
+  isBookingLocked,
   localDateKey,
   tripDayKeys,
 } from './format';
@@ -135,13 +156,71 @@ const DropHint = styled.div<{ $dragOver?: boolean }>`
   }
 `;
 
-const Draggable = styled.div<{ $dragging?: boolean }>`
-  cursor: grab;
-  opacity: ${(p) => (p.$dragging ? 0.4 : 1)};
-  transition: opacity 0.12s;
+/** Sortable wrapper around a BookingCard. Disabled (no drag affordance,
+ *  no listeners) for locked bookings — those are still tappable / open
+ *  the modal, just not draggable. dnd-kit's transform is applied via
+ *  CSS.Transform.toString so reorder feels natively smooth on both
+ *  desktop and touch. */
+const SortableItem: React.FC<{
+  booking: Booking;
+  dayKey: string;
+  onBookingClick?: (id: string) => void;
+}> = ({ booking, dayKey, onBookingClick }) => {
+  const locked = isBookingLocked(booking);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: booking.id, disabled: locked });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0 : 1, // DragOverlay shows the floating one
+    cursor: locked ? 'default' : 'grab',
+    touchAction: 'manipulation',
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      data-booking-id={booking.id}
+      {...(locked ? {} : attributes)}
+      {...(locked ? {} : listeners)}
+    >
+      <BookingCard
+        booking={booking}
+        dayKey={dayKey}
+        locked={locked}
+        onClick={() => onBookingClick?.(booking.id)}
+      />
+    </div>
+  );
+};
 
-  &:active { cursor: grabbing; }
-`;
+/** Empty-day drop target so the user can drag a card onto a day that
+ *  currently has no events. Renders the same dashed hint as before
+ *  but is now an actual @dnd-kit droppable so dnd-kit knows where
+ *  the drop landed. */
+const EmptyDayDropZone: React.FC<{ dayKey: string; isActive: boolean }> = ({
+  dayKey,
+  isActive,
+}) => {
+  const { setNodeRef, isOver } = useSortable({ id: `day:${dayKey}` });
+  return (
+    <div ref={setNodeRef}>
+      <DropHint $dragOver={isOver}>
+        {isOver
+          ? 'Drop here'
+          : isActive
+            ? 'Drop here to move to this day'
+            : 'Open day · drop a plan here'}
+      </DropHint>
+    </div>
+  );
+};
 
 const DayHeader = styled.div`
   display: flex;
@@ -260,11 +339,10 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   const upsertBooking = useTravelStore((s) => s.upsertBooking);
   const { rescan, rescanInFlight } = useRescanTrip();
 
-  /* Drag-and-drop state. `draggingId` is the booking being dragged
-     (used to dim its card); `dragOverDay` is the day-key the cursor
-     is currently over (used to highlight the drop target). */
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOverDay, setDragOverDay] = useState<string | null>(null);
+  /* @dnd-kit drag state. activeId is the booking being dragged so we
+     can render a DragOverlay (the floating card while the user holds).
+     Cross-list reorder is handled inside handleDragEnd. */
+  const [activeId, setActiveId] = useState<string | null>(null);
   const trip = useMemo(
     () => trips.find((t) => t.id === effectiveTripId) ?? null,
     [trips, effectiveTripId],
@@ -366,68 +444,107 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     });
   };
 
-  /* ── Drag-and-drop handlers ───────────────────────────────────
-     HTML5 native DnD — no extra deps. Works mouse-first; touch
-     devices fall through to the AddPlaceButton / detail modal for
-     edits. The dataTransfer payload is the booking id; the drop
-     target is the day section. */
-  const handleDragStart = (
-    e: React.DragEvent<HTMLDivElement>,
-    bookingId: string,
-  ) => {
-    e.dataTransfer.setData('text/plain', bookingId);
-    e.dataTransfer.effectAllowed = 'move';
-    setDraggingId(bookingId);
+  /* ── @dnd-kit handlers ────────────────────────────────────────
+     Replaces HTML5 native DnD. PointerSensor + TouchSensor cover
+     desktop + iOS Safari (HTML5 drag is unreliable on touch).
+     Within-day reorder interpolates a new start time between the
+     dragged item's new neighbors; cross-day drops shift the
+     booking to the target day (preserving time-of-day). */
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const activeBooking = useMemo(
+    () => (activeId ? bookings.find((b) => b.id === activeId) ?? null : null),
+    [activeId, bookings],
+  );
+
+  /* Find which day-list contains a given booking id. Cards can appear
+     in multiple day-lists (multi-day spans), so we use the FIRST
+     day the booking starts on as its canonical home. */
+  const dayForBookingId = (id: string): string | null => {
+    const b = bookings.find((x) => x.id === id);
+    if (!b) return null;
+    return bookingDayKeys(b)[0] ?? null;
   };
 
-  const handleDragEnd = () => {
-    setDraggingId(null);
-    setDragOverDay(null);
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(String(event.active.id));
   };
 
-  const handleDragOver = (
-    e: React.DragEvent<HTMLDivElement>,
-    dayKey: string,
-  ) => {
-    /* preventDefault is what tells the browser the element is a
-       valid drop target — without it, drop never fires. */
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (dragOverDay !== dayKey) setDragOverDay(dayKey);
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveId(null);
+    if (!over) return;
+    const activeIdStr = String(active.id);
+    const overIdStr = String(over.id);
+    if (activeIdStr === overIdStr) return;
+
+    const moved = bookings.find((b) => b.id === activeIdStr);
+    if (!moved) return;
+    if (isBookingLocked(moved)) return; // safety — sortable should already block
+
+    /* `over.id` is either another booking's id (a sibling in the same
+       SortableContext) OR a day-key sentinel like "day:2026-06-21"
+       (when dropped on an empty day's drop zone). */
+    let targetDay: string | null;
+    let beforeId: string | null = null;
+    let afterId: string | null = null;
+    if (overIdStr.startsWith('day:')) {
+      targetDay = overIdStr.slice('day:'.length);
+    } else {
+      targetDay = dayForBookingId(overIdStr);
+      if (!targetDay) return;
+      const overList = bookingsByDay.get(targetDay) ?? [];
+      const overIdx = overList.findIndex((b) => b.id === overIdStr);
+      /* When sorting within the same list dnd-kit hands us the item
+         being swapped with; we place active BEFORE over (matches the
+         visual feedback during drag). */
+      beforeId = overIdStr;
+      if (overIdx > 0) afterId = overList[overIdx - 1].id;
+    }
+    if (!targetDay) return;
+
+    const sourceDay = dayForBookingId(activeIdStr);
+    if (sourceDay === targetDay) {
+      /* Same-day reorder. Compute new effective time between the
+         active's new neighbors. */
+      const list = bookingsByDay.get(targetDay) ?? [];
+      const oldIdx = list.findIndex((b) => b.id === activeIdStr);
+      const newIdx = list.findIndex((b) => b.id === overIdStr);
+      if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return;
+      const reordered = arrayMove(list, oldIdx, newIdx);
+      const newPos = reordered.findIndex((b) => b.id === activeIdStr);
+      const prev = newPos > 0 ? reordered[newPos - 1] : null;
+      const next = newPos < reordered.length - 1 ? reordered[newPos + 1] : null;
+      const newStart = computeInterpolatedStart(targetDay, moved, prev, next);
+      upsertBooking({ ...moved, start: newStart } as Booking);
+    } else {
+      /* Cross-day move. Preserve time-of-day; if the item is at the
+         start/end of the target list, also interpolate so it lands
+         in the right spot. */
+      const targetList = bookingsByDay.get(targetDay) ?? [];
+      const overIdxInTarget = beforeId
+        ? targetList.findIndex((b) => b.id === beforeId)
+        : -1;
+      const prev = overIdxInTarget > 0 ? targetList[overIdxInTarget - 1] : null;
+      const next = overIdxInTarget >= 0 ? targetList[overIdxInTarget] : null;
+      const shifted = shiftBookingToDay(moved, targetDay);
+      const finalStart = next
+        ? computeInterpolatedStart(targetDay, shifted, prev, next)
+        : shifted.start;
+      upsertBooking({ ...shifted, start: finalStart } as Booking);
+      toast({
+        title: `Moved to ${formatDayLabel(targetDay)}`,
+        description: moved.title,
+        duration: 3000,
+      });
+    }
   };
 
-  const handleDragLeave = (
-    e: React.DragEvent<HTMLDivElement>,
-    dayKey: string,
-  ) => {
-    /* `dragleave` fires when moving between any child elements too —
-       guard so the highlight only clears when we actually leave the
-       section. */
-    const next = e.relatedTarget as Node | null;
-    if (next && e.currentTarget.contains(next)) return;
-    if (dragOverDay === dayKey) setDragOverDay(null);
-  };
-
-  const handleDrop = (
-    e: React.DragEvent<HTMLDivElement>,
-    dayKey: string,
-  ) => {
-    e.preventDefault();
-    const id = e.dataTransfer.getData('text/plain') || draggingId;
-    setDraggingId(null);
-    setDragOverDay(null);
-    if (!id) return;
-    const booking = allBookings.find((b) => b.id === id);
-    if (!booking) return;
-    if (bookingDayKey(booking) === dayKey) return; // no-op
-    const moved = shiftBookingToDay(booking, dayKey);
-    upsertBooking(moved);
-    toast({
-      title: `Moved to ${formatDayLabel(dayKey)}`,
-      description: booking.title,
-      duration: 3000,
-    });
-  };
+  const handleDragCancel = () => setActiveId(null);
 
   /* Scroll-spy: pan the map to whichever booking is currently closest
      to the top of the viewport. Booking cards advertise themselves
@@ -529,90 +646,86 @@ export const Itinerary: React.FC<ItineraryProps> = ({
           Connect Gmail and ask the assistant to scan for confirmations.
         </Empty>
       ) : (
-        days.map((day, idx) => {
-          const dayBookings = bookingsByDay.get(day) ?? [];
-          const [, , d] = day.split('-').map(Number);
-          const dayLabel = formatDayLabel(day);
-          const isDragOver = dragOverDay === day;
-          /* When dragging, show a dashed drop hint even on days that
-             already have items, so the user has a clear sense of the
-             whole day's drop zone. Open days always show it. */
-          const draggingBooking = draggingId
-            ? allBookings.find((x) => x.id === draggingId)
-            : null;
-          const showDropHint =
-            (draggingBooking && bookingDayKey(draggingBooking) !== day) ||
-            dayBookings.length === 0;
-          return (
-            <Section
-              key={day}
-              $dragOver={isDragOver}
-              onDragOver={(e) => handleDragOver(e, day)}
-              onDragLeave={(e) => handleDragLeave(e, day)}
-              onDrop={(e) => handleDrop(e, day)}
-            >
-              <DayHeader>
-                <DayBadge $empty={dayBookings.length === 0}>
-                  <DayBadgeNum>{d}</DayBadgeNum>
-                  <DayBadgeLabel>
-                    {new Date(day).toLocaleString(undefined, { month: 'short' })}
-                  </DayBadgeLabel>
-                </DayBadge>
-                <DayTitle>
-                  <DayWeekday>Day {idx + 1} · {dayLabel}</DayWeekday>
-                  {dayBookings.length === 0 ? (
-                    <DayEmpty>Open day</DayEmpty>
-                  ) : (
-                    <DayEmpty>
-                      {dayBookings.length} {dayBookings.length === 1 ? 'item' : 'items'}
-                    </DayEmpty>
-                  )}
-                </DayTitle>
-                <DayHeaderSpacer />
-                <AddPlaceButton
-                  dayLabel={dayLabel}
-                  destinationHint={trip.destination}
-                  onAdd={(place) => handleAddPlace(day, place)}
-                />
-              </DayHeader>
-              {dayBookings.length > 0 && (
-                <DayItems>
-                  {dayBookings.map((b) => {
-                    const isExpanded = b.id === focusedBookingId;
-                    return (
-                      /* data-booking-id is what the scroll-spy
-                         IntersectionObserver reads. Keep this attribute
-                         in sync with the booking key. Drag is disabled
-                         while expanded so the inline editor doesn't
-                         get accidentally torn off mid-edit. */
-                      <Draggable
-                        key={b.id}
-                        data-booking-id={b.id}
-                        draggable={!isExpanded}
-                        $dragging={draggingId === b.id}
-                        onDragStart={(e) => handleDragStart(e, b.id)}
-                        onDragEnd={handleDragEnd}
-                      >
-                        <BookingCard
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
+        >
+          {days.map((day, idx) => {
+            const dayBookings = bookingsByDay.get(day) ?? [];
+            const [, , d] = day.split('-').map(Number);
+            const dayLabel = formatDayLabel(day);
+            const itemIds = dayBookings.map((b) => b.id);
+            /* Include the empty-day sentinel as the only item in the
+               SortableContext when the day has nothing — so an empty
+               day is still a valid drop target. */
+            const sortableItems = dayBookings.length === 0
+              ? [`day:${day}`]
+              : itemIds;
+            const isDraggingNow = activeId !== null;
+            return (
+              <Section key={day}>
+                <DayHeader>
+                  <DayBadge $empty={dayBookings.length === 0}>
+                    <DayBadgeNum>{d}</DayBadgeNum>
+                    <DayBadgeLabel>
+                      {new Date(day).toLocaleString(undefined, { month: 'short' })}
+                    </DayBadgeLabel>
+                  </DayBadge>
+                  <DayTitle>
+                    <DayWeekday>Day {idx + 1} · {dayLabel}</DayWeekday>
+                    {dayBookings.length === 0 ? (
+                      <DayEmpty>Open day</DayEmpty>
+                    ) : (
+                      <DayEmpty>
+                        {dayBookings.length} {dayBookings.length === 1 ? 'item' : 'items'}
+                      </DayEmpty>
+                    )}
+                  </DayTitle>
+                  <DayHeaderSpacer />
+                  <AddPlaceButton
+                    dayLabel={dayLabel}
+                    destinationHint={trip.destination}
+                    onAdd={(place) => handleAddPlace(day, place)}
+                  />
+                </DayHeader>
+                <SortableContext items={sortableItems} strategy={rectSortingStrategy}>
+                  {dayBookings.length > 0 ? (
+                    <DayItems>
+                      {dayBookings.map((b) => (
+                        <SortableItem
+                          key={b.id}
                           booking={b}
                           dayKey={day}
-                          focused={isExpanded}
-                          onClick={() => onBookingClick?.(b.id)}
-                          onCollapse={onCollapseBooking}
+                          onBookingClick={onBookingClick}
                         />
-                      </Draggable>
-                    );
-                  })}
-                </DayItems>
-              )}
-              {showDropHint && (
-                <DropHint $dragOver={isDragOver}>
-                  {isDragOver ? 'Drop here' : dayBookings.length === 0 ? 'Open day · drop a plan here' : 'Drop here to move to this day'}
-                </DropHint>
-              )}
-            </Section>
-          );
-        })
+                      ))}
+                    </DayItems>
+                  ) : (
+                    <EmptyDayDropZone dayKey={day} isActive={isDraggingNow} />
+                  )}
+                </SortableContext>
+              </Section>
+            );
+          })}
+          {/* Floating card that follows the cursor / finger during
+              drag — using DragOverlay (instead of letting dnd-kit
+              transform the original) ensures the dragged card appears
+              above any sticky map or scroll container without
+              clipping. */}
+          <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.32,0.72,0,1)' }}>
+            {activeBooking ? (
+              <div style={{ opacity: 0.95, transform: 'rotate(-0.5deg)' }}>
+                <BookingCard
+                  booking={activeBooking}
+                  dayKey={bookingDayKeys(activeBooking)[0]}
+                />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
     </Wrap>
   );
@@ -633,6 +746,44 @@ export default Itinerary;
  *  shift `end` (if present) by the same number of calendar days so
  *  the span survives the move.
  */
+/** Compute a new ISO start timestamp that places `moved` between
+ *  `prev` and `next` in the day's chronological list. Both neighbors
+ *  are optional (first or last slot). Always returns an ISO string
+ *  whose YYYY-MM-DD prefix matches `dayKey` so the booking buckets
+ *  back into the right day. `hasTime: false` items keep their
+ *  hasTime flag — the parent should preserve that on upsert. */
+function computeInterpolatedStart(
+  dayKey: string,
+  moved: Booking,
+  prev: Booking | null,
+  next: Booking | null,
+): string {
+  /* Effective ms-since-epoch for sorting. For multi-day spans this
+     day might be the end day → use end. Untimed items just use start. */
+  const effMs = (b: Booking): number => {
+    const sd = b.start.slice(0, 10);
+    const ed = b.end ? b.end.slice(0, 10) : sd;
+    if (dayKey === ed && ed !== sd) return new Date(b.end as string).getTime();
+    return new Date(b.start).getTime();
+  };
+  const dayMidnightMs = new Date(`${dayKey}T00:00:00`).getTime();
+  const dayEndMs = dayMidnightMs + 24 * 60 * 60 * 1000 - 1;
+  const prevMs = prev ? effMs(prev) : dayMidnightMs;
+  const nextMs = next ? effMs(next) : dayEndMs;
+  /* Land halfway between neighbors. If both ends are open use noon. */
+  let pickedMs: number;
+  if (prev && next) pickedMs = (prevMs + nextMs) / 2;
+  else if (next) pickedMs = nextMs - 60 * 60 * 1000; // 1h before next
+  else if (prev) pickedMs = prevMs + 60 * 60 * 1000; // 1h after prev
+  else pickedMs = dayMidnightMs + 12 * 60 * 60 * 1000; // noon
+
+  /* Rebuild as ISO string anchored to dayKey to dodge timezone drift. */
+  const d = new Date(pickedMs);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${dayKey}T${hh}:${mm}:00`;
+}
+
 function shiftBookingToDay(booking: Booking, newDayKey: string): Booking {
   const oldDayKey = booking.start.slice(0, 10);
   if (oldDayKey === newDayKey) return booking;
