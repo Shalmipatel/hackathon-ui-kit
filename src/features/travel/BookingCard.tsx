@@ -918,32 +918,11 @@ export const BookingCard: React.FC<BookingCardProps> = ({
       <CompactGrid>
         <TimeCol onClick={stopBubble}>
           {hasNoTime ? (
-            editingTime ? (
-              <TimeInput
-                type="time"
-                autoFocus
-                onBlur={(e) => commitInlineTime(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commitInlineTime((e.target as HTMLInputElement).value);
-                  if (e.key === 'Escape') setEditingTime(false);
-                }}
-              />
-            ) : (
-              <AddTimeBtn
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEditingTime(true);
-                }}
-                title="Set a time for this plan"
-              >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <polyline points="12 6 12 12 16 14" />
-                </svg>
-                Add time
-              </AddTimeBtn>
-            )
+            /* Untimed activities (in-between filler) render nothing
+               in the time slot — no "Add time" button, no placeholder.
+               The user can still set a time later via the detail
+               modal's date+time pickers. */
+            null
           ) : (
             (() => {
               /* Multi-day spread: show check-in / departure on start day,
