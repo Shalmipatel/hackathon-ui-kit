@@ -40,6 +40,14 @@ const Wrap = styled.div`
   flex-direction: column;
   gap: 24px;
   min-width: 0;
+  /* Disable browser scroll anchoring inside the itinerary. When the
+     source card flips to display:none on drag start, anchoring tries
+     to compensate for the layout shift and ends up scrolling the
+     page to a different position (the user reported "page jumps to
+     top of the day"). We restore the desired scroll position
+     manually right after drag start instead. */
+  overflow-anchor: none;
+  & * { overflow-anchor: none; }
 `;
 
 const TripHeader = styled.div`
@@ -773,6 +781,35 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     const pointer = cursorPosRef.current ?? initialCenter;
     setOverlay({ width, height, pointer });
     setActiveId(activeIdStr);
+
+    /* Belt-and-suspenders against the "page scrolls to top of day"
+       bug. Even with overflow-anchor: none, the layout shift from
+       collapsing the source can still nudge scroll position. Snap
+       every scrollable ancestor back to its pre-drag scrollTop on
+       the next frame (after React's commit). */
+    const scrollers: Array<{ el: Element | Window; top: number }> = [
+      { el: window, top: window.scrollY },
+    ];
+    let node: HTMLElement | null = rootRef.current;
+    while (node) {
+      if (
+        node.scrollHeight > node.clientHeight + 1 &&
+        getComputedStyle(node).overflowY !== 'visible'
+      ) {
+        scrollers.push({ el: node, top: node.scrollTop });
+      }
+      node = node.parentElement;
+    }
+    requestAnimationFrame(() => {
+      for (const s of scrollers) {
+        if (s.el === window) {
+          if (window.scrollY !== s.top) window.scrollTo({ top: s.top, behavior: 'instant' as ScrollBehavior });
+        } else {
+          const el = s.el as HTMLElement;
+          if (el.scrollTop !== s.top) el.scrollTop = s.top;
+        }
+      }
+    });
   };
 
   const handleDragMove = (event: DragMoveEvent) => {
