@@ -14,6 +14,7 @@ import {
   type DragEndEvent,
   type DragMoveEvent,
   type DragStartEvent,
+  type Modifier,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -239,26 +240,42 @@ const SortableItem: React.FC<{
  *  per-card `isOver` hint with a SINGLE indicator that follows the
  *  cursor — clearer, calmer, and matches the way other modern DnD
  *  surfaces (Notion, Linear, Trello columns) handle reorder. */
-const InsertionLine = styled.div`
-  height: 0;
-  margin: 4px 0;
-  border-top: 3px solid #216869;
+/** Floating insertion indicator that follows the cursor.
+ *
+ *  Rendered as `position: fixed` so it can sit precisely under the
+ *  pointer instead of snapping to the gap between two cards (which
+ *  the user found confusing because the line ended up "north" of
+ *  where they were actually pointing). The X-span is computed from
+ *  the target day section's bounds so it visually belongs to that
+ *  day. */
+const FloatingInsertionLine = styled.div<{
+  $top: number;
+  $left: number;
+  $width: number;
+}>`
+  position: fixed;
+  top: ${(p) => p.$top}px;
+  left: ${(p) => p.$left}px;
+  width: ${(p) => p.$width}px;
+  height: 3px;
+  background: #216869;
   border-radius: 2px;
-  position: relative;
   pointer-events: none;
+  z-index: 999;
+  box-shadow: 0 0 0 4px rgba(33, 104, 105, 0.12);
 
   &::before,
   &::after {
     content: '';
     position: absolute;
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     background: #216869;
-    top: -5px;
+    top: -3.5px;
   }
-  &::before { left: -2px; }
-  &::after { right: -2px; }
+  &::before { left: -3px; }
+  &::after { right: -3px; }
 `;
 
 /** Empty-day drop target so the user can drag a card onto a day that
@@ -622,12 +639,18 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   const noopStrategy = useMemo(() => () => null, []);
 
   /* Live insertion preview: where would the drop land RIGHT NOW?
-     Updated on every drag move so the indicator stays glued to the
-     pointer. `index` is the zero-based slot the active card would
-     occupy in the day's list (0 = top, N = below all current items). */
+     `index` is the zero-based slot the active card would occupy in
+     the day's list (used at drop time to resolve prev/next neighbors).
+     `lineY/lineLeft/lineWidth` are pixel coords for the floating
+     indicator — recomputed every drag move so the line stays glued
+     to the cursor instead of snapping to the in-flow gap between
+     cards. */
   const [insertion, setInsertion] = useState<{
     dayKey: string;
     index: number;
+    lineY: number;
+    lineLeft: number;
+    lineWidth: number;
   } | null>(null);
 
   /** Pure: given the cursor Y and the moved card's id, walk the LIVE
@@ -729,13 +752,25 @@ export const Itinerary: React.FC<ItineraryProps> = ({
       setInsertion(null);
       return;
     }
-    setInsertion((prev) =>
-      prev &&
-      prev.dayKey === next.targetDay &&
-      prev.index === next.insertionIndex
-        ? prev
-        : { dayKey: next.targetDay, index: next.insertionIndex },
+    /* Line width: span the day section's `DayItems` content area
+       (which is indented under the day badge on desktop). Fall back
+       to the section bounds if the items column isn't found. */
+    const dayEl = document.querySelector<HTMLElement>(
+      `[data-day-key="${next.targetDay}"]`,
     );
+    const itemsEl = dayEl?.querySelector<HTMLElement>('[data-day-items]');
+    const refRect = (itemsEl ?? dayEl)?.getBoundingClientRect();
+    if (!refRect) {
+      setInsertion(null);
+      return;
+    }
+    setInsertion({
+      dayKey: next.targetDay,
+      index: next.insertionIndex,
+      lineY: cursorY,
+      lineLeft: refRect.left,
+      lineWidth: refRect.width,
+    });
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -904,8 +939,6 @@ export const Itinerary: React.FC<ItineraryProps> = ({
             const dayLabel = formatDayLabel(day);
             const sortableItems = sortableItemsByDay.get(day) ?? [];
             const isDraggingNow = activeId !== null;
-            const showInsertionAt = (slot: number) =>
-              insertion?.dayKey === day && insertion.index === slot;
             return (
               <Section key={day} data-day-key={day}>
                 <DayHeader>
@@ -934,35 +967,36 @@ export const Itinerary: React.FC<ItineraryProps> = ({
                 </DayHeader>
                 <SortableContext items={sortableItems} strategy={noopStrategy}>
                   {dayBookings.length > 0 ? (
-                    <DayItems>
-                      {dayBookings.map((b, i) => (
-                        <React.Fragment key={b.id}>
-                          {showInsertionAt(i) && <InsertionLine aria-hidden />}
-                          <SortableItem
-                            booking={b}
-                            dayKey={day}
-                            onBookingClick={onBookingClick}
-                          />
-                        </React.Fragment>
+                    <DayItems data-day-items>
+                      {dayBookings.map((b) => (
+                        <SortableItem
+                          key={b.id}
+                          booking={b}
+                          dayKey={day}
+                          onBookingClick={onBookingClick}
+                        />
                       ))}
-                      {showInsertionAt(dayBookings.length) && (
-                        <InsertionLine aria-hidden />
-                      )}
                       <TailDropZone dayKey={day} isDraggingNow={isDraggingNow} />
                     </DayItems>
                   ) : (
-                    <>
-                      {showInsertionAt(0) && <InsertionLine aria-hidden />}
-                      <EmptyDayDropZone dayKey={day} isActive={isDraggingNow} />
-                    </>
+                    <EmptyDayDropZone dayKey={day} isActive={isDraggingNow} />
                   )}
                 </SortableContext>
               </Section>
             );
           })}
+          {insertion && (
+            <FloatingInsertionLine
+              aria-hidden
+              $top={insertion.lineY}
+              $left={insertion.lineLeft}
+              $width={insertion.lineWidth}
+            />
+          )}
           <DragOverlay
             dropAnimation={{ duration: 220, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' }}
             zIndex={1000}
+            modifiers={[snapCenterToCursor]}
           >
             {activeId
               ? (() => {
@@ -974,7 +1008,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
                   return (
                     <div
                       style={{
-                        transform: 'scale(1.02) rotate(-0.6deg)',
+                        transform: 'rotate(-0.6deg)',
                         boxShadow: '0 24px 56px rgba(31, 36, 33, 0.32)',
                         borderRadius: 14,
                         cursor: 'grabbing',
@@ -990,6 +1024,37 @@ export const Itinerary: React.FC<ItineraryProps> = ({
       )}
     </Wrap>
   );
+};
+
+/* DragOverlay modifier: re-centers the floating card on the cursor.
+ * Without this, dnd-kit anchors the overlay to wherever the pointer
+ * first landed on the card — grab the top edge and the card hovers
+ * "north" of your finger for the rest of the drag, which is what
+ * was making the overlay feel detached from the cursor. */
+const snapCenterToCursor: Modifier = ({
+  activatorEvent,
+  draggingNodeRect,
+  transform,
+}) => {
+  if (!draggingNodeRect || !activatorEvent) return transform;
+  const pointer = activatorEvent as PointerEvent | MouseEvent | TouchEvent;
+  let pointerX: number | null = null;
+  let pointerY: number | null = null;
+  if ('clientX' in pointer && 'clientY' in pointer) {
+    pointerX = pointer.clientX;
+    pointerY = pointer.clientY;
+  } else if ('touches' in pointer && pointer.touches[0]) {
+    pointerX = pointer.touches[0].clientX;
+    pointerY = pointer.touches[0].clientY;
+  }
+  if (pointerX === null || pointerY === null) return transform;
+  const offsetX = pointerX - draggingNodeRect.left;
+  const offsetY = pointerY - draggingNodeRect.top;
+  return {
+    ...transform,
+    x: transform.x + offsetX - draggingNodeRect.width / 2,
+    y: transform.y + offsetY - draggingNodeRect.height / 2,
+  };
 };
 
 export default Itinerary;
