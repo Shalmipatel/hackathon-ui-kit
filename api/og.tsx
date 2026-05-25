@@ -4,9 +4,11 @@
  * Query params (all optional except `title`):
  *   title    — top-line heading, e.g. "Marriott Autograph"
  *   subtitle — secondary line, e.g. "Sept 12–15 · 3 nights"
- *   type     — booking type, controls the tile color + icon:
+ *   type     — card type, controls the tile color + icon:
  *              flight | hotel | attraction | experience | event |
- *              activity | restaurant | transport
+ *              activity | restaurant | transport | trip
+ *              (`trip` is the higher-level overview variant —
+ *              e.g. "Switzerland · Jun 19–28")
  *   meta     — optional tiny line under the subtitle (e.g. "Tokyo trip")
  *
  * Apple's Link Preview daemon scrapes this URL via the `og:image` meta
@@ -18,7 +20,11 @@ import { ImageResponse } from '@vercel/og';
 
 export const config = { runtime: 'edge' };
 
-type BookingType =
+/* Card type drives icon + tile color. Most values mirror the in-app
+   BookingType (so a booking card on iMessage matches what the user
+   sees inside Wanderbot). `trip` is an additional, higher-level
+   variant for trip-overview previews ("Switzerland · Jun 19–28"). */
+type CardType =
   | 'flight'
   | 'hotel'
   | 'attraction'
@@ -26,11 +32,10 @@ type BookingType =
   | 'event'
   | 'activity'
   | 'restaurant'
-  | 'transport';
+  | 'transport'
+  | 'trip';
 
-/* Per-type tile tints, mirrored from src/features/travel/BookingCard.tsx
-   so the preview reads as the same brand the user sees in-app. */
-const TILE_BG: Record<BookingType, string> = {
+const TILE_BG: Record<CardType, string> = {
   flight: 'rgba(56, 189, 248, 0.22)',
   hotel: 'rgba(250, 204, 21, 0.28)',
   attraction: 'rgba(217, 119, 6, 0.22)',
@@ -39,9 +44,13 @@ const TILE_BG: Record<BookingType, string> = {
   activity: 'rgba(168, 85, 247, 0.22)',
   restaurant: 'rgba(248, 113, 113, 0.22)',
   transport: 'rgba(73, 160, 120, 0.22)',
+  /* Trips use the brand teal tint — they sit one level above the
+     per-booking colors, so the card visually reads as "the whole
+     trip" rather than any specific item within it. */
+  trip: 'rgba(33, 104, 105, 0.18)',
 };
 
-const TYPE_LABEL: Record<BookingType, string> = {
+const TYPE_LABEL: Record<CardType, string> = {
   flight: 'Flight',
   hotel: 'Hotel',
   attraction: 'Attraction',
@@ -50,16 +59,17 @@ const TYPE_LABEL: Record<BookingType, string> = {
   activity: 'Activity',
   restaurant: 'Restaurant',
   transport: 'Transport',
+  trip: 'Trip',
 };
 
-function isBookingType(s: string): s is BookingType {
+function isCardType(s: string): s is CardType {
   return s in TILE_BG;
 }
 
 /* SVGs ported from BookingCard's <BookingIcon>. Inline so the edge
    runtime has no asset-loader dependency. Each is sized to fit the
    144px tile with stroke=3.2 for the larger surface. */
-function Icon({ type }: { type: BookingType }) {
+function Icon({ type }: { type: CardType }) {
   const stroke = '#1F2421';
   const sw = 3.2;
   const common = {
@@ -138,6 +148,17 @@ function Icon({ type }: { type: BookingType }) {
           <circle cx="17" cy="17" r="2" />
         </svg>
       );
+    case 'trip':
+      /* Folded map — three vertical panels with creases — echoes
+         the in-app TripMap and reads as "the whole trip" rather
+         than any one place on it. Lucide "map" silhouette. */
+      return (
+        <svg {...common}>
+          <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21" />
+          <line x1="9" y1="3" x2="9" y2="18" />
+          <line x1="15" y1="6" x2="15" y2="21" />
+        </svg>
+      );
   }
 }
 
@@ -147,7 +168,7 @@ export default async function handler(req: Request) {
   const subtitle = (url.searchParams.get('subtitle') || '').slice(0, 160);
   const meta = (url.searchParams.get('meta') || '').slice(0, 80);
   const rawType = url.searchParams.get('type') || 'activity';
-  const type: BookingType = isBookingType(rawType) ? rawType : 'activity';
+  const type: CardType = isCardType(rawType) ? rawType : 'activity';
 
   return new ImageResponse(
     (

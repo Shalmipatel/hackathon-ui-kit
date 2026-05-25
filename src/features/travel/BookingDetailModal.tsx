@@ -794,12 +794,46 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                     Add time
                   </AddTimeBtn>
                 ) : (
-                  <FieldInput
-                    type="time"
-                    value={startTime}
-                    onChange={(e) => handleStartTime(e.target.value)}
-                    style={{ maxWidth: 130 }}
-                  />
+                  <>
+                    <FieldInput
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => handleStartTime(e.target.value)}
+                      style={{ maxWidth: 130 }}
+                    />
+                    {/* Clear-time affordance — converts the timed
+                        booking into an untimed one. The time portion
+                        of `start` stays (for sort positioning) but
+                        hasTime:false hides it in the itinerary. */}
+                    <button
+                      type="button"
+                      onClick={() => commit({ hasTime: false })}
+                      title="Remove time — keep this as an untimed plan"
+                      aria-label="Remove time"
+                      style={{
+                        appearance: 'none',
+                        background: 'transparent',
+                        border: '1px solid rgba(36, 36, 36, 0.12)',
+                        borderRadius: 8,
+                        height: 34,
+                        padding: '0 10px',
+                        cursor: 'pointer',
+                        color: 'rgba(36, 36, 36, 0.6)',
+                        fontFamily: 'inherit',
+                        fontSize: 12.5,
+                        fontWeight: 500,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                      Remove time
+                    </button>
+                  </>
                 )}
               </div>
               {b.end !== undefined && (
