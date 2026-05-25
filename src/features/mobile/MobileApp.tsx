@@ -490,6 +490,46 @@ export const MobileApp: React.FC = () => {
   const [scrollFocusedBookingId, setScrollFocusedBookingId] = useState<string | null>(null);
   const mapFocusBookingId = selectedBookingId ?? scrollFocusedBookingId;
 
+  /* Deep-link from URL — runs once when trips first hydrate. When the
+     page loads at /trip/<tripId> (e.g. from an iMessage rich-link tap),
+     this scrolls the carousel to that trip's page. If the URL also has
+     a #booking=<id> hash, it expands that booking inside the trip so
+     the user lands on the specific item they came for. The existing
+     IntersectionObserver picks up the resulting scroll and updates
+     activeIdx → activeTripId, so no manual setActiveTrip call needed. */
+  const deepLinkAppliedRef = useRef(false);
+  useEffect(() => {
+    if (deepLinkAppliedRef.current) return;
+    if (orderedTrips.length === 0) return;
+
+    const match = window.location.pathname.match(/^\/trip\/([^/]+)$/);
+    if (!match) {
+      deepLinkAppliedRef.current = true;
+      return;
+    }
+    const tripId = decodeURIComponent(match[1]);
+    const idx = orderedTrips.findIndex((t) => t.id === tripId);
+    if (idx === -1) {
+      deepLinkAppliedRef.current = true;
+      return;
+    }
+    deepLinkAppliedRef.current = true;
+
+    /* Direct scrollLeft skips the smooth-scroll animation so the user
+       lands directly on the target trip instead of watching the
+       carousel sweep through every page in between. */
+    const pager = pagerRef.current;
+    if (pager) pager.scrollLeft = idx * pager.clientWidth;
+
+    const hashMatch = window.location.hash.match(/^#booking=([^&]+)$/);
+    if (hashMatch) {
+      /* Delay so the carousel page has rendered before the BookingCard's
+         existing scroll-into-view effect fires. */
+      const bookingId = decodeURIComponent(hashMatch[1]);
+      setTimeout(() => setSelectedBookingId(bookingId), 250);
+    }
+  }, [orderedTrips]);
+
   /* Positions / labels for the top bar. */
   const pageLabel =
     totalPages === 0

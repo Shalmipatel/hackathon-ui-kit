@@ -46,8 +46,11 @@ function escapeHtml(s: string): string {
 
 export default async function handler(req: Request) {
   const url = new URL(req.url);
-  const title = (url.searchParams.get('title') || 'Photon').slice(0, 120);
+  const title = (url.searchParams.get('title') || 'Wanderbot').slice(0, 120);
   const subtitle = (url.searchParams.get('subtitle') || '').slice(0, 160);
+  const loc = (url.searchParams.get('loc') || '').slice(0, 120);
+  const cost = (url.searchParams.get('cost') || '').slice(0, 24);
+  const cta = (url.searchParams.get('cta') || '').slice(0, 48);
   const meta = (url.searchParams.get('meta') || '').slice(0, 80);
   const type = (url.searchParams.get('type') || 'activity').slice(0, 32);
   const desc = (url.searchParams.get('desc') || subtitle).slice(0, 220);
@@ -58,6 +61,9 @@ export default async function handler(req: Request) {
   const ogParams = new URLSearchParams();
   ogParams.set('title', title);
   if (subtitle) ogParams.set('subtitle', subtitle);
+  if (loc) ogParams.set('loc', loc);
+  if (cost) ogParams.set('cost', cost);
+  if (cta) ogParams.set('cta', cta);
   if (meta) ogParams.set('meta', meta);
   ogParams.set('type', type);
   const ogImage = `${SITE}/og?${ogParams.toString()}`;
@@ -76,7 +82,7 @@ export default async function handler(req: Request) {
 
 <!-- Open Graph: what Apple's Link Preview daemon scrapes -->
 <meta property="og:type" content="website" />
-<meta property="og:site_name" content="Photon" />
+<meta property="og:site_name" content="Wanderbot" />
 <meta property="og:title" content="${escapeHtml(title)}" />
 <meta property="og:description" content="${escapeHtml(desc)}" />
 <meta property="og:url" content="${escapeHtml(canonical)}" />
@@ -112,7 +118,7 @@ export default async function handler(req: Request) {
   <div class="card">
     <h1>${escapeHtml(title)}</h1>
     ${desc ? `<p>${escapeHtml(desc)}</p>` : ''}
-    <p>Opening Photon… <a href="${escapeHtml(target)}">Tap here if it doesn’t.</a></p>
+    <p>Opening Wanderbot… <a href="${escapeHtml(target)}">Tap here if it doesn’t.</a></p>
   </div>
 </div>
 <script>

@@ -9,7 +9,14 @@
  *              activity | restaurant | transport | trip
  *              (`trip` is the higher-level overview variant —
  *              e.g. "Switzerland · Jun 19–28")
- *   meta     — optional tiny line under the subtitle (e.g. "Tokyo trip")
+ *   loc      — optional third line under the subtitle. For bookings
+ *              use the address ("Roppongi, Tokyo"); for trips use
+ *              traveler info ("with Shubh & Mia") or stats line.
+ *   cost     — optional chip rendered top-right of the hero. Pre-
+ *              formatted by the caller, e.g. "$2,200" or "¥18,400".
+ *   meta     — optional footer line (left side), e.g. trip name.
+ *   cta      — optional override for the right-side footer CTA.
+ *              Defaults to "Open in Wanderbot →".
  *
  * Apple's Link Preview daemon scrapes this URL via the `og:image` meta
  * tag on /p (see api/p.ts). Output dimensions match Apple/Twitter
@@ -67,14 +74,14 @@ function isCardType(s: string): s is CardType {
 }
 
 /* SVGs ported from BookingCard's <BookingIcon>. Inline so the edge
-   runtime has no asset-loader dependency. Each is sized to fit the
-   144px tile with stroke=3.2 for the larger surface. */
+   runtime has no asset-loader dependency. Sized to fit the 160px tile
+   with stroke=3.4 for the larger surface. */
 function Icon({ type }: { type: CardType }) {
   const stroke = '#1F2421';
-  const sw = 3.2;
+  const sw = 3.4;
   const common = {
-    width: 88,
-    height: 88,
+    width: 100,
+    height: 100,
     viewBox: '0 0 24 24',
     fill: 'none' as const,
     stroke,
@@ -98,7 +105,7 @@ function Icon({ type }: { type: CardType }) {
       );
     case 'activity':
       return (
-        <svg {...common} strokeWidth={2.6}>
+        <svg {...common} strokeWidth={2.8}>
           <path d="M14 22V16L12 14M12 14L13 8M12 14H10M13 8C14 9.16667 15.6 11 18 11M13 8L12.8212 7.82124C12.2565 7.25648 11.2902 7.54905 11.1336 8.33223L10 14M10 14L8 22M18 9.5V22M8 7H7.72076C7.29033 7 6.90819 7.27543 6.77208 7.68377L5.5 11.5L7 12L8 7ZM14.5 3.5C14.5 4.05228 14.0523 4.5 13.5 4.5C12.9477 4.5 12.5 4.05228 12.5 3.5C12.5 2.94772 12.9477 2.5 13.5 2.5C14.0523 2.5 14.5 2.94772 14.5 3.5Z" />
         </svg>
       );
@@ -149,9 +156,8 @@ function Icon({ type }: { type: CardType }) {
         </svg>
       );
     case 'trip':
-      /* Folded map — three vertical panels with creases — echoes
-         the in-app TripMap and reads as "the whole trip" rather
-         than any one place on it. Lucide "map" silhouette. */
+      /* Folded map — echoes the in-app TripMap and reads as "the whole
+         trip" rather than any one place on it. Lucide "map" silhouette. */
       return (
         <svg {...common}>
           <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21" />
@@ -162,13 +168,63 @@ function Icon({ type }: { type: CardType }) {
   }
 }
 
+/* Paper plane glyph for the wordmark — same shape as MobileApp's
+   <PaperPlaneIcon>, kept inline so the edge runtime has no asset
+   dependency. Slightly chunky stroke to read clearly at 24px. */
+function PlaneGlyph() {
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#216869"
+      strokeWidth={2.2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M22 2L11 13" />
+      <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+    </svg>
+  );
+}
+
+/* Tiny location-pin glyph for the optional `loc` row. Sized to
+   match the 28px loc text height. */
+function PinGlyph() {
+  return (
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="rgba(31, 36, 33, 0.56)"
+      strokeWidth={2.2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  );
+}
+
 export default async function handler(req: Request) {
   const url = new URL(req.url);
-  const title = (url.searchParams.get('title') || 'Photon').slice(0, 120);
+  const title = (url.searchParams.get('title') || 'Wanderbot').slice(0, 120);
   const subtitle = (url.searchParams.get('subtitle') || '').slice(0, 160);
+  const loc = (url.searchParams.get('loc') || '').slice(0, 120);
+  const cost = (url.searchParams.get('cost') || '').slice(0, 24);
   const meta = (url.searchParams.get('meta') || '').slice(0, 80);
+  const cta = (url.searchParams.get('cta') || 'Open in Wanderbot →').slice(0, 48);
   const rawType = url.searchParams.get('type') || 'activity';
   const type: CardType = isCardType(rawType) ? rawType : 'activity';
+
+  /* Title font scales down for long strings so it doesn't overflow.
+     Three tiers — keeps short titles dramatically large (the brand
+     hook) and lets long ones still fit without ellipsis tricks. */
+  const titleSize =
+    title.length > 36 ? 72 : title.length > 22 ? 92 : 116;
 
   return new ImageResponse(
     (
@@ -178,19 +234,22 @@ export default async function handler(req: Request) {
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
-          background: '#fbfaf9',
-          padding: '64px 72px',
+          /* Subtle type-tinted wash at the top fading to the warm
+             off-white — gives the card depth without competing with
+             the content. Stop at 38% so 60%+ of the canvas remains
+             clean for the hero and footer. */
+          background: `linear-gradient(180deg, ${TILE_BG[type]} 0%, #fbfaf9 38%)`,
           fontFamily: 'Inter, system-ui, sans-serif',
           color: '#1F2421',
         }}
       >
-        {/* Top row: wordmark + type pill */}
+        {/* ── HEADER ─────────────────────────────────────────── */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            fontSize: 22,
+            padding: '36px 56px 24px',
           }}
         >
           <div
@@ -198,39 +257,30 @@ export default async function handler(req: Request) {
               display: 'flex',
               alignItems: 'center',
               gap: 12,
-              fontWeight: 700,
-              letterSpacing: '-0.4px',
-              color: '#216869',
             }}
           >
+            <PlaneGlyph />
             <span
               style={{
-                display: 'flex',
-                width: 36,
-                height: 36,
-                borderRadius: 10,
-                background: '#216869',
-                color: '#fff',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 20,
-                fontWeight: 800,
+                fontSize: 24,
+                fontWeight: 700,
+                letterSpacing: '-0.6px',
+                color: '#216869',
               }}
             >
-              P
+              Wanderbot
             </span>
-            <span>Photon</span>
           </div>
           <div
             style={{
               display: 'flex',
-              padding: '8px 16px',
+              padding: '8px 18px',
               borderRadius: 999,
               background: TILE_BG[type],
               color: '#1F2421',
               fontSize: 18,
-              fontWeight: 600,
-              letterSpacing: '0.02em',
+              fontWeight: 700,
+              letterSpacing: '0.06em',
               textTransform: 'uppercase',
             }}
           >
@@ -238,22 +288,77 @@ export default async function handler(req: Request) {
           </div>
         </div>
 
-        {/* Main card body */}
+        {/* Thin teal divider between header and hero — gives the
+            card a discernible structure rather than feeling like
+            three floating chunks of text on a flat background. */}
+        <div
+          style={{
+            display: 'flex',
+            height: 1,
+            background: 'rgba(33, 104, 105, 0.18)',
+            margin: '0 56px',
+          }}
+        />
+
+        {/* ── HERO ───────────────────────────────────────────── */}
         <div
           style={{
             display: 'flex',
             flex: 1,
             alignItems: 'center',
             gap: 36,
-            marginTop: 48,
+            padding: '32px 56px',
+            position: 'relative',
           }}
         >
+          {/* Cost — top-right of the hero. Refined treatment: no pill
+              chrome, just confident currency-style typography with a
+              hairline divider underneath. Reads as a price tag, not a
+              button. Only renders when the caller provides it. */}
+          {cost && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  fontSize: 32,
+                  fontWeight: 700,
+                  letterSpacing: '-0.6px',
+                  color: '#1F2421',
+                }}
+              >
+                {cost}
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  color: 'rgba(31, 36, 33, 0.42)',
+                  marginTop: 2,
+                }}
+              >
+                Total
+              </div>
+            </div>
+          )}
+
           <div
             style={{
               display: 'flex',
-              width: 144,
-              height: 144,
-              borderRadius: 32,
+              width: 180,
+              height: 180,
+              borderRadius: 40,
               background: TILE_BG[type],
               alignItems: 'center',
               justifyContent: 'center',
@@ -262,6 +367,7 @@ export default async function handler(req: Request) {
           >
             <Icon type={type} />
           </div>
+
           <div
             style={{
               display: 'flex',
@@ -273,10 +379,10 @@ export default async function handler(req: Request) {
           >
             <div
               style={{
-                fontSize: 64,
+                fontSize: titleSize,
                 fontWeight: 700,
-                letterSpacing: '-1.5px',
-                lineHeight: 1.05,
+                letterSpacing: '-2.6px',
+                lineHeight: 0.98,
                 color: '#1F2421',
               }}
             >
@@ -285,33 +391,62 @@ export default async function handler(req: Request) {
             {subtitle && (
               <div
                 style={{
-                  fontSize: 28,
+                  display: 'flex',
+                  fontSize: 38,
                   fontWeight: 500,
-                  color: 'rgba(31, 36, 33, 0.62)',
-                  letterSpacing: '-0.3px',
-                  lineHeight: 1.3,
+                  color: 'rgba(31, 36, 33, 0.72)',
+                  letterSpacing: '-0.5px',
+                  lineHeight: 1.2,
                 }}
               >
                 {subtitle}
               </div>
             )}
+            {loc && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  fontSize: 28,
+                  fontWeight: 500,
+                  color: 'rgba(31, 36, 33, 0.56)',
+                  letterSpacing: '-0.3px',
+                  marginTop: 6,
+                }}
+              >
+                <PinGlyph />
+                <span>{loc}</span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Footer meta line */}
-        {meta && (
+        {/* ── FOOTER ─────────────────────────────────────────── */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            padding: '24px 56px 36px',
+            fontSize: 22,
+            color: 'rgba(31, 36, 33, 0.5)',
+            fontWeight: 500,
+            letterSpacing: '-0.2px',
+          }}
+        >
+          <div style={{ display: 'flex' }}>{meta || ' '}</div>
           <div
             style={{
               display: 'flex',
-              fontSize: 20,
-              color: 'rgba(31, 36, 33, 0.5)',
-              fontWeight: 500,
-              letterSpacing: '-0.1px',
+              color: '#216869',
+              fontWeight: 700,
+              letterSpacing: '-0.3px',
             }}
           >
-            {meta}
+            {cta}
           </div>
-        )}
+        </div>
       </div>
     ),
     {
