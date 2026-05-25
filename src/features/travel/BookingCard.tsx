@@ -552,8 +552,9 @@ function locationLine(b: Booking): { label: string; address?: string } | null {
 }
 
 function whenLineReadOnly(b: Booking): string {
-  const dayKey = b.start.slice(0, 10);
-  if (b.hasTime === false) return formatDayLabel(dayKey);
+  /* New model: `start` is optional. No start ⇒ just the day. */
+  const dayKey = b.start ? b.start.slice(0, 10) : b.dayKey;
+  if (!b.start || b.hasTime === false) return formatDayLabel(dayKey);
   const startTime = formatTimeOfDay(b.start);
   if (!b.end) return `${formatDayLabel(dayKey)} · ${startTime}`;
   const endDayKey = b.end.slice(0, 10);
@@ -610,10 +611,14 @@ export const BookingCard: React.FC<BookingCardProps> = ({
   locked,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
-  const dur = formatDuration(booking.start, booking.end);
+  const dur = booking.start
+    ? formatDuration(booking.start, booking.end)
+    : '';
   const upsertBooking = useTravelStore((s) => s.upsertBooking);
   const deleteBooking = useTravelStore((s) => s.deleteBooking);
-  const hasNoTime = booking.hasTime === false;
+  /* New model: untimed = no `start`. We still support legacy
+     `hasTime: false` for any record that slipped past the migration. */
+  const hasNoTime = !booking.start || booking.hasTime === false;
 
   /* Compact-mode inline time picker (used only when collapsed). */
   const [editingTime, setEditingTime] = useState(false);
@@ -659,22 +664,38 @@ export const BookingCard: React.FC<BookingCardProps> = ({
     upsertBooking({ ...booking, ...patch } as Booking);
   };
 
+  /* Day to anchor a freshly-added time against. Falls back to the
+     booking's `dayKey` when there's no existing `start` (untimed). */
+  const baseDayKey = booking.start
+    ? booking.start.slice(0, 10)
+    : booking.dayKey;
+
   const commitInlineTime = (value: string) => {
     setEditingTime(false);
     if (!value) return;
     const [hh, mm] = value.split(':');
     if (!hh || !mm) return;
-    commit({ start: replaceIsoTime(booking.start, hh, mm), hasTime: true });
+    const newStart = booking.start
+      ? replaceIsoTime(booking.start, hh, mm)
+      : `${baseDayKey}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:00`;
+    commit({ start: newStart });
   };
 
   const handleStartDate = (dateKey: string) => {
     if (!dateKey) return;
-    commit({ start: replaceIsoDate(booking.start, dateKey) });
+    if (!booking.start) {
+      commit({ dayKey: dateKey });
+      return;
+    }
+    commit({ start: replaceIsoDate(booking.start, dateKey), dayKey: dateKey });
   };
   const handleStartTime = (time: string) => {
     if (!time) return;
     const [hh, mm] = time.split(':');
-    commit({ start: replaceIsoTime(booking.start, hh, mm), hasTime: true });
+    const newStart = booking.start
+      ? replaceIsoTime(booking.start, hh, mm)
+      : `${baseDayKey}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:00`;
+    commit({ start: newStart });
   };
   const handleEndDate = (dateKey: string) => {
     if (!dateKey || !booking.end) return;
@@ -691,8 +712,8 @@ export const BookingCard: React.FC<BookingCardProps> = ({
   /* ── Expanded render ─────────────────────────────────────────── */
   if (focused) {
     const loc = locationLine(booking);
-    const startDate = booking.start.slice(0, 10);
-    const startTime = isoTimeOnly(booking.start);
+    const startDate = booking.start ? booking.start.slice(0, 10) : booking.dayKey;
+    const startTime = booking.start ? isoTimeOnly(booking.start) : '';
     const endDate = booking.end?.slice(0, 10) ?? '';
     const endTime = booking.end ? isoTimeOnly(booking.end) : '';
 
@@ -925,10 +946,10 @@ export const BookingCard: React.FC<BookingCardProps> = ({
             null
           ) : (
             (() => {
-              /* Multi-day spread: show check-in / departure on start day,
-                 check-out / arrival on end day, "All day" in between.
-                 Falls back to start-time + duration for single-day. */
-              const startDay = localDateKey(booking.start);
+              /* `hasNoTime` is false here ⇒ booking.start is defined.
+                 Pulled into a local so TS narrows it for the rest. */
+              const start = booking.start!;
+              const startDay = localDateKey(start);
               const endDay = booking.end ? localDateKey(booking.end) : startDay;
               const spans = endDay !== startDay;
               if (spans && dayKey) {
@@ -944,7 +965,7 @@ export const BookingCard: React.FC<BookingCardProps> = ({
                 if (dayKey === startDay) {
                   return (
                     <>
-                      <Time>{formatTimeOfDay(booking.start)}</Time>
+                      <Time>{formatTimeOfDay(start)}</Time>
                       <SubTime>{labels.start}</SubTime>
                     </>
                   );
@@ -953,7 +974,7 @@ export const BookingCard: React.FC<BookingCardProps> = ({
               }
               return (
                 <>
-                  <Time>{formatTimeOfDay(booking.start)}</Time>
+                  <Time>{formatTimeOfDay(start)}</Time>
                   {dur && <SubTime>{dur}</SubTime>}
                 </>
               );

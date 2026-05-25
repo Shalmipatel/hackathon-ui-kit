@@ -301,8 +301,10 @@ curl -X PUT \
 | `tripId` | yes | Must match an existing trip id from this same run |
 | `type` | yes | `flight` \| `hotel` \| `attraction` \| `experience` \| `event` \| `activity` \| `restaurant` \| `transport` — see "Type guide" below |
 | `title` | yes | Short label: "SFO → HND", "Renaissance Zurich Tower" |
-| `start` | yes | Full ISO 8601 with timezone offset, e.g. `2026-06-12T11:25:00-07:00` |
-| `end` | optional | ISO 8601 — required for hotels (checkout), nice-to-have for flights |
+| `dayKey` | yes | `YYYY-MM-DD` — which day this booking belongs to. For timed items this matches the date portion of `start`. For UNTIMED items (e.g. "things to do" the user might choose) this is the only day binding. |
+| `start` | **conditional** | Full ISO 8601 with timezone offset, e.g. `2026-06-12T11:25:00-07:00`. **REQUIRED only when the booking has a real time** (a flight at 11:25, a 6 PM dinner reservation). **OMIT entirely** for untimed bookings — the UI renders them with no time column and the user can drag them anywhere in the day. Do NOT invent a placeholder like noon. |
+| `end` | optional | ISO 8601 — required for hotels (checkout), nice-to-have for flights. Same rule as `start`: only include when there's a real end time. |
+| `position` | optional | Within-day sort key (number). If omitted the frontend assigns one (wall-time seconds for timed items, end-of-day for untimed). |
 | `source` | yes | `"email"` (Gmail), `"agent"` (browser scrape), or `"manual"` |
 | `confirmation` | optional | Record locator / PNR |
 | `provider` | optional | Airline / chain / OTA — "Delta", "Marriott", "Airbnb" |
@@ -310,6 +312,14 @@ curl -X PUT \
 | `link` | optional | Deep URL back to source. Omit if you can't produce a real one |
 | `cost` | optional | `{ "amount": N, "currency": "USD" }` |
 | `notes` | optional | Free-form |
+
+#### Timed vs. untimed bookings
+
+A booking is **timed** when there's a real start time the user expects to see — a flight, a hotel check-in, a reserved dinner, a ticketed show. Write `start` (and `end` if applicable) as ISO 8601 with the local timezone offset.
+
+A booking is **untimed** when it's a free-form option for the day — "Lindt Home of Chocolate", "Rhine Falls", "wander around Zürich". The user might do it any time, or skip it. **Don't include `start` or `end` at all.** Just `dayKey: "YYYY-MM-DD"` is enough. The frontend renders untimed bookings with no time column and lets the user drag them into whatever order they prefer.
+
+Rule of thumb: if the only honest time you could put on a booking is "noon-ish" or "afternoon", it's untimed — omit `start`.
 
 ### Type guide — pick the most specific one
 

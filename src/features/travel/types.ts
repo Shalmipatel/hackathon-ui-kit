@@ -30,15 +30,29 @@ interface BookingBase {
   tripId: string;
   type: BookingType;
   title: string;
-  /** ISO timestamp (UTC). For multi-day bookings, this is the start. */
-  start: string;
+  /** YYYY-MM-DD — which day this booking lives in. Required. For
+   *  timed items this also matches the date prefix of `start`; for
+   *  untimed items it's the only thing that ties the booking to a
+   *  day. */
+  dayKey: string;
+  /** Within-day sort key. Items in a day render sorted by `position`
+   *  ascending. A float so drop-between-two-items can pick midpoints
+   *  without renumbering siblings.
+   *
+   *  Convention: for items with a real time, the initial value is
+   *  the wall-clock seconds since midnight (e.g. 3 PM → 54000).
+   *  Drag-reorder produces fractional midpoints. */
+  position: number;
+  /** ISO timestamp. OPTIONAL — items without `start` are "untimed"
+   *  (no time column rendered, sort is purely positional). When
+   *  present this is the start of a single- or multi-day span. */
+  start?: string;
   /** ISO timestamp. Optional — flights/activities have explicit ends; hotels use checkout. */
   end?: string;
-  /** When false, the booking has no user-set time yet — the timestamp
-   *  holds only the calendar day and the UI should offer an "Add time"
-   *  affordance instead of rendering the placeholder hour. Undefined or
-   *  true means the time is real (extracted from email, picked by the
-   *  user, etc.) — that's the default so legacy bookings keep working. */
+  /** @deprecated Replaced by the presence/absence of `start` (untimed
+   *  bookings now have no `start` at all). Kept on the type so legacy
+   *  records that haven't been re-saved still type-check; the read
+   *  migration in useFirebaseSync strips it. */
   hasTime?: boolean;
   /** Confirmation / record locator from the booking provider. */
   confirmation?: string;

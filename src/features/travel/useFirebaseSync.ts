@@ -83,10 +83,78 @@ export function useFirebaseSync(): void {
 /** Apply a remote snapshot to local: clean tombstoned RTDB rows,
  *  upsert new / changed remote items, drop local items missing from
  *  remote. Reads + writes the live store. */
+/** Migrate a legacy booking record into the dayKey + position shape.
+ *  Idempotent — already-migrated records pass through untouched.
+ *
+ *  Legacy shape:
+ *    { start: '2026-06-20T07:52:00', hasTime: false, ... }
+ *  Migrated shape:
+ *    { dayKey: '2026-06-20', position: ~appended, ... } (no `start`)
+ *
+ *  For legacy items with `hasTime: false` we drop the fake `start`
+ *  entirely (the agent skill used to invent noon-ish timestamps so
+ *  the item would sort somewhere). For timed legacy items we keep
+ *  `start` and derive both `dayKey` and `position` from it. */
+function migrateBooking(raw: unknown): Booking | null {
+  if (!raw || typeof raw !== 'object') return raw as Booking;
+  const b = raw as Record<string, unknown> & { hasTime?: unknown };
+  const hasDayKey = typeof b.dayKey === 'string';
+  const hasPosition = typeof b.position === 'number';
+  if (hasDayKey && hasPosition) {
+    /* Already migrated. Strip legacy `hasTime` field if it lingered. */
+    if ('hasTime' in b) {
+      const { hasTime: _drop, ...rest } = b;
+      return rest as unknown as Booking;
+    }
+    return b as unknown as Booking;
+  }
+  const startStr = typeof b.start === 'string' ? (b.start as string) : '';
+  const dayKey = hasDayKey
+    ? (b.dayKey as string)
+    : startStr.slice(0, 10);
+  const isUntimedLegacy = b.hasTime === false;
+  const position = hasPosition
+    ? (b.position as number)
+    : computeInitialPosition(startStr, isUntimedLegacy);
+  const { hasTime: _drop, ...rest } = b;
+  const next: Record<string, unknown> = { ...rest, dayKey, position };
+  if (isUntimedLegacy) {
+    /* Drop the placeholder timestamp so the UI shows no time. */
+    delete next.start;
+  }
+  return next as unknown as Booking;
+}
+
+/** Wall-clock seconds since midnight for a timestamp string. Used
+ *  as the initial `position` for timed legacy items so they keep
+ *  their chronological order through migration. Untimed items get a
+ *  large-ish default that sorts them to the bottom of their day. */
+function computeInitialPosition(
+  startStr: string,
+  isUntimed: boolean,
+): number {
+  if (isUntimed) {
+    /* Default sort-to-end. Drag-reorder picks midpoints; this is
+       just the first-render fallback. */
+    return 86400;
+  }
+  const m = startStr.match(/T(\d{2}):(\d{2})/);
+  if (!m) return 0;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  return hh * 3600 + mm * 60;
+}
+
 function reconcileFromRemote(
   remoteTrips: Trip[],
   remoteBookings: Booking[],
 ): void {
+  /* Run legacy records through the migration upfront so the rest of
+     the reconciler (and the local store) only sees the new shape. */
+  const migratedBookings = remoteBookings
+    .map((b) => migrateBooking(b))
+    .filter((b): b is Booking => b !== null);
+  remoteBookings = migratedBookings;
   const state = useTravelStore.getState();
 
   /* Tombstone gate — never let a tombstoned trip/booking sneak back

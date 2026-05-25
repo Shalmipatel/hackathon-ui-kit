@@ -243,9 +243,35 @@ function validateBooking(input: unknown, defaultTripId?: string): ValidationResu
   if (typeof title !== 'string' || !title.trim()) {
     return { ok: false, reason: 'missing title' };
   }
-  const start = obj.start;
-  if (typeof start !== 'string' || isNaN(Date.parse(start))) {
-    return { ok: false, reason: 'missing or invalid start' };
+  /* New model: `start` is optional (untimed bookings have none).
+     `dayKey` is the authoritative day binding; for legacy / agent
+     payloads that only sent `start`, derive dayKey from it. */
+  const startRaw = obj.start;
+  const start =
+    typeof startRaw === 'string' && !isNaN(Date.parse(startRaw))
+      ? startRaw
+      : undefined;
+  const dayKeyRaw = obj.dayKey;
+  const dayKey =
+    typeof dayKeyRaw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dayKeyRaw)
+      ? dayKeyRaw
+      : start
+      ? start.slice(0, 10)
+      : undefined;
+  if (!dayKey) {
+    return { ok: false, reason: 'missing dayKey (and no valid start to derive from)' };
+  }
+  /* Position: caller can provide; otherwise default to wall-time
+     seconds for timed, or end-of-day for untimed. */
+  const positionRaw = obj.position;
+  let position: number;
+  if (typeof positionRaw === 'number' && Number.isFinite(positionRaw)) {
+    position = positionRaw;
+  } else if (start) {
+    const m = start.match(/T(\d{2}):(\d{2})/);
+    position = m ? Number(m[1]) * 3600 + Number(m[2]) * 60 : 43200;
+  } else {
+    position = 86400;
   }
   const tripId = typeof obj.tripId === 'string' ? obj.tripId : defaultTripId;
   if (!tripId) {
@@ -254,12 +280,14 @@ function validateBooking(input: unknown, defaultTripId?: string): ValidationResu
 
   const id = typeof obj.id === 'string' && obj.id.trim()
     ? obj.id
-    : `agent-${type}-${hashString(`${tripId}|${title}|${start}`)}`;
+    : `agent-${type}-${hashString(`${tripId}|${title}|${start ?? dayKey}`)}`;
 
   const base = {
     id,
     tripId,
     title: title.trim(),
+    dayKey,
+    position,
     start,
     end: typeof obj.end === 'string' ? obj.end : undefined,
     confirmation: typeof obj.confirmation === 'string' ? obj.confirmation : undefined,

@@ -224,7 +224,14 @@ function buildTripContextString(): string | null {
   if (!trip) return null;
   const bookings = state.bookings
     .filter((b) => b.tripId === trip.id)
-    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+    .sort((a, b) => {
+      /* Untimed bookings have no `start`; fall back to dayKey + position. */
+      const aKey = `${a.dayKey ?? ''}T${String(Math.floor((a.position ?? 0) / 3600)).padStart(2, '0')}`;
+      const bKey = `${b.dayKey ?? ''}T${String(Math.floor((b.position ?? 0) / 3600)).padStart(2, '0')}`;
+      const aFull = a.start ?? aKey;
+      const bFull = b.start ?? bKey;
+      return aFull.localeCompare(bFull);
+    });
   const lines = [
     `Trip: ${trip.title} — ${trip.destination}`,
     `Dates: ${formatTripRange(trip)}`,
@@ -237,7 +244,9 @@ function buildTripContextString(): string | null {
   } else {
     lines.push(`Bookings (${bookings.length}):`);
     bookings.forEach((b) => {
-      const when = `${b.start.slice(0, 10)} ${b.start.slice(11, 16)}`;
+      const when = b.start
+        ? `${b.start.slice(0, 10)} ${b.start.slice(11, 16)}`
+        : `${b.dayKey} (untimed)`;
       const where =
         b.type === 'flight' || b.type === 'transport'
           ? `${b.from.name} → ${b.to.name}`

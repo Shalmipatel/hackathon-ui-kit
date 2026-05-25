@@ -157,7 +157,10 @@ function bookingFingerprint(b: Booking): string {
   if (b.confirmation && b.confirmation.trim()) {
     return `${b.tripId}|${b.type}|conf:${b.confirmation.trim().toLowerCase()}`;
   }
-  return `${b.tripId}|${b.type}|${b.title.trim().toLowerCase()}|${b.start.slice(0, 10)}`;
+  /* `dayKey` is the authoritative day; fall back to `start`'s date
+     prefix only for any legacy record that slipped through. */
+  const day = b.dayKey || (b.start ? b.start.slice(0, 10) : '');
+  return `${b.tripId}|${b.type}|${b.title.trim().toLowerCase()}|${day}`;
 }
 
 /** Enrichment merge: prefer incoming non-empty values, fall back to
@@ -346,7 +349,7 @@ async function applyTrips(incoming: Trip[]): Promise<void> {
 }
 
 function bookingSubtitle(b: Booking): string {
-  const when = b.start.slice(0, 10);
+  const when = b.dayKey || (b.start ? b.start.slice(0, 10) : '');
   switch (b.type) {
     case 'flight':
       return `${b.flightNumber ?? 'Flight'} · ${b.from.name} → ${b.to.name} · ${when}`;

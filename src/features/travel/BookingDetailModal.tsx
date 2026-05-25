@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
-import type { Booking } from './types';
+import type { Booking, BookingType } from './types';
 import {
   formatDayLabel,
   formatDuration,
@@ -506,8 +506,10 @@ function typeIcon(type: Booking['type']): React.ReactElement {
 }
 
 function whenLineReadOnly(b: Booking): string {
-  const dayKey = b.start.slice(0, 10);
-  if (b.hasTime === false) return formatDayLabel(dayKey);
+  /* New model: `start` is optional. No start ⇒ untimed ⇒ just the
+     calendar day. */
+  const dayKey = b.start ? b.start.slice(0, 10) : b.dayKey;
+  if (!b.start || b.hasTime === false) return formatDayLabel(dayKey);
   const startTime = formatTimeOfDay(b.start);
   if (!b.end) return `${formatDayLabel(dayKey)} · ${startTime}`;
   const endDayKey = b.end.slice(0, 10);
@@ -560,21 +562,32 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
     upsertBooking({ ...b, ...patch } as Booking);
   };
 
-  const startDate = b.start.slice(0, 10);
-  const startTime = isoTimeOnly(b.start);
+  /* New model: `start` is optional. When absent the booking lives at
+     `dayKey` with no time. Add-time materializes a `start` anchored
+     to dayKey; Remove-time clears it. */
+  const baseDayKey = b.start ? b.start.slice(0, 10) : b.dayKey;
+  const startDate = baseDayKey;
+  const startTime = b.start ? isoTimeOnly(b.start) : '';
   const endDate = b.end?.slice(0, 10) ?? '';
   const endTime = b.end ? isoTimeOnly(b.end) : '';
 
-  const hasNoTime = b.hasTime === false;
+  const hasNoTime = !b.start || b.hasTime === false;
 
   const handleStartDate = (dateKey: string) => {
     if (!dateKey) return;
-    commit({ start: replaceIsoDate(b.start, dateKey) });
+    if (!b.start) {
+      commit({ dayKey: dateKey });
+      return;
+    }
+    commit({ start: replaceIsoDate(b.start, dateKey), dayKey: dateKey });
   };
   const handleStartTime = (time: string) => {
     if (!time) return;
     const [hh, mm] = time.split(':');
-    commit({ start: replaceIsoTime(b.start, hh, mm), hasTime: true });
+    const newStart = b.start
+      ? replaceIsoTime(b.start, hh, mm)
+      : `${baseDayKey}T${hh.padStart(2, '0')}:${mm.padStart(2, '0')}:00`;
+    commit({ start: newStart });
   };
   const handleEndDate = (dateKey: string) => {
     if (!dateKey || !b.end) return;
@@ -807,7 +820,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                         hasTime:false hides it in the itinerary. */}
                     <button
                       type="button"
-                      onClick={() => commit({ hasTime: false })}
+                      onClick={() => commit({ start: undefined })}
                       title="Remove time — keep this as an untimed plan"
                       aria-label="Remove time"
                       style={{

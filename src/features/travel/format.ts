@@ -106,18 +106,20 @@ export function tripDayKeys(trip: Trip): string[] {
 }
 
 export function bookingDayKey(booking: Booking): string {
-  return localDateKey(booking.start);
+  /* Authoritative day binding is `dayKey`. Fall back to deriving from
+     `start` for any pre-migration record that slipped past the
+     migration step in useFirebaseSync. */
+  return booking.dayKey || (booking.start ? localDateKey(booking.start) : '');
 }
 
 /** Every YYYY-MM-DD a booking covers, inclusive. Single-day events
  *  return a one-element array; a hotel from Jun 13 → Jun 17 returns
  *  [Jun 13, Jun 14, Jun 15, Jun 16, Jun 17] so it renders on every
- *  night of the stay, not just the check-in day. Uses local-date
- *  semantics (same as `localDateKey`) so a JST stamp stays on its
- *  own calendar regardless of the viewer's timezone. */
+ *  night of the stay. Untimed bookings (no `start`/`end`) belong to
+ *  exactly one day — their `dayKey`. */
 export function bookingDayKeys(booking: Booking): string[] {
-  const startKey = localDateKey(booking.start);
-  if (!booking.end) return [startKey];
+  const startKey = bookingDayKey(booking);
+  if (!booking.start || !booking.end) return [startKey];
   const endKey = localDateKey(booking.end);
   if (endKey === startKey) return [startKey];
 

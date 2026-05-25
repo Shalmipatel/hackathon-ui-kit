@@ -299,5 +299,10 @@ export function selectBookingsForTrip(
   if (!tripId) return [];
   return state.bookings
     .filter((b) => b.tripId === tripId)
-    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+    /* Sort by (dayKey, position). Untimed bookings have no `start`
+       so we can't compare ISO timestamps directly. */
+    .sort((a, b) => {
+      const dk = (a.dayKey ?? '').localeCompare(b.dayKey ?? '');
+      return dk !== 0 ? dk : (a.position ?? 0) - (b.position ?? 0);
+    });
 }

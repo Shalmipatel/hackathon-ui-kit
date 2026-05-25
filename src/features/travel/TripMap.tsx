@@ -148,11 +148,15 @@ export const TripMap: React.FC<TripMapProps> = ({ focusedBookingId, onBookingCli
   const items = useMemo(() => {
     return allBookings
       .filter((b) => b.tripId === activeTripId)
-      /* Defensive: agent-written RTDB rows sometimes lack `start`
-         (and would NaN out the sort + downstream renderers). Drop
-         them here so the map stays alive. */
-      .filter((b) => typeof b.start === 'string' && !!b.start)
-      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+      /* Defensive: drop rows missing the dayKey we need to bucket. */
+      .filter((b) => typeof b.dayKey === 'string' && !!b.dayKey)
+      /* Sort by (dayKey, position) so the map renders pins in the
+         same order the itinerary does. Untimed items have no `start`
+         so we can't compare timestamps directly. */
+      .sort((a, b) => {
+        const dk = a.dayKey.localeCompare(b.dayKey);
+        return dk !== 0 ? dk : (a.position ?? 0) - (b.position ?? 0);
+      })
       .map((b) => {
         const loc = bookingLocation(b);
         return loc ? { booking: b, ...loc } : null;
@@ -211,7 +215,8 @@ export const TripMap: React.FC<TripMapProps> = ({ focusedBookingId, onBookingCli
               <PopupBody>
                 <PopupTitle>{booking.title}</PopupTitle>
                 <PopupMeta>
-                  {formatTimeOfDay(booking.start)} · {label}
+                  {booking.start ? `${formatTimeOfDay(booking.start)} · ` : ''}
+                  {label}
                 </PopupMeta>
               </PopupBody>
             </Popup>

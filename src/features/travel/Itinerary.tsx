@@ -194,7 +194,9 @@ const SortableItem: React.FC<{
   booking: Booking;
   dayKey: string;
   onBookingClick?: (id: string) => void;
-}> = ({ booking, dayKey, onBookingClick }) => {
+  editing: boolean;
+  jiggleIndex: number;
+}> = ({ booking, dayKey, onBookingClick, editing, jiggleIndex }) => {
   /* Locked = confirmation-backed OR multi-day. Both render the lock
      pill and skip dnd-kit's drag listeners.
      CRITICAL: locked items are DRAGGABLE-disabled but still
@@ -220,6 +222,14 @@ const SortableItem: React.FC<{
        • press + hold 450 ms ⇒ drag activates
      `user-select: none` + `-webkit-touch-callout: none` suppress the
      iOS text selection / callout menu during the long-press wait. */
+  /* Jiggle only the unlocked cards while the user is editing. Locked
+     cards stay still — their stillness is itself a signal that they
+     can't be reordered. Stagger each card's start offset so they
+     don't bob in lockstep (looks more "alive"). */
+  const animation =
+    editing && !locked
+      ? `wb-jiggle 0.45s ease-in-out ${(jiggleIndex % 5) * 0.04}s infinite`
+      : undefined;
   const style: React.CSSProperties = {
     cursor: locked ? 'default' : 'grab',
     touchAction: 'manipulation',
@@ -228,6 +238,7 @@ const SortableItem: React.FC<{
     WebkitTouchCallout: 'none',
     position: 'relative',
     display: isDragging ? 'none' : undefined,
+    animation,
   };
   return (
     <div
@@ -252,6 +263,71 @@ const SortableItem: React.FC<{
  *  per-card `isOver` hint with a SINGLE indicator that follows the
  *  cursor — clearer, calmer, and matches the way other modern DnD
  *  surfaces (Notion, Linear, Trello columns) handle reorder. */
+/* Jiggle animation for unlocked cards while editing — subtle
+ * Springboard-style wiggle that signals "you can drag me now"
+ * without being visually noisy. Staggered by index so all the cards
+ * don't move in lockstep. */
+const jiggleKeyframes = `
+  @keyframes wb-jiggle {
+    0%   { transform: rotate(-0.6deg); }
+    50%  { transform: rotate(0.6deg); }
+    100% { transform: rotate(-0.6deg); }
+  }
+`;
+
+/** Floating bottom bar that surfaces while edit mode is active.
+ * Cancel reverts pending reorders; Save commits them. */
+const EditModeBar = styled.div`
+  position: fixed;
+  left: 50%;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px 10px 16px;
+  background: #1f2421;
+  color: #fff;
+  border-radius: 999px;
+  box-shadow: 0 16px 40px rgba(31, 36, 33, 0.28);
+  font-family: 'Inter', sans-serif;
+  font-size: 13.5px;
+  font-weight: 500;
+`;
+
+const EditModeCount = styled.span`
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.65);
+  min-width: 90px;
+  text-align: center;
+`;
+
+const EditModeBtn = styled.button<{ $primary?: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  transition: background 0.12s, transform 0.12s;
+  background: ${(p) =>
+    p.$primary ? '#feeb29' : 'rgba(255, 255, 255, 0.12)'};
+  color: ${(p) => (p.$primary ? '#1f2421' : '#fff')};
+
+  &:hover {
+    background: ${(p) =>
+      p.$primary ? '#fff069' : 'rgba(255, 255, 255, 0.2)'};
+  }
+  &:active {
+    transform: scale(0.97);
+  }
+`;
+
 /** Floating insertion indicator that follows the cursor.
  *
  *  Rendered as `position: fixed` so it can sit precisely under the
@@ -492,15 +568,17 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   const bookings = useMemo(
     () => {
       const matched = allBookings.filter((b) => b.tripId === effectiveTripId);
-      /* Defensive filter — drop any booking missing the required scalar
-         fields. RTDB writes from the agent skill sometimes land without
-         a `start` (or a `type` / `title`), which crashes downstream
-         day-bucketing. Filtering here keeps the whole view alive
-         instead of taking out TripMap + Itinerary together. */
+      /* Defensive filter — drop any booking missing the core fields
+         needed to render. With the new model, `dayKey` is the
+         authoritative day binding; `start` is optional. */
       const valid: typeof matched = [];
       const dropped: string[] = [];
       for (const b of matched) {
-        if (!b.type || !b.title || typeof b.start !== 'string' || !b.start) {
+        if (!b.type || !b.title) {
+          dropped.push(b.id);
+          continue;
+        }
+        if (!b.dayKey && !b.start) {
           dropped.push(b.id);
           continue;
         }
@@ -508,47 +586,72 @@ export const Itinerary: React.FC<ItineraryProps> = ({
       }
       if (dropped.length > 0) {
         console.warn(
-          `[itinerary] skipped ${dropped.length} malformed booking(s) missing start/type/title:`,
+          `[itinerary] skipped ${dropped.length} malformed booking(s):`,
           dropped,
         );
       }
-      return valid.sort(
-        (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
-      );
+      return valid;
     },
     [allBookings, effectiveTripId],
   );
 
+  /* Edit mode: pending position changes the user has dragged around
+     but not yet saved. The active drag updates this, Save commits to
+     RTDB, Cancel discards it. */
+  const [editMode, setEditMode] = useState(false);
+  const [pendingChanges, setPendingChanges] = useState<
+    Map<string, { dayKey: string; position: number }>
+  >(new Map());
+
+  /** Effective dayKey for a booking — pending override wins. */
+  const effectiveDayKey = (b: Booking): string => {
+    const pending = pendingChanges.get(b.id);
+    return pending?.dayKey ?? bookingDayKey(b);
+  };
+  /** Effective position for a booking ON the given day — accounts for
+   *  pending drags AND for multi-day items whose end-day position is
+   *  derived from end-time, not start-time. */
+  const effectivePosition = (b: Booking, dayKey: string): number => {
+    const pending = pendingChanges.get(b.id);
+    if (pending && pending.dayKey === dayKey) return pending.position;
+    /* Single-day or on its start day → use stored position. */
+    if (!b.start || !b.end) return b.position;
+    const startDay = bookingDayKey(b);
+    const endDay = localDateKey(b.end);
+    if (dayKey === startDay) return b.position;
+    if (dayKey === endDay) {
+      /* End day of a multi-day item: position derived from end time. */
+      const m = b.end.match(/T(\d{2}):(\d{2})/);
+      if (m) return Number(m[1]) * 3600 + Number(m[2]) * 60;
+      return b.position;
+    }
+    /* Middle day — sort to top as "all day". */
+    return 0;
+  };
+
   const days = useMemo(() => (trip ? tripDayKeys(trip) : []), [trip]);
   const bookingsByDay = useMemo(() => {
     const map = new Map<string, typeof bookings>();
-    bookings.forEach((b) => {
-      /* Multi-day bookings (hotels, multi-day activities) get bucketed
-         into every day they cover so the user sees them on each day's
-         section, not just the start day. */
-      for (const key of bookingDayKeys(b)) {
+    for (const b of bookings) {
+      /* If there's a pending drag for this booking, render it in the
+         pending day (and ONLY the pending day) — otherwise render it
+         in every day its native start/end span covers. */
+      const pending = pendingChanges.get(b.id);
+      const days = pending ? [pending.dayKey] : bookingDayKeys(b);
+      for (const key of days) {
         const list = map.get(key) ?? [];
         list.push(b);
         map.set(key, list);
       }
-    });
-    /* Per-day sort: each event uses the timestamp RELEVANT to THIS day,
-       not its globally-sorted start. So a hotel that started Day 1 at
-       3pm sorts as 11am "Check-out" on Day 5, not as if it began 3pm
-       on Day 5 (which would push it after a 10am museum visit). */
-    const dayKeyForSort = (b: typeof bookings[number], dk: string): string => {
-      const sd = localDateKey(b.start);
-      const ed = b.end ? localDateKey(b.end) : sd;
-      if (sd === ed) return b.start; // single-day
-      if (dk === sd) return b.start; // start day — use start time
-      if (dk === ed) return b.end as string; // end day — use end time
-      return `${dk}T00:00:00`; // middle day — "All day" sorts to top
-    };
+    }
+    /* Sort each day's list by the effective position (pending override
+       first, then end-time-on-end-day for multi-day, then stored). */
     for (const [dk, list] of map) {
-      list.sort((a, b) => dayKeyForSort(a, dk).localeCompare(dayKeyForSort(b, dk)));
+      list.sort((a, b) => effectivePosition(a, dk) - effectivePosition(b, dk));
     }
     return map;
-  }, [bookings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookings, pendingChanges]);
 
   /* Stable per-day SortableContext items arrays. Keyed by day so that
      a re-render of Itinerary (e.g. when `activeId` flips at drag start)
@@ -565,25 +668,28 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   }, [bookingsByDay]);
 
   /* Build an ActivityBooking from a place picked in the day's
-     AddPlaceButton popover. Noon-local timestamp keeps it sorting in
-     the middle of any existing bookings on that day without requiring
-     the user to pick a time. */
+     AddPlaceButton popover. New model: no `start` (untimed by
+     default) — user can give it a time later from the detail modal.
+     Position appends to the end of the day so freshly-added items
+     land below whatever's already there. */
   const handleAddPlace = (dayKey: string, place: PlaceResult) => {
     if (!trip) return;
     const id =
       typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
         : `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const existing = bookingsByDay.get(dayKey) ?? [];
+    const maxPos = existing.reduce(
+      (m, b) => Math.max(m, effectivePosition(b, dayKey)),
+      0,
+    );
     const activity: ActivityBooking = {
       id,
       tripId: trip.id,
       type: 'activity',
       title: place.name,
-      /* Noon is just a sort-stable placeholder — `hasTime: false` is
-         what tells the UI to render an "Add time" affordance instead
-         of the literal "12:00 PM". */
-      start: `${dayKey}T12:00:00`,
-      hasTime: false,
+      dayKey,
+      position: maxPos + 1000,
       source: 'manual',
       place: {
         name: place.name,
@@ -799,6 +905,12 @@ export const Itinerary: React.FC<ItineraryProps> = ({
   };
 
   const handleDragStart = (event: DragStartEvent) => {
+    /* First drag implicitly enters edit mode (matches the iPhone
+       Springboard pattern: long-press the app and it both wiggles
+       AND becomes draggable in one gesture). Stays in edit mode
+       across subsequent drags so the user can move multiple cards
+       before committing. */
+    if (!editMode) setEditMode(true);
     const activeIdStr = String(event.active.id);
     const parsed = parseSortableId(activeIdStr);
     /* Capture source rect SYNCHRONOUSLY (before the next React commit
@@ -932,38 +1044,80 @@ export const Itinerary: React.FC<ItineraryProps> = ({
     if (!result) return;
     const { targetDay, prevBookingId, nextBookingId } = result;
     const dayList = bookingsByDay.get(targetDay) ?? [];
-    const prev = prevBookingId
+
+    /* Compute new position as midpoint of prev/next effective positions
+       on the target day. Edge cases: insert at top = prev null;
+       insert at bottom = next null. */
+    const prevBooking = prevBookingId
       ? dayList.find((b) => b.id === prevBookingId) ?? null
       : null;
-    const next = nextBookingId
+    const nextBooking = nextBookingId
       ? dayList.find((b) => b.id === nextBookingId) ?? null
       : null;
+    const prevPos = prevBooking ? effectivePosition(prevBooking, targetDay) : null;
+    const nextPos = nextBooking ? effectivePosition(nextBooking, targetDay) : null;
+    let newPos: number;
+    if (prevPos !== null && nextPos !== null) newPos = (prevPos + nextPos) / 2;
+    else if (prevPos !== null) newPos = prevPos + 1000;
+    else if (nextPos !== null) newPos = nextPos - 1000;
+    else newPos = 43200; // empty day, default to noon-equivalent
 
-    const sourceDay = activeParsed.dayKey;
-
-    if (sourceDay === targetDay) {
-      if (!prev && !next) return;
-      const newStart = computeInterpolatedStart(targetDay, moved, prev, next);
-      if (newStart === moved.start) return;
-      upsertBooking({ ...moved, start: newStart } as Booking);
-    } else {
-      const shifted = shiftBookingToDay(moved, targetDay);
-      const finalStart = prev || next
-        ? computeInterpolatedStart(targetDay, shifted, prev, next)
-        : shifted.start;
-      upsertBooking({ ...shifted, start: finalStart } as Booking);
-      toast({
-        title: `Moved to ${formatDayLabel(targetDay)}`,
-        description: moved.title,
-        duration: 3000,
-      });
-    }
+    /* Park in pendingChanges — RTDB only gets touched when the user
+       hits Save. */
+    setPendingChanges((prev) => {
+      const next = new Map(prev);
+      next.set(moved.id, { dayKey: targetDay, position: newPos });
+      return next;
+    });
   };
 
   const handleDragCancel = () => {
     setActiveId(null);
     setInsertion(null);
     setOverlay(null);
+  };
+
+  /** Commit pending position changes to RTDB and exit edit mode. */
+  const saveEdits = () => {
+    if (pendingChanges.size === 0) {
+      setEditMode(false);
+      return;
+    }
+    for (const [bookingId, { dayKey, position }] of pendingChanges) {
+      const b = bookings.find((x) => x.id === bookingId);
+      if (!b) continue;
+      const updated: Booking = { ...b, dayKey, position };
+      /* If the user moved the booking to a different day AND the item
+         has a `start` (timed booking), keep the time-of-day but swap
+         the date prefix so the timestamp's day matches dayKey. */
+      if (b.start && bookingDayKey(b) !== dayKey) {
+        updated.start = dayKey + b.start.slice(10);
+        if (b.end) {
+          /* Shift end by the same number of calendar days as start
+             so multi-day spans don't get torn apart. (Multi-day items
+             aren't draggable, so this path is mostly defensive.) */
+          const startDayShift =
+            new Date(`${dayKey}T00:00:00`).getTime() -
+            new Date(`${bookingDayKey(b)}T00:00:00`).getTime();
+          const oldEndMs = new Date(b.end).getTime();
+          updated.end = new Date(oldEndMs + startDayShift).toISOString();
+        }
+      }
+      upsertBooking(updated);
+    }
+    const movedCount = pendingChanges.size;
+    setPendingChanges(new Map());
+    setEditMode(false);
+    toast({
+      title: movedCount === 1 ? 'Saved 1 change' : `Saved ${movedCount} changes`,
+      duration: 2200,
+    });
+  };
+
+  /** Drop all uncommitted reorders and return to view mode. */
+  const cancelEdits = () => {
+    setPendingChanges(new Map());
+    setEditMode(false);
   };
 
   /* Scroll-spy: pan the map to whichever booking is currently closest
@@ -1109,12 +1263,14 @@ export const Itinerary: React.FC<ItineraryProps> = ({
                 <SortableContext items={sortableItems} strategy={noopStrategy}>
                   {dayBookings.length > 0 ? (
                     <DayItems data-day-items>
-                      {dayBookings.map((b) => (
+                      {dayBookings.map((b, jiggleIndex) => (
                         <SortableItem
                           key={b.id}
                           booking={b}
                           dayKey={day}
                           onBookingClick={onBookingClick}
+                          editing={editMode}
+                          jiggleIndex={jiggleIndex}
                         />
                       ))}
                       <TailDropZone dayKey={day} isDraggingNow={isDraggingNow} />
@@ -1157,6 +1313,36 @@ export const Itinerary: React.FC<ItineraryProps> = ({
             : null}
         </DndContext>
       )}
+      {editMode && (
+        <>
+          {/* Inject the jiggle keyframes once, scoped here. */}
+          <style>{jiggleKeyframes}</style>
+          <EditModeBar role="dialog" aria-label="Reorder mode">
+            <EditModeBtn
+              type="button"
+              onClick={cancelEdits}
+              aria-label="Cancel reorder"
+            >
+              Cancel
+            </EditModeBtn>
+            <EditModeCount>
+              {pendingChanges.size === 0
+                ? 'Drag to reorder'
+                : pendingChanges.size === 1
+                  ? '1 change'
+                  : `${pendingChanges.size} changes`}
+            </EditModeCount>
+            <EditModeBtn
+              type="button"
+              $primary
+              onClick={saveEdits}
+              aria-label="Save reorder"
+            >
+              {pendingChanges.size === 0 ? 'Done' : 'Save'}
+            </EditModeBtn>
+          </EditModeBar>
+        </>
+      )}
     </Wrap>
   );
 };
@@ -1181,140 +1367,7 @@ export default Itinerary;
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 
-/** Shift a booking onto a different day, preserving time-of-day and
- *  total duration. Works on any booking type (single or multi-day):
- *
- *    activity 2026-06-15T14:30 → drop on 06-17 → 2026-06-17T14:30
- *    hotel 06-15T15:00 → 06-17T11:00 (2nt), drop start on 06-20
- *      → 06-20T15:00 → 06-22T11:00 (still 2nt)
- *
- *  Implementation: replace the YYYY-MM-DD prefix on `start`, then
- *  shift `end` (if present) by the same number of calendar days so
- *  the span survives the move.
- */
-/** Extract the tz suffix from a single ISO string, or empty if naïve. */
-function isoTzSuffix(iso: string | undefined): string {
-  if (!iso) return '';
-  const m = iso.match(/(Z|[+-]\d{2}:\d{2})$/);
-  return m ? m[1] : '';
-}
-
-/** Tz suffix for the timestamp that REPRESENTS this booking on the
- *  given day. Mirrors `effMs` — for a multi-day item on its END day
- *  we want the end timestamp's tz (e.g. ZRH arrival "+02:00"), not
- *  the start timestamp's tz (which might be a SFO departure
- *  "-07:00"). Mixing them is what was tagging dropped cards with the
- *  wrong offset and silently mis-sorting them. */
-function effTzSuffix(b: Booking | null | undefined, dayKey: string): string {
-  if (!b) return '';
-  const sd = b.start.slice(0, 10);
-  const ed = b.end ? b.end.slice(0, 10) : sd;
-  if (dayKey === ed && ed !== sd && b.end) return isoTzSuffix(b.end);
-  return isoTzSuffix(b.start);
-}
-
-/** Pick the FIRST tz suffix from a list of (booking, dayKey) pairs.
- *  Used to format an interpolated timestamp in the same offset as its
- *  neighbors so that string-sort agrees with chronological order. */
-function pickTzSuffix(
-  dayKey: string,
-  ...bookings: Array<Booking | null | undefined>
-): string {
-  for (const b of bookings) {
-    const tz = effTzSuffix(b, dayKey);
-    if (tz) return tz;
-  }
-  return '';
-}
-
-/** Format `ms` as HH:MM under a specific UTC offset (or local time if
- *  `offset` is empty). Returns a two-tuple [hh, mm]. */
-function hhmmInOffset(ms: number, offset: string): [string, string] {
-  let hh: number, mm: number;
-  if (offset === '') {
-    const d = new Date(ms);
-    hh = d.getHours();
-    mm = d.getMinutes();
-  } else if (offset === 'Z') {
-    const d = new Date(ms);
-    hh = d.getUTCHours();
-    mm = d.getUTCMinutes();
-  } else {
-    const sign = offset[0] === '-' ? -1 : 1;
-    const [oh, om] = offset.slice(1).split(':').map(Number);
-    const offsetMs = sign * (oh * 60 + om) * 60 * 1000;
-    const d = new Date(ms + offsetMs);
-    hh = d.getUTCHours();
-    mm = d.getUTCMinutes();
-  }
-  return [String(hh).padStart(2, '0'), String(mm).padStart(2, '0')];
-}
-
-/** Compute a new ISO start timestamp that places `moved` between
- *  `prev` and `next` in the day's chronological list. Both neighbors
- *  are optional (first or last slot). Always returns an ISO string
- *  whose YYYY-MM-DD prefix matches `dayKey` so the booking buckets
- *  back into the right day. `hasTime: false` items keep their
- *  hasTime flag — the parent should preserve that on upsert.
- *
- *  CRITICAL: the returned string is formatted in the same tz offset
- *  as the neighbors (e.g. "+02:00" for a Zurich day) so that the
- *  string-based sort in `bookingsByDay` agrees with chronology. */
-function computeInterpolatedStart(
-  dayKey: string,
-  moved: Booking,
-  prev: Booking | null,
-  next: Booking | null,
-): string {
-  /* Effective ms-since-epoch for sorting. For multi-day spans this
-     day might be the end day → use end. Untimed items just use start. */
-  const effMs = (b: Booking): number => {
-    const sd = b.start.slice(0, 10);
-    const ed = b.end ? b.end.slice(0, 10) : sd;
-    if (dayKey === ed && ed !== sd) return new Date(b.end as string).getTime();
-    return new Date(b.start).getTime();
-  };
-  /* Pick the tz suffix from the neighbors — prefer prev, then next,
-     and fall back to whatever `moved` itself uses. Crucially, use the
-     END timestamp's tz when a multi-day neighbor is on its end day
-     (so a Zurich-arrival flight tags the new card "+02:00" not the
-     SFO-departure "-07:00"). */
-  const offset = pickTzSuffix(dayKey, prev, next, moved);
-  const dayMidnightMs = new Date(`${dayKey}T00:00:00${offset || ''}`).getTime();
-  const dayEndMs = dayMidnightMs + 24 * 60 * 60 * 1000 - 1;
-  const prevMs = prev ? effMs(prev) : dayMidnightMs;
-  const nextMs = next ? effMs(next) : dayEndMs;
-  /* Land halfway between neighbors. If both ends are open use noon. */
-  let pickedMs: number;
-  if (prev && next) pickedMs = (prevMs + nextMs) / 2;
-  else if (next) pickedMs = nextMs - 60 * 60 * 1000; // 1h before next
-  else if (prev) pickedMs = prevMs + 60 * 60 * 1000; // 1h after prev
-  else pickedMs = dayMidnightMs + 12 * 60 * 60 * 1000; // noon
-
-  const [hh, mm] = hhmmInOffset(pickedMs, offset);
-  return `${dayKey}T${hh}:${mm}:00${offset}`;
-}
-
-function shiftBookingToDay(booking: Booking, newDayKey: string): Booking {
-  const oldDayKey = booking.start.slice(0, 10);
-  if (oldDayKey === newDayKey) return booking;
-  const newStart = newDayKey + booking.start.slice(10);
-  let newEnd: string | undefined = booking.end;
-  if (booking.end) {
-    const oldEndDay = booking.end.slice(0, 10);
-    const [oy, om, od] = oldDayKey.split('-').map(Number);
-    const [oey, oem, oed] = oldEndDay.split('-').map(Number);
-    const [ny, nm, nd] = newDayKey.split('-').map(Number);
-    /* Day count between old start day and old end day, computed via
-       Date arithmetic so a month boundary doesn't trip us up. */
-    const oldStartTs = new Date(oy, om - 1, od).getTime();
-    const oldEndTs = new Date(oey, oem - 1, oed).getTime();
-    const dayDelta = Math.round((oldEndTs - oldStartTs) / 86_400_000);
-    const newEndDate = new Date(ny, nm - 1, nd + dayDelta);
-    const newEndDayKey = `${newEndDate.getFullYear()}-${String(
-      newEndDate.getMonth() + 1,
-    ).padStart(2, '0')}-${String(newEndDate.getDate()).padStart(2, '0')}`;
-    newEnd = newEndDayKey + booking.end.slice(10);
-  }
-  return { ...booking, start: newStart, end: newEnd } as Booking;
-}
+/* Drag drop math is now pure numeric (effectivePosition + midpoint) —
+ * the tz-aware interpolation helpers and the cross-day shift helper
+ * that lived here are no longer needed. See handleDragEnd / saveEdits
+ * in the Itinerary component. */
