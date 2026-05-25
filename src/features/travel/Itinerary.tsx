@@ -243,7 +243,10 @@ const SortableItem: React.FC<{
       pointerId = null;
     };
     const onDown = (e: PointerEvent) => {
-      if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+      /* All pointer types — touch on mobile, mouse on desktop. The
+         timing (700 ms hold + 4 px tolerance) is the same on both
+         platforms; works as a "haptic touch" on iOS, as a long-mouse-
+         press on macOS. */
       pointerId = e.pointerId;
       startX = e.clientX;
       startY = e.clientY;
@@ -781,14 +784,13 @@ export const Itinerary: React.FC<ItineraryProps> = ({
      dragged item's new neighbors; cross-day drops shift the
      booking to the target day (preserving time-of-day). */
   /* Sensors only ever activate when we're already in edit mode (the
-     SortableItem reports `disabled` outside edit mode). Once editing,
-     a light touch is enough — the user already made the deliberate
-     long-press to get here. Touch delay of 120 ms is just enough to
-     distinguish a tap-to-open-modal from a tap-to-drag without
-     making drag feel sluggish. */
+     SortableItem reports `disabled` outside edit mode). Inside edit
+     mode the user has already paid the long-press cost to get there,
+     so further drags should feel instant: a 4 px movement on touch
+     or mouse arms the drag with no time wait. */
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
