@@ -713,15 +713,16 @@ export const Itinerary: React.FC<ItineraryProps> = ({
      dragged item's new neighbors; cross-day drops shift the
      booking to the target day (preserving time-of-day). */
   /* Mouse: 4 px slop so a click still opens the detail modal.
-     Touch: 450 ms long-press matches iOS Reminders' reorder cadence
-     — long enough that a normal tap, double-tap, or vertical scroll
-     never accidentally enters drag mode. `tolerance: 10` gives the
-     finger room to settle without cancelling. Combined with the
-     card's `touch-action: none`, the press feels deliberate: you
-     press, hold, you'll *feel* the card commit, then you can move. */
+     Touch: 700 ms haptic-touch style hold — long enough that
+     scrolling NEVER triggers drag even if the finger pauses for a
+     beat mid-swipe, and that brief "I'll skim this card" hovers
+     never tip into edit mode. Tolerance tight (4 px) so any real
+     scroll gesture cancels the activation timer immediately. The
+     experience: a deliberate press-and-hold (≈¾ second), then a
+     haptic tap when drag arms — the "Force Touch" feel. */
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 450, tolerance: 10 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 700, tolerance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
@@ -911,6 +912,19 @@ export const Itinerary: React.FC<ItineraryProps> = ({
        across subsequent drags so the user can move multiple cards
        before committing. */
     if (!editMode) setEditMode(true);
+    /* Haptic confirmation that the press has committed — a single
+       short vibration on Android / any device that exposes the
+       Vibration API. iOS Safari ignores it (no JS access to
+       CoreHaptics), but the long 700 ms hold already gives the
+       user a clear "I'm being deliberate" feel there. */
+    if ('vibrate' in navigator) {
+      try {
+        navigator.vibrate(12);
+      } catch {
+        /* some browsers throw if the call isn't user-gesture-initiated;
+           harmless. */
+      }
+    }
     const activeIdStr = String(event.active.id);
     const parsed = parseSortableId(activeIdStr);
     /* Capture source rect SYNCHRONOUSLY (before the next React commit
