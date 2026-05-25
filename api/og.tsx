@@ -75,8 +75,14 @@ async function loadFont(req: Request, filename: string): Promise<ArrayBuffer> {
   const proc = (globalThis as { process?: { versions?: { node?: string } } }).process;
   const isNode = !!proc?.versions?.node;
   if (isNode) {
-    const fs = await import('node:fs/promises');
-    const path = await import('node:path');
+    /* Hidden from Vercel's edge-bundle static analyzer via Function
+       constructor — a plain `await import('node:fs/promises')` is
+       still picked up and fails the edge build even though this
+       branch can never execute there. */
+    const importFs = new Function('return import("node:fs/promises")') as () => Promise<typeof import('node:fs/promises')>;
+    const importPath = new Function('return import("node:path")') as () => Promise<typeof import('node:path')>;
+    const fs = await importFs();
+    const path = await importPath();
     const buf = await fs.readFile(path.resolve('public/fonts', filename));
     /* Slice into a tight ArrayBuffer view — readFile returns a Buffer
        whose underlying pool may include unrelated bytes beyond ours. */
