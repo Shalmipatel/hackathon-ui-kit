@@ -204,17 +204,16 @@ const SortableItem: React.FC<{
     id: composeSortableId(dayKey, booking.id),
     disabled: { draggable: locked, droppable: false },
   });
-  /* The dragged card is rendered separately in a top-level
-     `DragOverlay` so it can float above the layout without
-     reflowing siblings. The original DOM node stays in place as a
-     muted "ghost" so the user remembers where it came from — and
-     so layout stays stable underneath. */
+  /* The dragged card is rendered in a top-level `DragOverlay` so it
+     can float freely. The original DOM node stays IN PLACE but goes
+     fully transparent — that preserves the layout (so the cursor →
+     insertion math reads the same rects throughout the drag) without
+     ever showing a "ghost copy" of the card the user is moving. */
   const style: React.CSSProperties = {
     cursor: locked ? 'default' : 'grab',
     touchAction: 'manipulation',
     position: 'relative',
-    opacity: isDragging ? 0.35 : 1,
-    transition: 'opacity 120ms ease',
+    visibility: isDragging ? 'hidden' : 'visible',
   };
   return (
     <div
