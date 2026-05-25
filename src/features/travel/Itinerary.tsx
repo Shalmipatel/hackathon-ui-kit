@@ -211,16 +211,18 @@ const SortableItem: React.FC<{
     id: composeSortableId(dayKey, booking.id),
     disabled: { draggable: locked, droppable: false },
   });
-  /* Dragged card is rendered separately as a floating overlay; the
-     source DOM node is fully removed from layout (display:none) so
-     surrounding cards collapse the gap immediately. `touch-action:
-     none` prevents the browser from scrolling / zooming while the
-     finger is held on the card (otherwise the press-to-drag gesture
-     fights with native scroll) and stops the text selection that the
-     user reported. */
+  /* `touch-action: manipulation` keeps native vertical scroll
+     working when the user swipes a card — the dnd-kit TouchSensor
+     still picks up a stationary press for activation (450 ms), so
+     the gestures don't collide:
+       • quick swipe ⇒ page scrolls
+       • tap ⇒ card opens detail modal
+       • press + hold 450 ms ⇒ drag activates
+     `user-select: none` + `-webkit-touch-callout: none` suppress the
+     iOS text selection / callout menu during the long-press wait. */
   const style: React.CSSProperties = {
     cursor: locked ? 'default' : 'grab',
-    touchAction: locked ? 'manipulation' : 'none',
+    touchAction: 'manipulation',
     userSelect: 'none',
     WebkitUserSelect: 'none',
     WebkitTouchCallout: 'none',
@@ -604,17 +606,16 @@ export const Itinerary: React.FC<ItineraryProps> = ({
      Within-day reorder interpolates a new start time between the
      dragged item's new neighbors; cross-day drops shift the
      booking to the target day (preserving time-of-day). */
-  /* Mouse: a 4 px slop avoids stealing single-click events from the
-     underlying card (which opens the detail modal). Touch: a 220 ms
-     long-press feels close to iOS Reminders' reorder cadence and is
-     long enough that a normal scroll/tap doesn't accidentally start
-     a drag. `tolerance` lets the finger drift up to 6 px during the
-     press without cancelling. The card itself has touch-action:none
-     so the long-press doesn't kick off the OS text-selection magnifier
-     while we're waiting for the activation timer. */
+  /* Mouse: 4 px slop so a click still opens the detail modal.
+     Touch: 450 ms long-press matches iOS Reminders' reorder cadence
+     — long enough that a normal tap, double-tap, or vertical scroll
+     never accidentally enters drag mode. `tolerance: 10` gives the
+     finger room to settle without cancelling. Combined with the
+     card's `touch-action: none`, the press feels deliberate: you
+     press, hold, you'll *feel* the card commit, then you can move. */
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 450, tolerance: 10 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
