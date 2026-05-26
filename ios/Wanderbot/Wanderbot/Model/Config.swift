@@ -35,4 +35,17 @@ enum WanderbotConfig {
     static let gatewayModel: String = "openclaw"
 
     static var gatewayEnabled: Bool { !gatewayURL.isEmpty }
+
+    /// URL of the web auth bridge — same `wanderbot-ai.vercel.app`
+    /// host the rest of the web app is deployed to. The bridge page
+    /// drives Firebase Auth's `signInWithRedirect` for both Google
+    /// and Apple providers and bounces the resulting ID token back
+    /// to the iOS app via a custom URL scheme.
+    static let authBridgeURL: String =
+        "https://wanderbot-ai.vercel.app/auth.html"
+
+    /// Custom URL scheme the bridge redirects to on success. Must
+    /// match a CFBundleURLSchemes entry in Info.plist so iOS routes
+    /// the URL into our ASWebAuthenticationSession callback.
+    static let authReturnScheme: String = "wanderbot"
 }

@@ -42,12 +42,9 @@ struct RootView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showSettings) {
-            SettingsSheet(
-                onSelectTrip: jumpToTrip,
-                onSignOut: { /* hook up auth here */ }
-            )
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+            SettingsSheet(onSelectTrip: jumpToTrip)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .sheet(item: bookingBinding) { booking in
             BookingDetailSheet(initialBooking: booking)
