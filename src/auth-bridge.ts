@@ -136,6 +136,7 @@ async function startSignIn(provider: ProviderName) {
     return;
   }
   stashReturnURL(returnURL);
+  markRedirectPending(provider);
   showStatus(`Signing in with ${provider === 'google' ? 'Google' : 'Apple'}…`);
   try {
     const auth = getAuth();
@@ -144,6 +145,18 @@ async function startSignIn(provider: ProviderName) {
     console.warn('[auth-bridge] signInWithRedirect failed', err);
     showError((err as Error).message || 'Could not start sign-in.');
   }
+}
+
+const REDIRECT_INTENT_KEY = 'wb_ios_redirect_pending';
+function markRedirectPending(provider: ProviderName) {
+  try { sessionStorage.setItem(REDIRECT_INTENT_KEY, provider); } catch {}
+}
+function consumeRedirectPending(): ProviderName | null {
+  try {
+    const v = sessionStorage.getItem(REDIRECT_INTENT_KEY);
+    sessionStorage.removeItem(REDIRECT_INTENT_KEY);
+    return v === 'google' || v === 'apple' ? v : null;
+  } catch { return null; }
 }
 
 async function main() {
@@ -158,6 +171,8 @@ async function main() {
      round-trip; we don't want a lingering signed-in state in this
      hostname's storage. */
   await setPersistence(auth, browserSessionPersistence);
+
+  const pendingProvider = consumeRedirectPending();
 
   /* If we're landing back here after a redirect sign-in, finalise
      and bounce the token back to iOS. */
@@ -179,6 +194,21 @@ async function main() {
         email: result.user.email ?? '',
         name: result.user.displayName ?? '',
       });
+      return;
+    }
+    /* No result, but the URL says we WERE in the middle of a redirect.
+       That means getRedirectResult silently lost the state — usually
+       caused by stripped cross-domain storage (private browser,
+       prefersEphemeralWebBrowserSession on iOS, etc.). Tell the user
+       what's actually broken instead of silently rendering the chooser
+       like the sign-in attempt never happened. */
+    if (pendingProvider) {
+      showError(
+        `Couldn't read the sign-in result on the way back. ` +
+        `If your browser is in Private mode or blocks third-party cookies for ` +
+        `firebaseapp.com, the round-trip with ${pendingProvider} sign-in fails. ` +
+        `Try again, or sign in via the web app at wanderbot-ai.vercel.app first.`
+      );
       return;
     }
   } catch (err) {

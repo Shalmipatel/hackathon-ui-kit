@@ -126,9 +126,17 @@ final class AuthStore: NSObject, ObservableObject {
                 }
             }
             session.presentationContextProvider = self
-            // Privacy-respecting session: don't share cookies with
-            // Safari, so signing out clears state cleanly.
-            session.prefersEphemeralWebBrowserSession = true
+            // Don't use prefersEphemeralWebBrowserSession here.
+            // Firebase's signInWithRedirect bounces wanderbot-ai.vercel.app
+            // → firebaseapp.com/__/auth/handler → OAuth provider → back,
+            // and the return trip relies on the auth handler's
+            // storage to retrieve the credential. An ephemeral session
+            // isolates per-origin storage, which is enough to make
+            // getRedirectResult return null on the second load — the
+            // user signs in but lands back on the chooser. With the
+            // default (shared with Safari) session, the user sees a
+            // one-time "Wanderbot wants to use 'firebaseapp.com' to
+            // sign you in" prompt, but the round-trip actually works.
             self.session = session
             let started = session.start()
             if !started {
