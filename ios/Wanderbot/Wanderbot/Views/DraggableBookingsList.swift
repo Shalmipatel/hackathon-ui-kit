@@ -123,7 +123,7 @@ struct DraggableBookingsList: View {
                 // where the user dropped it.
                 let adjusted = target > index ? target - 1 : target
                 guard adjusted != index else { return }
-                store.reorder(booking, toIndex: adjusted)
+                store.reorder(booking, toIndex: adjusted, dayKey: dayKey)
             }
     }
 

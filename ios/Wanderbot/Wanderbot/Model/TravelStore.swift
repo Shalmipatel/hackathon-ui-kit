@@ -73,33 +73,42 @@ final class TravelStore: ObservableObject {
         booking.source != .email && booking.dayKeys.count == 1
     }
 
-    /// Move a booking to a new position within its day. `targetIndex`
-    /// is the desired index in the day's *unlocked-and-locked* combined
-    /// ordering; this method picks a midpoint `position` that slots
-    /// between neighbours without renumbering siblings.
+    /// Move a booking to a new slot on the day the user is viewing.
+    /// `dayKey` is that visible day — important because a multi-day
+    /// item (hotel check-out, overnight-flight arrival) appears on
+    /// days other than its primary `dayKey`, and we need those rows
+    /// counted as neighbours so the midpoint math can slot a card
+    /// between them.
     ///
     /// Mirrors the web `@dnd-kit/sortable` reorder path:
     /// drop-between-two-items gets the average; drop-at-end gets
-    /// `last + 1000`; drop-at-start gets `first - 1000`.
-    func reorder(_ booking: Booking, toIndex targetIndex: Int) {
+    /// `last + 1000`; drop-at-start gets `first - 1000`. Effective
+    /// positions on the visible day are used (an end-day uses the
+    /// end time, not the original start time) so the slot lands
+    /// where the user dropped it visually.
+    func reorder(_ booking: Booking, toIndex targetIndex: Int, dayKey: String) {
         guard isUnlocked(booking) else { return }
+
         let dayBookings = bookings
-            .filter { $0.tripId == booking.tripId && $0.dayKey == booking.dayKey }
-            .sorted { $0.position < $1.position }
-        // Strip the moved card out of its current spot, then insert
-        // at the target index.
+            .filter { $0.tripId == booking.tripId && $0.dayKeys.contains(dayKey) }
+            .sorted { $0.effectivePosition(on: dayKey) < $1.effectivePosition(on: dayKey) }
+
         var remaining = dayBookings.filter { $0.id != booking.id }
         let safeIndex = max(0, min(targetIndex, remaining.count))
+
         let newPosition: Double
         if remaining.isEmpty {
             newPosition = booking.position
         } else if safeIndex == 0 {
-            newPosition = remaining[0].position - 1000
+            newPosition = remaining[0].effectivePosition(on: dayKey) - 1000
         } else if safeIndex >= remaining.count {
-            newPosition = remaining[remaining.count - 1].position + 1000
+            newPosition = remaining[remaining.count - 1].effectivePosition(on: dayKey) + 1000
         } else {
-            newPosition = (remaining[safeIndex - 1].position + remaining[safeIndex].position) / 2
+            let left = remaining[safeIndex - 1].effectivePosition(on: dayKey)
+            let right = remaining[safeIndex].effectivePosition(on: dayKey)
+            newPosition = (left + right) / 2
         }
+
         guard newPosition != booking.position else { return }
 
         var updated = booking
