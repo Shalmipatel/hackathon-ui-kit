@@ -12,6 +12,14 @@
 				<string>wanderbot</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.wanderbot.Wanderbot.google</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.775904840598-j5ae8qakcp2g68heagpdopt8dh0rk2a6</string>
+			</array>
+		</dict>
 	</array>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>

@@ -48,4 +48,36 @@ enum WanderbotConfig {
     /// match a CFBundleURLSchemes entry in Info.plist so iOS routes
     /// the URL into our ASWebAuthenticationSession callback.
     static let authReturnScheme: String = "wanderbot"
+
+    /// Firebase Web API key — public value, ships in any Firebase web
+    /// app's compiled bundle. Used to call the Identity Toolkit REST
+    /// API directly (no Firebase SDK), e.g. for the Apple sign-in
+    /// exchange:
+    ///   POST identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=<key>
+    /// Security is enforced via Firebase rules + per-API quotas, not
+    /// by keeping this value secret.
+    static let firebaseAPIKey: String = "AIzaSyCqI66amzEJ211TTTR7ZTIAWtT54orpirE"
+
+    // MARK: - Google sign-in (iOS OAuth client)
+
+    /// Google OAuth client ID for the iOS app, created in Google
+    /// Cloud Console (or via Firebase's "add iOS app" flow). Public
+    /// by design — the client secret isn't used; PKCE protects the
+    /// auth code exchange.
+    static let googleOAuthClientID: String =
+        "775904840598-j5ae8qakcp2g68heagpdopt8dh0rk2a6.apps.googleusercontent.com"
+
+    /// `CLIENT_ID` with its components reversed — used as the custom
+    /// URL scheme Google redirects to after the OAuth dance. Must
+    /// match a `CFBundleURLSchemes` entry in Info.plist so iOS
+    /// catches the redirect and hands it to ASWebAuthenticationSession.
+    static let googleReversedClientID: String =
+        "com.googleusercontent.apps.775904840598-j5ae8qakcp2g68heagpdopt8dh0rk2a6"
+
+    /// Full redirect URI passed to Google's authorize endpoint. Path
+    /// is arbitrary; Google only enforces the scheme match against
+    /// the OAuth client's registered redirect URIs.
+    static var googleRedirectURI: String {
+        "\(googleReversedClientID):/oauth2redirect/google"
+    }
 }

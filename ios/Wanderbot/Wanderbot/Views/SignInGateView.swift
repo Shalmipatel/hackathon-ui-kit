@@ -9,46 +9,96 @@ import SwiftUI
 /// the app.
 struct SignInGateView: View {
     @EnvironmentObject private var auth: AuthStore
-    @State private var didAutoStart = false
 
     var body: some View {
         ZStack {
             Theme.background.ignoresSafeArea()
 
-            VStack(spacing: 24) {
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
                 Hero()
+                Spacer(minLength: 0)
+
+                VStack(spacing: 12) {
+                    ProviderButton(
+                        provider: .apple,
+                        icon: "apple.logo",
+                        tint: Theme.inkDark,
+                        title: "Continue with Apple"
+                    )
+                    ProviderButton(
+                        provider: .google,
+                        icon: "g.circle.fill",
+                        tint: Color(red: 0.26, green: 0.52, blue: 0.96),
+                        title: "Continue with Google"
+                    )
+                    if let err = auth.lastError {
+                        Text(err)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.destructive)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 4)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+
+                Text("By continuing you agree to share your name and email\nso Wanderbot can sync trips across devices.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.inkMuted)
+                    .multilineTextAlignment(.center)
+                    .padding(.bottom, 32)
+            }
+        }
+    }
+}
+
+private struct ProviderButton: View {
+    let provider: AuthStore.Provider
+    let icon: String
+    let tint: Color
+    let title: String
+
+    @EnvironmentObject private var auth: AuthStore
+
+    var body: some View {
+        Button {
+            Task { await auth.signIn(with: provider) }
+        } label: {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(tint)
+                    Image(systemName: icon)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 28, height: 28)
+
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+
+                Spacer()
 
                 if auth.isSigningIn {
-                    HStack(spacing: 10) {
-                        ProgressView().tint(Theme.inkMuted)
-                        Text("Opening sign-in…")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Theme.inkMuted)
-                    }
-                } else if didAutoStart {
-                    // User dismissed the web sheet without finishing.
-                    // Give them an obvious way back in.
-                    Button {
-                        Task { await auth.signIn() }
-                    } label: {
-                        Text("Sign in")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 28)
-                            .padding(.vertical, 12)
-                            .background(Capsule().fill(Theme.inkDark))
-                    }
-                    .buttonStyle(.plain)
+                    ProgressView().tint(Theme.inkMuted)
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Theme.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Theme.hairline, lineWidth: 1)
+            )
         }
-        .task {
-            if !didAutoStart {
-                didAutoStart = true
-                await auth.signIn()
-            }
-        }
+        .buttonStyle(.plain)
+        .disabled(auth.isSigningIn)
     }
 }
 
