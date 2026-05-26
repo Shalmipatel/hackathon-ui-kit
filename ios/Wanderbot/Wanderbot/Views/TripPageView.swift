@@ -156,26 +156,14 @@ private struct DayListSection: View {
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 0, leading: 14, bottom: 8, trailing: 14))
             } else {
-                ForEach(bookings) { b in
-                    BookingCardView(
-                        booking: b,
-                        dayKey: dayKey,
-                        unlocked: store.isUnlocked(b)
-                    )
-                    .background(BookingPositionReporter(id: b.id))
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedBookingId = b.id }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    // Zero horizontal insets so the drag lift hugs the
-                    // card edges; vertical inset is the gap between
-                    // adjacent rows.
-                    .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
-                    .moveDisabled(!store.isUnlocked(b))
-                }
-                .onMove { source, destination in
-                    handleMove(from: source, to: destination)
-                }
+                DraggableBookingsList(
+                    dayKey: dayKey,
+                    bookings: bookings,
+                    selectedBookingId: $selectedBookingId
+                )
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
             }
         } header: {
             DayHeader(index: index, date: date, itemCount: bookings.count)
@@ -183,13 +171,6 @@ private struct DayListSection: View {
                 .listRowBackground(Color.clear)
                 .textCase(nil)
         }
-    }
-
-    private func handleMove(from source: IndexSet, to destination: Int) {
-        guard let sourceIdx = source.first else { return }
-        let booking = bookings[sourceIdx]
-        let targetIdx = destination > sourceIdx ? destination - 1 : destination
-        store.reorder(booking, toIndex: targetIdx)
     }
 }
 
