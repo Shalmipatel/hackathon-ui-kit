@@ -1,10 +1,14 @@
 import SwiftUI
 
 /// One trip's page: pinned map (or flight card) at the top via
-/// `.safeAreaInset`, and a List below for native iOS long-press
-/// reorder. Each day is a List section with a web-style date tile
-/// header; multi-day bookings (hotels, overnight flights) appear on
-/// every day they cover with check-in / check-out labels.
+/// `.safeAreaInset`, ScrollView + LazyVStack below.
+///
+/// We deliberately avoid `List` here. List wraps any child view in a
+/// `UICollectionViewListCell`, which means a `.draggable` attached
+/// inside the row ends up lifting the *entire row* rather than the
+/// individual booking card. Force-touching a card therefore "selected
+/// the whole day". ScrollView + LazyVStack lets each `BookingCardView`
+/// own its drag source directly.
 struct TripPageView: View {
     let trip: Trip
     @Binding var selectedBookingId: Booking.ID?
@@ -23,31 +27,29 @@ struct TripPageView: View {
 
     var body: some View {
         GeometryReader { outer in
-            List {
-                TripIntro(trip: trip)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 4, trailing: 14))
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    TripIntro(trip: trip)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 12)
+                        .padding(.bottom, 8)
 
-                ForEach(Array(store.itineraryDays(for: trip).enumerated()), id: \.element.dayKey) { idx, day in
-                    DayListSection(
-                        index: idx,
-                        date: day.date,
-                        dayKey: day.dayKey,
-                        bookings: day.bookings,
-                        selectedBookingId: $selectedBookingId
-                    )
+                    ForEach(Array(store.itineraryDays(for: trip).enumerated()), id: \.element.dayKey) { idx, day in
+                        DaySection(
+                            index: idx,
+                            date: day.date,
+                            dayKey: day.dayKey,
+                            bookings: day.bookings,
+                            selectedBookingId: $selectedBookingId
+                        )
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 4)
+                    }
+
+                    Color.clear.frame(height: 96) // bottom breathing room
                 }
-
-                Color.clear
-                    .frame(height: 80)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
             }
-            .listStyle(.plain)
-            .listRowSpacing(0)
-            .environment(\.defaultMinListRowHeight, 0)
-            .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
             .background(Theme.background)
             .safeAreaInset(edge: .top, spacing: 0) {
                 Group {
@@ -127,20 +129,20 @@ private struct TripIntro: View {
     }
 }
 
-/// One day's bookings, native-iOS-reorderable. Locked rows (from
-/// inbox scans or multi-day spans) use `.moveDisabled(true)` so a
-/// confirmed flight can't be dragged out of its anchor.
-private struct DayListSection: View {
+/// One day in the trip: header tile + DraggableBookingsList.
+private struct DaySection: View {
     let index: Int
     let date: Date
     let dayKey: String
     let bookings: [Booking]
     @Binding var selectedBookingId: Booking.ID?
 
-    @EnvironmentObject private var store: TravelStore
-
     var body: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 8) {
+            DayHeader(index: index, date: date, itemCount: bookings.count)
+                .padding(.top, 14)
+                .padding(.bottom, 4)
+
             if bookings.isEmpty {
                 Text("Open day")
                     .font(.system(size: 13))
@@ -152,24 +154,13 @@ private struct DayListSection: View {
                         RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                             .stroke(Theme.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
                     )
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 14, bottom: 8, trailing: 14))
             } else {
                 DraggableBookingsList(
                     dayKey: dayKey,
                     bookings: bookings,
                     selectedBookingId: $selectedBookingId
                 )
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
             }
-        } header: {
-            DayHeader(index: index, date: date, itemCount: bookings.count)
-                .listRowInsets(EdgeInsets(top: 14, leading: 14, bottom: 6, trailing: 14))
-                .listRowBackground(Color.clear)
-                .textCase(nil)
         }
     }
 }
