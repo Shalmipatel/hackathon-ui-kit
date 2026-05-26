@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// A day's bookings, reorderable via long-press drag. Replaces the
 /// List `.onMove` approach because SwiftUI rejects moves that would
@@ -6,17 +7,19 @@ import SwiftUI
 /// pass a locked one, which violated the user's "drag around locked
 /// events" requirement.
 ///
-/// How drag works here:
-///   - Long-press 0.3s on an unlocked card → starts drag.
-///   - The dragged card lifts (scale + shadow) and follows the finger.
-///   - Other cards stay put — including locked ones, which is the point.
-///   - Drop position is computed from the drag's vertical center
-///     against the other cards' frames, giving a target index that
-///     can be anywhere (including positions adjacent to locked items).
-///   - Release calls store.reorder, which picks a midpoint position
-///     between the two neighbours in time order.
+/// Drag feel is modelled on iOS Reminders / Files:
+///   - Long-press 0.5s on an unlocked card lifts it with a noticeable
+///     scale + drop shadow + medium haptic.
+///   - Other cards in the day dim to make the lifted card pop.
+///   - A thick brand-yellow bar shows exactly where the card will
+///     land; the bar moves between rows in response to drag location.
+///   - A light haptic ticks every time the target slot changes, so
+///     the user feels each "slot" as they pass over it.
+///   - Drop calls `store.reorder(_:toIndex:dayKey:)` which uses the
+///     visible-day midpoint math, so cards land cleanly between
+///     locked check-out / check-in pairs.
 ///
-/// Locked cards are inert — no long-press response, no lift.
+/// Locked cards have no gesture attached at all — they're inert.
 struct DraggableBookingsList: View {
     let dayKey: String
     let bookings: [Booking]
@@ -44,6 +47,8 @@ struct DraggableBookingsList: View {
     private func cardRow(for booking: Booking, at index: Int) -> some View {
         let isDragging = draggingId == booking.id
         let unlocked = store.isUnlocked(booking)
+        let someoneIsDragging = draggingId != nil
+        let isOtherDimmed = someoneIsDragging && !isDragging
 
         ZStack(alignment: .top) {
             BookingCardView(
@@ -60,53 +65,70 @@ struct DraggableBookingsList: View {
             })
             .contentShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .onTapGesture { selectedBookingId = booking.id }
-            .scaleEffect(isDragging ? 1.03 : 1)
-            .shadow(color: .black.opacity(isDragging ? 0.18 : 0), radius: isDragging ? 14 : 0, y: isDragging ? 8 : 0)
+            .scaleEffect(isDragging ? 1.04 : 1)
+            .shadow(
+                color: .black.opacity(isDragging ? 0.22 : 0),
+                radius: isDragging ? 18 : 0,
+                y: isDragging ? 10 : 0
+            )
             .offset(y: isDragging ? dragOffsetY : 0)
-            .zIndex(isDragging ? 1 : 0)
-            .opacity(isDragging ? 0.96 : 1)
-            .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.85), value: isDragging)
+            .opacity(isOtherDimmed ? 0.45 : 1)
+            .zIndex(isDragging ? 10 : 0)
+            .animation(
+                isDragging
+                    ? .interactiveSpring(response: 0.18, dampingFraction: 0.78)
+                    : .spring(response: 0.32, dampingFraction: 0.82),
+                value: isDragging
+            )
+            .animation(.easeOut(duration: 0.18), value: isOtherDimmed)
             // simultaneousGesture so the outer List's pan recogniser
             // still wins for normal swipes — finger-down + immediate
             // motion is scroll, finger-down held still for 0.5s is drag.
             .simultaneousGesture(unlocked ? dragGesture(for: booking, at: index) : nil)
 
+            // Drop indicator ABOVE this row (insertion slot at this index).
             if dropTargetIndex == index && draggingId != nil && draggingId != booking.id {
                 DropIndicator()
-                    .offset(y: -5)
+                    .offset(y: -7)
+                    .transition(.opacity)
             }
         }
         .overlay(alignment: .bottom) {
-            if dropTargetIndex == index + 1 && draggingId != nil && draggingId != booking.id {
+            // Drop indicator BELOW the last row (insertion slot at count).
+            if index == bookings.count - 1,
+               dropTargetIndex == bookings.count,
+               draggingId != nil {
                 DropIndicator()
-                    .offset(y: 5)
+                    .offset(y: 7)
+                    .transition(.opacity)
             }
         }
+        .animation(.easeOut(duration: 0.12), value: dropTargetIndex)
     }
 
     private func dragGesture(for booking: Booking, at index: Int) -> some Gesture {
         // Long press first so a tap (open detail) and a quick swipe
         // (scroll) don't get treated as drags. 0.5s matches the
-        // native iOS reorder threshold — long enough to disambiguate
-        // from any incidental finger-down during scrolling.
+        // native iOS reorder threshold.
         LongPressGesture(minimumDuration: 0.5)
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(dayCoordSpace)))
-            .updating($dragHaptic) { value, state, _ in
-                if case .second(true, .some(_)) = value, state == false {
-                    state = true
-                    triggerHaptic()
-                }
-            }
             .onChanged { value in
                 switch value {
                 case .second(true, let drag?):
-                    draggingId = booking.id
+                    if draggingId != booking.id {
+                        draggingId = booking.id
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    }
                     dragOffsetY = drag.translation.height
-                    dropTargetIndex = computeTargetIndex(
+                    let nextTarget = computeTargetIndex(
                         for: booking,
                         currentIndex: index,
                         dragLocationY: drag.location.y
                     )
+                    if nextTarget != dropTargetIndex {
+                        dropTargetIndex = nextTarget
+                        UISelectionFeedbackGenerator().selectionChanged()
+                    }
                 default:
                     break
                 }
@@ -118,25 +140,22 @@ struct DraggableBookingsList: View {
                     dropTargetIndex = nil
                 }
                 guard let target = dropTargetIndex else { return }
-                // The reorder API expects a "without the dragged card"
-                // index. Adjust when moving down so the slot lands
-                // where the user dropped it.
                 let adjusted = target > index ? target - 1 : target
                 guard adjusted != index else { return }
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
                 store.reorder(booking, toIndex: adjusted, dayKey: dayKey)
             }
     }
 
     /// Decide where the dragged card would land, given the current
-    /// drag location. Uses the cached frames of all rows in the day.
-    /// Returns an index in `[0, bookings.count]` (count == drop at end).
+    /// drag location. Uses the cached frames of all rows in the day,
+    /// excluding the dragged one. Returns an index in
+    /// `[0, bookings.count]` (count == drop at end).
     private func computeTargetIndex(
         for booking: Booking,
         currentIndex: Int,
         dragLocationY: CGFloat
     ) -> Int {
-        // Build (index, midY) for every booking in the same day,
-        // skipping the one being dragged.
         var others: [(idx: Int, midY: CGFloat)] = []
         for (i, b) in bookings.enumerated() where b.id != booking.id {
             guard let frame = rowFrames[b.id] else { continue }
@@ -144,29 +163,23 @@ struct DraggableBookingsList: View {
         }
         others.sort { $0.midY < $1.midY }
 
-        // First "other" row whose centre is below the drag → that
-        // index is where we insert.
         for (i, midY) in others {
             if dragLocationY < midY { return i }
         }
         return bookings.count
     }
-
-    // SwiftUI-compatible haptic shim. Triggered on drag start.
-    @GestureState private var dragHaptic: Bool = false
-    private func triggerHaptic() {
-        let gen = UIImpactFeedbackGenerator(style: .medium)
-        gen.impactOccurred()
-    }
 }
 
 private struct DropIndicator: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-            .fill(BookingType.flight.accent)
-            .frame(height: 3)
+        Capsule()
+            .fill(Theme.brandYellow)
+            .frame(height: 4)
+            .overlay(
+                Capsule().strokeBorder(Theme.inkDark.opacity(0.15), lineWidth: 0.5)
+            )
             .padding(.horizontal, 2)
-            .transition(.opacity)
+            .shadow(color: Theme.brandYellow.opacity(0.5), radius: 4)
     }
 }
 
