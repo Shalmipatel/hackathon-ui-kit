@@ -169,6 +169,26 @@ final class TravelStore: ObservableObject {
         )
     }
 
+    /// Strip the start time, flipping the booking back to "untimed".
+    /// Mirrors the web's "no start" convention (see Booking.start docs).
+    /// Position resets to the sort-to-end default so untimed items
+    /// land at the bottom of their day.
+    func clearTime(_ booking: Booking) {
+        guard isTimeEditable(booking) else { return }
+        guard booking.start != nil else { return }
+        var updated = booking
+        updated.start = nil
+        updated.position = 86400
+        applyBookingUpdate(updated)
+        Task {
+            guard let rtdb else { return }
+            await rtdb.patch(
+                ["start": NSNull(), "position": 86400],
+                at: "wanderbot/bookings/\(booking.id)"
+            )
+        }
+    }
+
     /// Wall-clock seconds since midnight in UTC, matching the web
     /// agent's initial position formula. Sorting within a day stays
     /// chronological as long as we use the same units.

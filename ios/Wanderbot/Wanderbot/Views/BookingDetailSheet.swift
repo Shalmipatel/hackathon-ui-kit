@@ -81,21 +81,25 @@ private struct HeaderRow: View {
 
 // MARK: - When
 
-/// "When" section. Editable items get a DatePicker (.compact);
-/// flights/hotels get a read-only display with a small "locked"
+/// "When" section. Editable items either show a DatePicker (when a
+/// start time is set) or an "Add time" affordance (when untimed).
+/// Flights/hotels get a read-only display with a small "locked"
 /// caption.
 private struct WhenSection: View {
     let booking: Booking
     @EnvironmentObject private var store: TravelStore
 
     private var editable: Bool { store.isTimeEditable(booking) }
-    private var hasAnyTime: Bool { booking.start != nil || booking.end != nil }
 
     var body: some View {
-        Section("When") {
+        Section {
             if editable {
-                EditableTimeRow(booking: booking)
-            } else if hasAnyTime {
+                if booking.start != nil {
+                    EditableTimeRow(booking: booking)
+                } else {
+                    AddTimeRow(booking: booking)
+                }
+            } else if booking.start != nil || booking.end != nil {
                 if let start = booking.start {
                     InlineDetail(label: "Starts", value: formatted(start))
                 }
@@ -112,6 +116,8 @@ private struct WhenSection: View {
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.inkMuted)
             }
+        } header: {
+            Text("When")
         }
     }
 
@@ -125,10 +131,11 @@ private struct WhenSection: View {
     }
 }
 
-/// One DatePicker bound to the booking's start time. We use a local
-/// @State because DatePicker wants a non-optional Date; the source of
-/// truth still lives in the store, and any change flushes via
-/// `store.updateTime` which optimistically writes through to RTDB.
+/// One DatePicker bound to the booking's start time. Only rendered
+/// when `booking.start != nil`. We use a local @State because
+/// DatePicker wants a non-optional Date; the source of truth still
+/// lives in the store, and any change flushes via `store.updateTime`
+/// which optimistically writes through to RTDB.
 private struct EditableTimeRow: View {
     let booking: Booking
     @EnvironmentObject private var store: TravelStore
@@ -136,8 +143,8 @@ private struct EditableTimeRow: View {
 
     init(booking: Booking) {
         self.booking = booking
-        let initial = booking.start ?? Self.defaultStart(for: booking)
-        self._time = State(initialValue: initial)
+        // `start` is guaranteed by WhenSection before rendering us.
+        self._time = State(initialValue: booking.start ?? Date())
     }
 
     var body: some View {
@@ -149,7 +156,7 @@ private struct EditableTimeRow: View {
                    selection: $time,
                    displayedComponents: [.hourAndMinute])
             .environment(\.timeZone, TimeZone(identifier: "UTC")!)
-            .environment(\.calendar, Self.utcCalendar)
+            .environment(\.calendar, BookingDetailSheet.utcCalendar)
             .onChange(of: time) { _, newValue in
                 store.updateTime(booking, newStart: newValue)
             }
@@ -158,20 +165,10 @@ private struct EditableTimeRow: View {
             // multi-day items and not commonly user-edited.
             InlineDetail(label: "Ends", value: humanFormat(end))
         }
-    }
-
-    private static let utcCalendar: Calendar = {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone(identifier: "UTC")!
-        return c
-    }()
-
-    /// When a booking has no start time at all (rare), default the
-    /// picker to noon UTC on the booking's dayKey — UTC because all
-    /// stored times are wall-clock that we round-trip through UTC.
-    private static func defaultStart(for booking: Booking) -> Date {
-        let base = ISO8601.day(from: booking.dayKey) ?? Date()
-        return utcCalendar.date(byAdding: .hour, value: 12, to: base) ?? base
+        Button("Remove time", role: .destructive) {
+            store.clearTime(booking)
+        }
+        .font(.system(size: 14))
     }
 
     private func humanFormat(_ date: Date) -> String {
@@ -180,6 +177,49 @@ private struct EditableTimeRow: View {
         f.timeZone = TimeZone(identifier: "UTC")
         return f.string(from: date)
     }
+}
+
+/// Untimed-booking row. Single "Add time" button that, on tap, seeds
+/// the booking with a sensible default (noon on its dayKey). Once a
+/// time exists, `WhenSection` swaps in `EditableTimeRow` instead.
+private struct AddTimeRow: View {
+    let booking: Booking
+    @EnvironmentObject private var store: TravelStore
+
+    var body: some View {
+        Button {
+            store.updateTime(booking, newStart: defaultStart(for: booking))
+        } label: {
+            HStack {
+                Image(systemName: "clock")
+                    .font(.system(size: 14, weight: .medium))
+                Text("Add time")
+                    .font(.system(size: 15, weight: .medium))
+                Spacer()
+            }
+            .foregroundStyle(Theme.ink)
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Sets the start time to 12:00 PM by default; tap again to adjust.")
+    }
+
+    /// Default seed time when the user first taps "Add time": noon
+    /// UTC on the booking's dayKey. Picked because (a) it's right in
+    /// the middle of a typical itinerary day, and (b) UTC matches
+    /// our wall-clock storage convention.
+    private func defaultStart(for booking: Booking) -> Date {
+        let base = ISO8601.day(from: booking.dayKey) ?? Date()
+        return BookingDetailSheet.utcCalendar.date(byAdding: .hour, value: 12, to: base) ?? base
+    }
+}
+
+extension BookingDetailSheet {
+    static let utcCalendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }()
 }
 
 // MARK: - Where
