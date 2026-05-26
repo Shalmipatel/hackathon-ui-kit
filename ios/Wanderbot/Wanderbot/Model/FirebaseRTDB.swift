@@ -456,9 +456,18 @@ private final class SSESession: NSObject, URLSessionDataDelegate {
     /// convention), then decode back to T. Returns nil on any
     /// encode/decode hiccup so the caller can keep the pre-patch
     /// value.
+    ///
+    /// Dates are encoded with `wallClockFormatter` so they round-trip
+    /// through the same shape Booking's custom decoder expects
+    /// (yyyy-MM-dd'T'HH:mm:ss in UTC). With the default `.deferredToDate`
+    /// strategy, dates serialised as `Double` reference-date offsets —
+    /// `decodeIfPresent(String.self)` then threw on every existing
+    /// date field, the merge returned nil, and the SSE session kept
+    /// yielding the pre-patch snapshot. That bug surfaced as the
+    /// end-time picker disappearing the moment you added it.
     private func mergePatch<T: Codable>(into existing: T, with payload: Any?) -> T? {
         guard let patch = payload as? [String: Any] else { return nil }
-        guard let existingData = try? JSONEncoder().encode(existing),
+        guard let existingData = try? Self.mergeEncoder.encode(existing),
               var existingDict = try? JSONSerialization.jsonObject(with: existingData) as? [String: Any]
         else { return nil }
         for (k, v) in patch {
@@ -472,6 +481,20 @@ private final class SSESession: NSObject, URLSessionDataDelegate {
         else { return nil }
         return try? JSONDecoder().decode(T.self, from: mergedData)
     }
+
+    private static let wallClockFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return f
+    }()
+
+    private static let mergeEncoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .formatted(wallClockFormatter)
+        return e
+    }()
 
     private func decodeMap<T: Decodable>(_ raw: Any?) -> [String: T]? {
         guard let dict = raw as? [String: Any] else { return nil }
