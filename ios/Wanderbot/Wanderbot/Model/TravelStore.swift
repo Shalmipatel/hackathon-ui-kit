@@ -66,9 +66,11 @@ final class TravelStore: ObservableObject {
     /// True when the booking is editable (drag, rename, etc.). Mirrors
     /// the web rule: items pulled out of the inbox (`source == .email`)
     /// are locked because they reflect a real confirmation; manual /
-    /// agent items are free to rearrange.
+    /// agent items are free to rearrange. Multi-day bookings are also
+    /// locked — dragging one off its anchor would shred the
+    /// check-in/check-out timeline.
     func isUnlocked(_ booking: Booking) -> Bool {
-        booking.source != .email
+        booking.source != .email && booking.dayKeys.count == 1
     }
 
     /// Move a booking to a new position within its day. `targetIndex`
@@ -221,17 +223,23 @@ final class TravelStore: ObservableObject {
         bookings.filter { $0.tripId == tripId }
     }
 
-    /// Bookings grouped by dayKey, in chronological day order, each
-    /// day's items sorted by `position`.
+    /// Bookings grouped by every day they cover (multi-day items
+    /// appear in 2+ buckets), in chronological order, each day sorted
+    /// by the effective position (end-time on end-day for spans,
+    /// stored position otherwise). Matches the web's `bookingsByDay`.
     func itineraryDays(for trip: Trip) -> [(dayKey: String, date: Date, bookings: [Booking])] {
         let tripBookings = bookings(for: trip.id)
         var byDay: [String: [Booking]] = [:]
         for b in tripBookings {
-            byDay[b.dayKey, default: []].append(b)
+            for key in b.dayKeys {
+                byDay[key, default: []].append(b)
+            }
         }
         return trip.dayKeys.map { key in
             let date = ISO8601.day(from: key) ?? Date()
-            let items = (byDay[key] ?? []).sorted { $0.position < $1.position }
+            let items = (byDay[key] ?? []).sorted {
+                $0.effectivePosition(on: key) < $1.effectivePosition(on: key)
+            }
             return (key, date, items)
         }
     }

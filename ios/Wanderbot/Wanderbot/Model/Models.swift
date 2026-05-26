@@ -60,6 +60,49 @@ struct Booking: Identifiable, Hashable, Codable {
         place ?? to ?? from
     }
 
+    /// Every yyyy-MM-dd this booking covers — single value for timed /
+    /// untimed point events, and the full inclusive span for multi-day
+    /// items (hotels, overnight flights). Mirrors web `bookingDayKeys`,
+    /// which uses the browser's local timezone — an overnight flight
+    /// departing 8:30 PM PDT and arriving 6:45 AM PDT the next morning
+    /// shows up on both days, not collapsed into one UTC bucket.
+    var dayKeys: [String] {
+        guard let s = start, let e = end else { return [dayKey] }
+        let cal = Calendar.current
+        let sDay = cal.startOfDay(for: s)
+        let eDay = cal.startOfDay(for: e)
+        if eDay <= sDay { return [dayKey] }
+        var out: [String] = []
+        var cur = sDay
+        while cur <= eDay {
+            out.append(Booking.localDayKey(from: cur))
+            guard let next = cal.date(byAdding: .day, value: 1, to: cur) else { break }
+            cur = next
+        }
+        return out
+    }
+
+    fileprivate static let utcCalendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }()
+
+    /// Local-timezone yyyy-MM-dd formatter. Used wherever we slice
+    /// instants into calendar days the way the user perceives them.
+    private static let localDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar.current
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    static func localDayKey(from date: Date) -> String {
+        localDayFormatter.string(from: date)
+    }
+
     init(
         id: String,
         tripId: String,
@@ -150,7 +193,6 @@ struct Booking: Identifiable, Hashable, Codable {
         from c: KeyedDecodingContainer<CodingKeys>
     ) throws -> String {
         if let d = try c.decodeIfPresent(String.self, forKey: .dayKey) { return d }
-        // Legacy fallback: derive from `start` string prefix.
         if let s = try c.decodeIfPresent(String.self, forKey: .start) {
             return String(s.prefix(10))
         }
@@ -165,20 +207,103 @@ struct Booking: Identifiable, Hashable, Codable {
         dayKey: String
     ) throws -> Double {
         if let p = try c.decodeIfPresent(Double.self, forKey: .position) { return p }
-        return 86400 // sort to end of day if missing
+        return 86400
     }
 
     private static func decodeDate(
         _ c: KeyedDecodingContainer<CodingKeys>,
         _ key: CodingKeys
     ) throws -> Date? {
-        // Two shapes show up in the wild: full ISO ("2026-06-20T07:52:00")
-        // and date-only ("2026-06-20"). Try both.
         guard let raw = try c.decodeIfPresent(String.self, forKey: key) else { return nil }
         if let d = WBDates.isoFlex.date(from: raw) { return d }
         if let d = WBDates.iso8601.date(from: raw) { return d }
         if let d = ISO8601.day(from: raw) { return d }
         return nil
+    }
+}
+
+/// Per-day sublabel under the time — matches the web's `multiDayLabels`
+/// for spans, and gives single-day items something sensible too.
+enum BookingDayRole {
+    case singleStart   // single-day timed
+    case spanStart     // first day of multi-day span
+    case spanEnd       // last day of multi-day span
+    case spanMiddle    // a day between start and end (no time, "All day")
+    case untimed       // no `start` at all
+
+    var label: String? {
+        switch self {
+        case .singleStart: return nil
+        case .spanStart: return "Starts"
+        case .spanEnd: return "Ends"
+        case .spanMiddle, .untimed: return nil
+        }
+    }
+}
+
+extension Booking {
+    /// What role this booking plays on the given day. Used by the
+    /// itinerary row to pick which time to render and which sublabel
+    /// (Check-in / Arrives / Departs) to show.
+    func role(on dayKey: String) -> BookingDayRole {
+        guard let s = start, let e = end else {
+            return start == nil ? .untimed : .singleStart
+        }
+        let cal = Calendar.current
+        let sDay = Booking.localDayKey(from: cal.startOfDay(for: s))
+        let eDay = Booking.localDayKey(from: cal.startOfDay(for: e))
+        if sDay == eDay { return .singleStart }
+        if dayKey == sDay { return .spanStart }
+        if dayKey == eDay { return .spanEnd }
+        return .spanMiddle
+    }
+
+    /// Per-type sub-label ("Check-in" / "Check-out", "Departs" /
+    /// "Arrives", "Starts" / "Ends") for the given day. Mirrors the
+    /// web `multiDayLabels` helper.
+    func subLabel(on dayKey: String) -> String? {
+        switch role(on: dayKey) {
+        case .spanStart:
+            switch type {
+            case .flight, .transport: return "Departs"
+            case .hotel: return "Check-in"
+            default: return "Starts"
+            }
+        case .spanEnd:
+            switch type {
+            case .flight, .transport: return "Arrives"
+            case .hotel: return "Check-out"
+            default: return "Ends"
+            }
+        case .spanMiddle: return "All day"
+        case .singleStart, .untimed: return nil
+        }
+    }
+
+    /// Time to display on the given day. Start time for start/single,
+    /// end time for end-day, nil for middle days or untimed.
+    func displayTime(on dayKey: String) -> Date? {
+        switch role(on: dayKey) {
+        case .singleStart, .spanStart: return start
+        case .spanEnd: return end
+        case .spanMiddle, .untimed: return nil
+        }
+    }
+
+    /// Position used to sort within a day. End-day of a multi-day
+    /// booking sorts by end-time so a hotel checking out at 11 AM
+    /// today doesn't sit at its 3 PM check-in slot from yesterday.
+    func effectivePosition(on dayKey: String) -> Double {
+        switch role(on: dayKey) {
+        case .spanEnd:
+            if let end {
+                let comps = Booking.utcCalendar.dateComponents([.hour, .minute], from: end)
+                return Double((comps.hour ?? 0) * 3600 + (comps.minute ?? 0) * 60)
+            }
+            return position
+        case .spanMiddle: return 0
+        default: return position
+        }
     }
 }
 

@@ -20,7 +20,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { useChatStore, getChatStore } from '@/features/app/bootstrap';
-import { getChatRepo } from '@/features/app/bootstrap/providers';
+import { getChatRepo, getSessionSyncService } from '@/features/app/bootstrap/providers';
 import { useTravelStore } from './travel-store';
 import { isFirebaseConfigured, mirrorChatMessageRemote, type MirroredChatMessage } from './firebase';
 import type { ChatMessage } from '@/types';
@@ -103,6 +103,19 @@ export function useChatRTDBMirror(): void {
     const backfillSession = async (sessionId: string) => {
       const repo = getChatRepo();
       try {
+        /* Pull the canonical transcript from the OpenClaw backend
+           into IndexedDB first. Without this, a fresh browser sees
+           empty local sessions even though the conversation lives
+           server-side. loadFromBackend writes the result into the
+           same repo we read below. */
+        try {
+          await getSessionSyncService().loadFromBackend(sessionId);
+        } catch (err) {
+          /* Tolerated: network hiccup, 404 (session not on server
+             yet), etc. We still fall through to read whatever the
+             local repo has. */
+          console.warn('[chat-mirror] loadFromBackend', sessionId, err);
+        }
         const session = await repo.getSession(sessionId);
         if (!session) return;
         await mirrorSession(sessionId, session.messages);

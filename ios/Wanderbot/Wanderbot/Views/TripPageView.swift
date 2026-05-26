@@ -2,9 +2,9 @@ import SwiftUI
 
 /// One trip's page: pinned map (or flight card) at the top via
 /// `.safeAreaInset`, and a List below for native iOS long-press
-/// reorder. Each day is a List section; `.onMove` handles reorder
-/// natively, with `.moveDisabled` keeping locked email-confirmed
-/// bookings put.
+/// reorder. Each day is a List section with a web-style date tile
+/// header; multi-day bookings (hotels, overnight flights) appear on
+/// every day they cover with check-in / check-out labels.
 struct TripPageView: View {
     let trip: Trip
     @Binding var selectedBookingId: Booking.ID?
@@ -29,9 +29,11 @@ struct TripPageView: View {
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 4, trailing: 14))
 
-                ForEach(store.itineraryDays(for: trip), id: \.dayKey) { day in
+                ForEach(Array(store.itineraryDays(for: trip).enumerated()), id: \.element.dayKey) { idx, day in
                     DayListSection(
+                        index: idx,
                         date: day.date,
+                        dayKey: day.dayKey,
                         bookings: day.bookings,
                         selectedBookingId: $selectedBookingId
                     )
@@ -43,7 +45,8 @@ struct TripPageView: View {
                     .listRowSeparator(.hidden)
             }
             .listStyle(.plain)
-            .listRowSpacing(8)
+            .listRowSpacing(0)
+            .environment(\.defaultMinListRowHeight, 0)
             .scrollContentBackground(.hidden)
             .background(Theme.background)
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -124,11 +127,13 @@ private struct TripIntro: View {
     }
 }
 
-/// One day's bookings, native-iOS-reorderable. Locked bookings (from
-/// inbox scans) skip `.onMove` via `.moveDisabled(true)` so users
-/// can't drag a confirmed flight out of position by accident.
+/// One day's bookings, native-iOS-reorderable. Locked rows (from
+/// inbox scans or multi-day spans) use `.moveDisabled(true)` so a
+/// confirmed flight can't be dragged out of its anchor.
 private struct DayListSection: View {
+    let index: Int
     let date: Date
+    let dayKey: String
     let bookings: [Booking]
     @Binding var selectedBookingId: Booking.ID?
 
@@ -137,11 +142,11 @@ private struct DayListSection: View {
     var body: some View {
         Section {
             if bookings.isEmpty {
-                Text("Free day")
+                Text("Open day")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.inkMuted)
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 14)
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(
                         RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
@@ -149,53 +154,103 @@ private struct DayListSection: View {
                     )
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 14, bottom: 8, trailing: 14))
             } else {
                 ForEach(bookings) { b in
-                    BookingCardView(booking: b, isDraggable: store.isUnlocked(b))
-                        .background(BookingPositionReporter(id: b.id))
-                        .contentShape(Rectangle())
-                        .onTapGesture { selectedBookingId = b.id }
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
-                        .moveDisabled(!store.isUnlocked(b))
+                    BookingCardView(
+                        booking: b,
+                        dayKey: dayKey,
+                        unlocked: store.isUnlocked(b)
+                    )
+                    .background(BookingPositionReporter(id: b.id))
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedBookingId = b.id }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    // Zero horizontal insets so the drag lift hugs the
+                    // card edges; vertical inset is the gap between
+                    // adjacent rows.
+                    .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
+                    .moveDisabled(!store.isUnlocked(b))
                 }
                 .onMove { source, destination in
                     handleMove(from: source, to: destination)
                 }
             }
         } header: {
-            HStack(alignment: .firstTextBaseline) {
-                Text(WBFormat.dayHeader(date))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.ink)
-                Spacer()
-                if !bookings.isEmpty {
-                    Text("\(bookings.count) \(bookings.count == 1 ? "item" : "items")")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.inkMuted)
-                }
-            }
-            .padding(.horizontal, 4)
-            .padding(.top, 12)
-            .padding(.bottom, 4)
-            .listRowInsets(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
-            .listRowBackground(Color.clear)
-            .textCase(nil)
+            DayHeader(index: index, date: date, itemCount: bookings.count)
+                .listRowInsets(EdgeInsets(top: 14, leading: 14, bottom: 6, trailing: 14))
+                .listRowBackground(Color.clear)
+                .textCase(nil)
         }
     }
 
-    /// Translate List's IndexSet/destination semantics into the
-    /// `(booking, targetIndex)` form the store expects. Destination
-    /// indices in List's `.onMove` are post-removal, so they already
-    /// account for the source being pulled out.
     private func handleMove(from source: IndexSet, to destination: Int) {
         guard let sourceIdx = source.first else { return }
         let booking = bookings[sourceIdx]
-        // Convert List's post-removal index to the store's
-        // pre-removal index by adjusting only when moving down.
         let targetIdx = destination > sourceIdx ? destination - 1 : destination
         store.reorder(booking, toIndex: targetIdx)
+    }
+}
+
+/// Big dark date tile + Day N · weekday title + item count subtitle.
+/// Matches the web mobile header almost 1:1.
+private struct DayHeader: View {
+    let index: Int
+    let date: Date
+    let itemCount: Int
+
+    private static let utcCal: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }()
+
+    private static let monthFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM"
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f
+    }()
+
+    private static let weekdayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE, MMM d"
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f
+    }()
+
+    private var dayNum: String {
+        String(Self.utcCal.component(.day, from: date))
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(spacing: 2) {
+                Text(dayNum)
+                    .font(.system(size: 18, weight: .bold))
+                    .tracking(-0.5)
+                    .foregroundStyle(itemCount == 0 ? Theme.inkMuted : .white)
+                Text(Self.monthFormatter.string(from: date).uppercased())
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .tracking(0.05 * 9.5)
+                    .foregroundStyle((itemCount == 0 ? Theme.inkMuted : Color.white).opacity(0.7))
+            }
+            .frame(width: 48, height: 48)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(itemCount == 0 ? Theme.chipFill : Theme.inkDark)
+            )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Day \(index + 1) · \(Self.weekdayFormatter.string(from: date))")
+                    .font(.system(size: 14.5, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                Text(itemCount == 0 ? "Open day" : "\(itemCount) \(itemCount == 1 ? "item" : "items")")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.inkMuted)
+            }
+            Spacer(minLength: 0)
+        }
     }
 }
