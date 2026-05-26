@@ -4,14 +4,8 @@ struct RootView: View {
     @EnvironmentObject private var store: TravelStore
     @State private var activeIndex: Int = 0
     @State private var showChat = false
-    @State private var showSettingsActions = false
+    @State private var showSettings = false
     @State private var selectedBookingId: Booking.ID?
-    @State private var openOverlay: SettingsOverlay?
-
-    enum SettingsOverlay: Identifiable {
-        case connections, settings
-        var id: Int { hashValue }
-    }
 
     private var orderedTrips: [Trip] { store.orderedTrips }
 
@@ -22,7 +16,7 @@ struct RootView: View {
             VStack(spacing: 0) {
                 TopBarView(
                     pageLabel: pageLabel,
-                    onSettingsTap: { showSettingsActions = true }
+                    onSettingsTap: { showSettings = true }
                 )
 
                 if orderedTrips.isEmpty {
@@ -47,48 +41,29 @@ struct RootView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-        .confirmationDialog(
-            "Wanderbot",
-            isPresented: $showSettingsActions,
-            titleVisibility: .hidden
-        ) {
-            Button("Connections") { openOverlay = .connections }
-            Button("Settings") { openOverlay = .settings }
-            Button("Sign out", role: .destructive) { /* hook up auth here */ }
-            Button("Cancel", role: .cancel) {}
-        }
-        .fullScreenCover(item: $openOverlay) { overlay in
-            NavigationStack {
-                Group {
-                    switch overlay {
-                    case .connections: ConnectionsView()
-                    case .settings: SettingsView()
-                    }
-                }
-                .navigationTitle(overlay == .connections ? "Connections" : "Settings")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            openOverlay = nil
-                        } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 16, weight: .semibold))
-                        }
-                        .tint(Theme.ink)
-                    }
-                }
-            }
+        .sheet(isPresented: $showSettings) {
+            SettingsSheet(
+                onSelectTrip: jumpToTrip,
+                onSignOut: { /* hook up auth here */ }
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(item: bookingBinding) { booking in
             BookingDetailSheet(booking: booking)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
         .onChange(of: activeIndex) { _, newValue in
             if orderedTrips.indices.contains(newValue) {
                 store.activeTripId = orderedTrips[newValue].id
             }
+        }
+    }
+
+    private func jumpToTrip(_ id: Trip.ID) {
+        if let idx = orderedTrips.firstIndex(where: { $0.id == id }) {
+            activeIndex = idx
         }
     }
 

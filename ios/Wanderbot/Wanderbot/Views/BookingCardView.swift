@@ -8,7 +8,9 @@ struct BookingCardView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            TimeColumn(start: booking.start)
+            if booking.start != nil {
+                TimeColumn(start: booking.start)
+            }
             TypeBadge(type: booking.type)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -103,20 +105,16 @@ private struct TimeColumn: View {
     let start: Date?
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 0) {
-            if let start {
-                Text(WBFormat.time(start))
-                    .font(.system(size: 12, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.ink)
-            } else {
-                Text("—")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.inkMuted)
-            }
+        if let start {
+            Text(WBFormat.time(start))
+                .font(.system(size: 12, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(Theme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .frame(minWidth: 56, alignment: .trailing)
+                .padding(.top, 2)
         }
-        .frame(width: 44, alignment: .trailing)
-        .padding(.top, 2)
     }
 }
 
