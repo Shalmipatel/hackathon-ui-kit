@@ -350,15 +350,22 @@ async function applyTrips(incoming: Trip[]): Promise<void> {
 
 function bookingSubtitle(b: Booking): string {
   const when = b.dayKey || (b.start ? b.start.slice(0, 10) : '');
+  /* Defensive: agent payloads sometimes have a declared type that
+     doesn't match the shape (flight with no `to`, place row with
+     no `place`). Toast subtitles fall back to placeholders instead
+     of throwing and taking down the ingestion. */
   switch (b.type) {
     case 'flight':
-      return `${b.flightNumber ?? 'Flight'} · ${b.from.name} → ${b.to.name} · ${when}`;
+      return `${b.flightNumber ?? 'Flight'} · ${b.from?.name ?? '?'} → ${b.to?.name ?? '?'} · ${when}`;
     case 'hotel':
-      return `${b.place.name} · ${when}`;
+      return `${b.place?.name ?? b.title} · ${when}`;
     case 'activity':
+    case 'attraction':
+    case 'experience':
+    case 'event':
     case 'restaurant':
-      return `${b.place.name} · ${when}`;
+      return `${b.place?.name ?? b.title} · ${when}`;
     case 'transport':
-      return `${b.mode ?? 'Transport'} · ${b.from.name} → ${b.to.name}`;
+      return `${b.mode ?? 'Transport'} · ${b.from?.name ?? '?'} → ${b.to?.name ?? '?'}`;
   }
 }

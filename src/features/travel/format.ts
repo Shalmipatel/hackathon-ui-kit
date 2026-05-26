@@ -197,9 +197,15 @@ export function isBookingLocked(booking: Booking): boolean {
 export function bookingLocation(booking: Booking): { lat: number; lng: number; label: string } | null {
   const isValidCoord = (n: unknown): n is number =>
     typeof n === 'number' && Number.isFinite(n);
+  /* Defensive read: the agent occasionally emits a booking whose
+     declared type doesn't match its shape (a `flight` with no
+     `to`, an `activity` with no `place`). Destructuring undefined
+     crashes Leaflet and takes the whole map view down — we'd
+     rather just skip the row. */
   switch (booking.type) {
     case 'flight':
     case 'transport': {
+      if (!booking.to) return null;
       const { lat, lng, name } = booking.to;
       if (!isValidCoord(lat) || !isValidCoord(lng)) return null;
       return { lat, lng, label: name };
@@ -210,6 +216,7 @@ export function bookingLocation(booking: Booking): { lat: number; lng: number; l
     case 'experience':
     case 'event':
     case 'restaurant': {
+      if (!booking.place) return null;
       const { lat, lng, name } = booking.place;
       if (!isValidCoord(lat) || !isValidCoord(lng)) return null;
       return { lat, lng, label: name };

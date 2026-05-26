@@ -247,10 +247,13 @@ function buildTripContextString(): string | null {
       const when = b.start
         ? `${b.start.slice(0, 10)} ${b.start.slice(11, 16)}`
         : `${b.dayKey} (untimed)`;
+      /* Defensive on each leg — agent payloads sometimes ship
+         flight/transport rows without from/to or place rows without
+         place, and we'd rather emit an "(unknown)" than throw. */
       const where =
         b.type === 'flight' || b.type === 'transport'
-          ? `${b.from.name} → ${b.to.name}`
-          : b.place.name;
+          ? `${b.from?.name ?? '(unknown)'} → ${b.to?.name ?? '(unknown)'}`
+          : b.place?.name ?? '(unknown)';
       lines.push(
         `- [${b.type}] ${b.title} · ${when} · ${where}${b.confirmation ? ` · #${b.confirmation}` : ''}`,
       );

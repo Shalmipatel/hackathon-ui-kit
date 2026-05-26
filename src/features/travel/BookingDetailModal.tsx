@@ -523,14 +523,23 @@ function whenLineReadOnly(b: Booking): string {
 function locationLine(b: Booking): { label: string; address?: string } | null {
   switch (b.type) {
     case 'flight':
-    case 'transport':
-      return { label: `${b.from.name} → ${b.to.name}` };
+    case 'transport': {
+      /* The agent occasionally writes a flight/transport without
+         from + to. Skip the line rather than crash on the
+         undefined `.name` access. */
+      if (!b.from && !b.to) return null;
+      const left = b.from?.name ?? '';
+      const right = b.to?.name ?? '';
+      const label = left && right ? `${left} → ${right}` : left || right;
+      return label ? { label } : null;
+    }
     case 'hotel':
     case 'activity':
     case 'attraction':
     case 'experience':
     case 'event':
     case 'restaurant':
+      if (!b.place) return null;
       return {
         label: b.place.name,
         address: b.place.address,

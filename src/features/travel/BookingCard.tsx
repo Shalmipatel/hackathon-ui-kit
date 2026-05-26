@@ -493,19 +493,42 @@ function BookingIcon({ type }: { type: BookingType }) {
   }
 }
 
+/** Render a route segment ("SFO → ZRH") only when both endpoints
+ *  exist. The agent occasionally writes flight/transport rows
+ *  without `from` or `to`; we'd rather show an empty string than
+ *  crash the whole card. */
+function routeLine(
+  from: { name?: string; address?: string } | undefined,
+  to: { name?: string; address?: string } | undefined,
+  preferAddress: boolean,
+): string {
+  const fromLabel = from
+    ? preferAddress
+      ? from.address ?? from.name
+      : from.name
+    : undefined;
+  const toLabel = to
+    ? preferAddress
+      ? to.address ?? to.name
+      : to.name
+    : undefined;
+  if (fromLabel && toLabel) return `${fromLabel} → ${toLabel}`;
+  return fromLabel ?? toLabel ?? '';
+}
+
 function bookingSubtitle(booking: Booking): string {
   switch (booking.type) {
     case 'flight':
       return [
         booking.flightNumber,
         booking.provider,
-        `${booking.from.address ?? booking.from.name} → ${booking.to.address ?? booking.to.name}`,
+        routeLine(booking.from, booking.to, true),
       ]
         .filter(Boolean)
         .join(' · ');
     case 'hotel':
       return [
-        booking.place.address ?? booking.place.name,
+        booking.place?.address ?? booking.place?.name,
         booking.nights ? `${booking.nights} night${booking.nights === 1 ? '' : 's'}` : '',
         booking.provider,
       ]
@@ -515,12 +538,12 @@ function bookingSubtitle(booking: Booking): string {
     case 'attraction':
     case 'experience':
     case 'event':
-      return [booking.place.address ?? booking.place.name, booking.provider]
+      return [booking.place?.address ?? booking.place?.name, booking.provider]
         .filter(Boolean)
         .join(' · ');
     case 'restaurant':
       return [
-        booking.place.address ?? booking.place.name,
+        booking.place?.address ?? booking.place?.name,
         booking.partySize ? `Party of ${booking.partySize}` : '',
       ]
         .filter(Boolean)
@@ -528,7 +551,7 @@ function bookingSubtitle(booking: Booking): string {
     case 'transport':
       return [
         booking.mode,
-        `${booking.from.name} → ${booking.to.name}`,
+        routeLine(booking.from, booking.to, false),
         booking.provider,
       ]
         .filter(Boolean)
@@ -539,14 +562,17 @@ function bookingSubtitle(booking: Booking): string {
 function locationLine(b: Booking): { label: string; address?: string } | null {
   switch (b.type) {
     case 'flight':
-    case 'transport':
-      return { label: `${b.from.name} → ${b.to.name}` };
+    case 'transport': {
+      const label = routeLine(b.from, b.to, false);
+      return label ? { label } : null;
+    }
     case 'hotel':
     case 'activity':
     case 'attraction':
     case 'experience':
     case 'event':
     case 'restaurant':
+      if (!b.place) return null;
       return { label: b.place.name, address: b.place.address };
   }
 }
