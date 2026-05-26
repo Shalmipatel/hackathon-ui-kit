@@ -116,8 +116,11 @@ private struct WhenSection: View {
     }
 
     private func formatted(_ date: Date) -> String {
+        // Wall-clock formatting — date components were stored in UTC
+        // so reading back via UTC gives the original hour/minute.
         let f = DateFormatter()
         f.dateFormat = "EEE, MMM d · h:mm a"
+        f.timeZone = TimeZone(identifier: "UTC")
         return f.string(from: date)
     }
 }
@@ -138,9 +141,15 @@ private struct EditableTimeRow: View {
     }
 
     var body: some View {
+        // Pin the picker's calendar/timezone to UTC. Internally
+        // DatePicker uses the environment timezone to render h/m, so
+        // without this a 3:00 PM wall-clock value (stored in UTC)
+        // would display as 8:00 AM PDT on the picker dial.
         DatePicker("Starts",
                    selection: $time,
                    displayedComponents: [.hourAndMinute])
+            .environment(\.timeZone, TimeZone(identifier: "UTC")!)
+            .environment(\.calendar, Self.utcCalendar)
             .onChange(of: time) { _, newValue in
                 store.updateTime(booking, newStart: newValue)
             }
@@ -151,21 +160,24 @@ private struct EditableTimeRow: View {
         }
     }
 
+    private static let utcCalendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }()
+
     /// When a booking has no start time at all (rare), default the
-    /// picker to noon on the booking's dayKey so the user has a
-    /// reasonable starting point.
+    /// picker to noon UTC on the booking's dayKey — UTC because all
+    /// stored times are wall-clock that we round-trip through UTC.
     private static func defaultStart(for booking: Booking) -> Date {
-        let cal = Calendar(identifier: .gregorian)
         let base = ISO8601.day(from: booking.dayKey) ?? Date()
-        var comps = cal.dateComponents([.year, .month, .day], from: base)
-        comps.hour = 12
-        comps.timeZone = TimeZone(identifier: "UTC")
-        return cal.date(from: comps) ?? base
+        return utcCalendar.date(byAdding: .hour, value: 12, to: base) ?? base
     }
 
     private func humanFormat(_ date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "EEE, MMM d · h:mm a"
+        f.timeZone = TimeZone(identifier: "UTC")
         return f.string(from: date)
     }
 }

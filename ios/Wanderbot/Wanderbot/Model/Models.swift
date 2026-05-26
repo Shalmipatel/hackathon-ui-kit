@@ -62,20 +62,19 @@ struct Booking: Identifiable, Hashable, Codable {
 
     /// Every yyyy-MM-dd this booking covers — single value for timed /
     /// untimed point events, and the full inclusive span for multi-day
-    /// items (hotels, overnight flights). Mirrors web `bookingDayKeys`,
-    /// which uses the browser's local timezone — an overnight flight
-    /// departing 8:30 PM PDT and arriving 6:45 AM PDT the next morning
-    /// shows up on both days, not collapsed into one UTC bucket.
+    /// items (hotels, overnight flights). UTC bucketed because the
+    /// stored times are wall-clock (see WBDates) — bucketing in any
+    /// other timezone would shift days off the agent-written dayKey.
     var dayKeys: [String] {
         guard let s = start, let e = end else { return [dayKey] }
-        let cal = Calendar.current
+        let cal = Self.utcCalendar
         let sDay = cal.startOfDay(for: s)
         let eDay = cal.startOfDay(for: e)
         if eDay <= sDay { return [dayKey] }
         var out: [String] = []
         var cur = sDay
         while cur <= eDay {
-            out.append(Booking.localDayKey(from: cur))
+            out.append(ISO8601.dayKey(from: cur))
             guard let next = cal.date(byAdding: .day, value: 1, to: cur) else { break }
             cur = next
         }
@@ -87,21 +86,6 @@ struct Booking: Identifiable, Hashable, Codable {
         c.timeZone = TimeZone(identifier: "UTC")!
         return c
     }()
-
-    /// Local-timezone yyyy-MM-dd formatter. Used wherever we slice
-    /// instants into calendar days the way the user perceives them.
-    private static let localDayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.calendar = Calendar.current
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone.current
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
-    static func localDayKey(from date: Date) -> String {
-        localDayFormatter.string(from: date)
-    }
 
     init(
         id: String,
@@ -215,10 +199,7 @@ struct Booking: Identifiable, Hashable, Codable {
         _ key: CodingKeys
     ) throws -> Date? {
         guard let raw = try c.decodeIfPresent(String.self, forKey: key) else { return nil }
-        if let d = WBDates.isoFlex.date(from: raw) { return d }
-        if let d = WBDates.iso8601.date(from: raw) { return d }
-        if let d = ISO8601.day(from: raw) { return d }
-        return nil
+        return WBDates.parseWallClock(raw)
     }
 }
 
@@ -249,9 +230,9 @@ extension Booking {
         guard let s = start, let e = end else {
             return start == nil ? .untimed : .singleStart
         }
-        let cal = Calendar.current
-        let sDay = Booking.localDayKey(from: cal.startOfDay(for: s))
-        let eDay = Booking.localDayKey(from: cal.startOfDay(for: e))
+        let cal = Booking.utcCalendar
+        let sDay = ISO8601.dayKey(from: cal.startOfDay(for: s))
+        let eDay = ISO8601.dayKey(from: cal.startOfDay(for: e))
         if sDay == eDay { return .singleStart }
         if dayKey == sDay { return .spanStart }
         if dayKey == eDay { return .spanEnd }

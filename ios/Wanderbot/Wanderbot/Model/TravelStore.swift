@@ -153,7 +153,7 @@ final class TravelStore: ObservableObject {
         guard let rtdb, let start = booking.start else { return }
         await rtdb.patch(
             [
-                "start": Self.isoString(from: start),
+                "start": WBDates.formatWallClock(start),
                 "position": booking.position,
             ],
             at: "wanderbot/bookings/\(booking.id)"
@@ -192,18 +192,6 @@ final class TravelStore: ObservableObject {
                          at: "wanderbot/bookings/\(booking.id)")
     }
 
-    /// ISO 8601 with seconds + UTC offset — matches the shape the
-    /// agent writes (e.g. "2026-06-19T20:30:00+00:00"). Web and iOS
-    /// decoders both handle this round-trip.
-    private static let isoOutputFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
-
-    private static func isoString(from date: Date) -> String {
-        isoOutputFormatter.string(from: date)
-    }
 
     /// Upcoming (asc) then past (desc) — matches the React mobile shell.
     var orderedTrips: [Trip] {
