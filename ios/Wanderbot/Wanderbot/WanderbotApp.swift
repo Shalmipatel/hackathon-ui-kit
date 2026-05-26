@@ -8,13 +8,27 @@ struct WanderbotApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environmentObject(store)
-                .environmentObject(chat)
-                .environmentObject(auth)
-                .preferredColorScheme(.light)
-                .tint(Theme.ink)
-                .task { store.bootstrap() }
+            // Gate the entire app on auth state. Trips, chat, and
+            // settings are only reachable once the user has signed in
+            // through Firebase Auth — no data sync runs while signed
+            // out, which keeps the cold-open noise to a minimum and
+            // matches the "private until signed in" expectation.
+            Group {
+                if auth.isSignedIn {
+                    RootView()
+                        .task { store.bootstrap() }
+                        .transition(.opacity)
+                } else {
+                    SignInGateView()
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: auth.isSignedIn)
+            .environmentObject(store)
+            .environmentObject(chat)
+            .environmentObject(auth)
+            .preferredColorScheme(.light)
+            .tint(Theme.ink)
         }
     }
 }
