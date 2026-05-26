@@ -8,6 +8,7 @@ import BookingDetailModal from './BookingDetailModal';
 import { useBookingIngestion } from './useBookingIngestion';
 import { useScanForTrips } from './useScanForTrips';
 import { useFirebaseSync } from './useFirebaseSync';
+import { useChatRTDBMirror } from './useChatRTDBMirror';
 import { useTravelStore } from './travel-store';
 
 const Page = styled.div`
@@ -226,6 +227,9 @@ export const TripsView: React.FC<TripsViewProps> = () => {
   /* Mirror local trip / booking state to Firebase RTDB if configured.
      No-op when Firebase env vars aren't set. */
   useFirebaseSync();
+  /* Push per-trip chat messages to RTDB so other devices (iOS) can
+     read the transcript. Backfills on mount, then mirrors live. */
+  useChatRTDBMirror();
   const showChatCol = !useIsMobile(1100);
 
   const trips = useTravelStore((s) => s.trips);

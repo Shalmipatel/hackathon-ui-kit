@@ -23,6 +23,7 @@ import TripChatPanel from '@/features/travel/TripChatPanel';
 import BookingDetailModal from '@/features/travel/BookingDetailModal';
 import { useFirebaseSync } from '@/features/travel/useFirebaseSync';
 import { useBookingIngestion } from '@/features/travel/useBookingIngestion';
+import { useChatRTDBMirror } from '@/features/travel/useChatRTDBMirror';
 import { signOutFirebase } from '@/features/auth/firebase-auth';
 import ConnectionsView from '@/features/settings/ConnectionsView';
 import SettingsView from '@/features/settings/SettingsView';
@@ -368,6 +369,7 @@ export const MobileApp: React.FC = () => {
      listens for trips/v1 + bookings/v1 blocks in chat replies. */
   useFirebaseSync();
   useBookingIngestion();
+  useChatRTDBMirror();
 
   const trips = useTravelStore((s) => s.trips);
   const setActiveTrip = useTravelStore((s) => s.setActiveTrip);

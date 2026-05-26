@@ -40,7 +40,7 @@ struct ChatSheet: View {
                         .padding(.vertical, 12)
                     }
                     .onChange(of: messages.count) { _, _ in scroll(proxy) }
-                    .onChange(of: messages.last?.text) { _, _ in scroll(proxy) }
+                    .onChange(of: messages.last?.content) { _, _ in scroll(proxy) }
                 }
 
                 Divider().overlay(Theme.hairline)
@@ -118,7 +118,7 @@ private struct ChatBubble: View {
                     )
                     .frame(maxWidth: 320, alignment: message.role == .user ? .trailing : .leading)
 
-                if message.role == .assistant, message.pending == true, !message.text.isEmpty {
+                if message.role == .assistant, message.pending == true, !message.content.isEmpty {
                     Label("typing…", systemImage: "ellipsis")
                         .labelStyle(.titleOnly)
                         .font(.system(size: 10.5, weight: .medium))
@@ -130,10 +130,24 @@ private struct ChatBubble: View {
     }
 
     private var displayText: String {
-        if message.role == .assistant, message.pending == true, message.text.isEmpty {
+        if message.role == .assistant, message.pending == true, message.content.isEmpty {
             return "…"
         }
-        return message.text
+        // The web app prefixes the very first user message with a trip
+        // context blob ("Context — my current trip:\n...\n\nMessage: ..."
+        // — see TripChatPanel.tsx). Show only the user's actual text;
+        // the LLM still sees the full prompt server-side.
+        return Self.stripContextPrefix(message.content)
+    }
+
+    private static let contextPrefix = "Context — my current trip:"
+    private static let messageMarker = "\n\nMessage: "
+
+    private static func stripContextPrefix(_ raw: String) -> String {
+        guard raw.hasPrefix(contextPrefix),
+              let range = raw.range(of: messageMarker)
+        else { return raw }
+        return String(raw[range.upperBound...])
     }
 }
 

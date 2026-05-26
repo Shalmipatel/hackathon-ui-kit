@@ -141,7 +141,7 @@ actor FirebaseRTDB {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
             let messages: [ChatMessage] = (try? Self.decodeCollection(data: data)) ?? []
-            return messages.sorted { $0.createdAt < $1.createdAt }
+            return messages.sorted { $0.timestamp < $1.timestamp }
         } catch {
             print("[firebase] loadChatSession \(tripID) failed:", error)
             return []
@@ -163,7 +163,7 @@ actor FirebaseRTDB {
             }
             let session = ChatSSESession(url: url)
             session.onSnapshot = { snapshot in
-                continuation.yield(snapshot.sorted { $0.createdAt < $1.createdAt })
+                continuation.yield(snapshot.sorted { $0.timestamp < $1.timestamp })
             }
             session.start()
             continuation.onTermination = { _ in session.stop() }

@@ -50,6 +50,7 @@ import type { Booking, Trip } from './types';
 const ROOT = 'wanderbot';
 const TRIPS_PATH = `${ROOT}/trips`;
 const BOOKINGS_PATH = `${ROOT}/bookings`;
+const CHAT_SESSIONS_PATH = `${ROOT}/chat_sessions`;
 const AUTH_REQUESTS_PATH = `${ROOT}/auth_requests`;
 const GMAIL_CONNECTION_PATH = `${ROOT}/connections/gmail`;
 
@@ -247,6 +248,49 @@ export function subscribeToRemote(
     off(tripsRef, 'value', tripsHandler);
     off(bookingsRef, 'value', bookingsHandler);
   };
+}
+
+/* ─────────────── Chat sessions (cross-device mirror) ─────────────── */
+
+/** A chat message as we mirror it to RTDB. Subset of the local
+ *  ChatMessage shape — we strip fields that don't survive a JSON
+ *  round-trip (audioDataUrl can be huge; isStreaming is ephemeral). */
+export interface MirroredChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+  isHidden?: boolean;
+}
+
+/** PUT one message under /wanderbot/chat_sessions/<tripId>/<messageId>.
+ *  Idempotent — safe to call on backfill and on every live update. */
+export async function mirrorChatMessageRemote(
+  tripId: string,
+  message: MirroredChatMessage,
+): Promise<void> {
+  const database = getDb();
+  if (!database) return;
+  try {
+    await set(
+      ref(database, `${CHAT_SESSIONS_PATH}/${tripId}/${message.id}`),
+      stripUndefined(message as unknown as Record<string, unknown>),
+    );
+  } catch (err) {
+    console.warn('[firebase] mirrorChatMessage failed', tripId, message.id, err);
+  }
+}
+
+/** Drop a trip's entire mirrored chat tree. Used when the user starts
+ *  a fresh session via the "New" button. */
+export async function clearChatSessionRemote(tripId: string): Promise<void> {
+  const database = getDb();
+  if (!database) return;
+  try {
+    await remove(ref(database, `${CHAT_SESSIONS_PATH}/${tripId}`));
+  } catch (err) {
+    console.warn('[firebase] clearChatSession failed', tripId, err);
+  }
 }
 
 /* ─────────────── gog auth requests ─────────────── */

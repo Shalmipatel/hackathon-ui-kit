@@ -1,30 +1,34 @@
 import Foundation
 
-/// One persisted chat message. Mirrors the web ChatMessage shape we
-/// actually care about for cross-device display — role, text,
-/// timestamp, and the response id chain that keeps server-side
-/// conversation state consistent.
+/// One persisted chat message. Field names match the web
+/// `ChatMessage` shape (`content`, `timestamp`, `isHidden`) so the
+/// web mirror writing to RTDB and the iOS reader hit the same JSON.
+/// `responseID` / `previousResponseID` are iOS-side extras for
+/// OpenClaw conversation chaining — web ignores them.
 struct ChatMessage: Identifiable, Hashable, Codable {
-    enum Role: String, Codable { case user, assistant }
+    enum Role: String, Codable { case user, assistant, system }
 
     var id: String
     var role: Role
-    var text: String
-    var createdAt: Double
+    var content: String
+    /// Milliseconds since epoch (web uses `Date.now()` which is ms).
+    var timestamp: Double
+    /// Excluded from the visible UI but kept in history. The web flag
+    /// — we honour it so context-injection messages don't show up.
+    var isHidden: Bool?
     /// Server-issued id for this turn (assistant turns only). Used as
     /// `previous_response_id` on the next user turn so OpenClaw keeps
     /// the transcript across devices.
     var responseID: String?
     /// `previous_response_id` we sent for this turn (user turns).
-    /// Lets a different device reconstruct the chain.
     var previousResponseID: String?
     /// `true` while the assistant message is still being streamed.
-    /// Not persisted to RTDB — clients show a "typing" indicator
-    /// locally and overwrite the message when the final text lands.
+    /// Not persisted — clients show a "typing" indicator locally and
+    /// overwrite when the final text lands.
     var pending: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case id, role, text, createdAt, responseID, previousResponseID
+        case id, role, content, timestamp, isHidden, responseID, previousResponseID
     }
 }
 
@@ -85,8 +89,9 @@ final class ChatStore: ObservableObject {
         let userMsg = ChatMessage(
             id: UUID().uuidString,
             role: .user,
-            text: text,
-            createdAt: now,
+            content: text,
+            timestamp: now,
+            isHidden: nil,
             responseID: nil,
             previousResponseID: previousID,
             pending: nil
@@ -97,8 +102,9 @@ final class ChatStore: ObservableObject {
         var assistant = ChatMessage(
             id: UUID().uuidString,
             role: .assistant,
-            text: "",
-            createdAt: now + 1,
+            content: "",
+            timestamp: now + 1,
+            isHidden: nil,
             responseID: nil,
             previousResponseID: previousID,
             pending: true
@@ -108,7 +114,7 @@ final class ChatStore: ObservableObject {
         defer { isSending.remove(tripID) }
 
         guard let gateway else {
-            assistant.text = "Gateway not configured. Set `WanderbotConfig.gatewayURL`."
+            assistant.content = "Gateway not configured. Set `WanderbotConfig.gatewayURL`."
             assistant.pending = false
             updateLocal(assistant, for: tripID)
             await rtdb?.upsertChatMessage(tripID: tripID, message: assistant)
@@ -119,20 +125,20 @@ final class ChatStore: ObservableObject {
             for try await event in gateway.send(text: text, previousResponseID: previousID) {
                 switch event {
                 case .delta(let chunk):
-                    assistant.text += chunk
+                    assistant.content += chunk
                     updateLocal(assistant, for: tripID)
                 case .completed(let id):
                     assistant.responseID = id
                     assistant.pending = false
                     updateLocal(assistant, for: tripID)
                 case .failed(let msg):
-                    assistant.text += assistant.text.isEmpty ? msg : "\n\n⚠️ \(msg)"
+                    assistant.content += assistant.content.isEmpty ? msg : "\n\n⚠️ \(msg)"
                     assistant.pending = false
                     updateLocal(assistant, for: tripID)
                 }
             }
         } catch {
-            assistant.text += assistant.text.isEmpty
+            assistant.content += assistant.content.isEmpty
                 ? "Couldn't reach the gateway: \(error.localizedDescription)"
                 : "\n\n⚠️ \(error.localizedDescription)"
             assistant.pending = false
@@ -167,10 +173,10 @@ final class ChatStore: ObservableObject {
         let local = messagesByTrip[tripID] ?? []
         let localPending = local.filter { $0.pending == true }
         var byID: [String: ChatMessage] = [:]
-        for m in incoming { byID[m.id] = m }
+        for m in incoming where m.isHidden != true { byID[m.id] = m }
         for p in localPending { byID[p.id] = p }
         messagesByTrip[tripID] = byID.values
-            .sorted { $0.createdAt < $1.createdAt }
+            .sorted { $0.timestamp < $1.timestamp }
     }
 
     func messages(for tripID: String?) -> [ChatMessage] {
