@@ -50,7 +50,7 @@ struct RootView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(item: bookingBinding) { booking in
-            BookingDetailSheet(booking: booking)
+            BookingDetailSheet(initialBooking: booking)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }

@@ -149,7 +149,7 @@ final class TravelStore: ObservableObject {
     /// from the new wall-clock seconds so the itinerary stays sorted
     /// chronologically. Persists via `start` + `position` PATCH so a
     /// concurrent edit to another field isn't clobbered.
-    func updateTime(_ booking: Booking, newStart: Date) {
+    func updateStartTime(_ booking: Booking, newStart: Date) {
         guard isTimeEditable(booking) else { return }
         var updated = booking
         updated.start = newStart
@@ -170,20 +170,54 @@ final class TravelStore: ObservableObject {
     }
 
     /// Strip the start time, flipping the booking back to "untimed".
-    /// Mirrors the web's "no start" convention (see Booking.start docs).
-    /// Position resets to the sort-to-end default so untimed items
-    /// land at the bottom of their day.
-    func clearTime(_ booking: Booking) {
+    /// Also clears the end time (no end without start). Position
+    /// resets to the sort-to-end default so untimed items land at the
+    /// bottom of their day.
+    func clearStartTime(_ booking: Booking) {
         guard isTimeEditable(booking) else { return }
-        guard booking.start != nil else { return }
+        guard booking.start != nil || booking.end != nil else { return }
         var updated = booking
         updated.start = nil
+        updated.end = nil
         updated.position = 86400
         applyBookingUpdate(updated)
         Task {
             guard let rtdb else { return }
             await rtdb.patch(
-                ["start": NSNull(), "position": 86400],
+                ["start": NSNull(), "end": NSNull(), "position": 86400],
+                at: "wanderbot/bookings/\(booking.id)"
+            )
+        }
+    }
+
+    /// Update the end time. Only meaningful when the booking already
+    /// has a start. PATCHes end + nothing else.
+    func updateEndTime(_ booking: Booking, newEnd: Date) {
+        guard isTimeEditable(booking) else { return }
+        guard booking.start != nil else { return }
+        var updated = booking
+        updated.end = newEnd
+        applyBookingUpdate(updated)
+        Task {
+            guard let rtdb else { return }
+            await rtdb.patch(
+                ["end": WBDates.formatWallClock(newEnd)],
+                at: "wanderbot/bookings/\(booking.id)"
+            )
+        }
+    }
+
+    /// Strip the end time. Keeps start intact.
+    func clearEndTime(_ booking: Booking) {
+        guard isTimeEditable(booking) else { return }
+        guard booking.end != nil else { return }
+        var updated = booking
+        updated.end = nil
+        applyBookingUpdate(updated)
+        Task {
+            guard let rtdb else { return }
+            await rtdb.patch(
+                ["end": NSNull()],
                 at: "wanderbot/bookings/\(booking.id)"
             )
         }

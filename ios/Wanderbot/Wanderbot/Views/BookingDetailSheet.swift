@@ -5,23 +5,39 @@ import MapKit
 /// editable form rows: timing is editable for everything except
 /// flights and hotels (those come from confirmation emails and the
 /// agent owns the timestamps); notes are editable for every type.
+///
+/// `BookingDetailSheet` re-reads the booking from `TravelStore` on
+/// every render. SwiftUI's `.sheet(item:)` captures the value at
+/// present time and never re-invokes the content closure even when
+/// the bound item's fields change — so the parent passes us a stable
+/// id and we look up the live booking ourselves. Without this, the
+/// "Add time" button would tap-noop because the sheet kept showing
+/// the pre-tap (untimed) snapshot.
 struct BookingDetailSheet: View {
-    let booking: Booking
+    /// Used solely for id lookup. The booking displayed in the body
+    /// is `liveBooking`, fetched from the store each render so
+    /// optimistic updates show immediately.
+    let initialBooking: Booking
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: TravelStore
+
+    private var booking: Booking {
+        store.bookings.first(where: { $0.id == initialBooking.id }) ?? initialBooking
+    }
 
     private var place: Place? { booking.mapPlace }
 
     var body: some View {
+        let b = booking
         NavigationStack {
             List {
                 Section {
-                    HeaderRow(booking: booking)
+                    HeaderRow(booking: b)
                         .listRowInsets(EdgeInsets(top: 12, leading: 14, bottom: 8, trailing: 14))
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                     if let place {
-                        MapPreview(place: place, type: booking.type)
+                        MapPreview(place: place, type: b.type)
                             .frame(height: 180)
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                             .listRowInsets(EdgeInsets(top: 0, leading: 14, bottom: 8, trailing: 14))
@@ -30,16 +46,16 @@ struct BookingDetailSheet: View {
                     }
                 }
 
-                WhenSection(booking: booking)
+                WhenSection(booking: b)
                 WhereSection(place: place)
-                FlightSection(booking: booking)
-                DetailsSection(booking: booking)
-                NotesSection(booking: booking)
+                FlightSection(booking: b)
+                DetailsSection(booking: b)
+                NotesSection(booking: b)
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Theme.background)
-            .navigationTitle(booking.type.label)
+            .navigationTitle(b.type.label)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -48,6 +64,14 @@ struct BookingDetailSheet: View {
             }
         }
     }
+
+    /// UTC calendar used wherever we need to add hours to a date and
+    /// have the result stay in our wall-clock convention.
+    static let utcCalendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }()
 }
 
 // MARK: - Hero
@@ -81,9 +105,16 @@ private struct HeaderRow: View {
 
 // MARK: - When
 
-/// "When" section. Editable items either show a DatePicker (when a
-/// start time is set) or an "Add time" affordance (when untimed).
-/// Flights/hotels get a read-only display with a small "locked"
+/// "When" section. For editable bookings:
+///   - no start: "Add time" button (seeds noon UTC on dayKey)
+///   - start only: start picker + "Add end time" + "Remove time"
+///   - start + end: both pickers + "Remove end time" + "Remove time"
+///
+/// Both pickers bind through closures that call directly into the
+/// store, so the DatePicker value always reflects the current store
+/// state — no @State buffers to drift.
+///
+/// Flights / hotels render read-only with a "comes from confirmation"
 /// caption.
 private struct WhenSection: View {
     let booking: Booking
@@ -94,11 +125,7 @@ private struct WhenSection: View {
     var body: some View {
         Section {
             if editable {
-                if booking.start != nil {
-                    EditableTimeRow(booking: booking)
-                } else {
-                    AddTimeRow(booking: booking)
-                }
+                EditableWhenRows(booking: booking)
             } else if booking.start != nil || booking.end != nil {
                 if let start = booking.start {
                     InlineDetail(label: "Starts", value: formatted(start))
@@ -122,8 +149,6 @@ private struct WhenSection: View {
     }
 
     private func formatted(_ date: Date) -> String {
-        // Wall-clock formatting — date components were stored in UTC
-        // so reading back via UTC gives the original hour/minute.
         let f = DateFormatter()
         f.dateFormat = "EEE, MMM d · h:mm a"
         f.timeZone = TimeZone(identifier: "UTC")
@@ -131,95 +156,92 @@ private struct WhenSection: View {
     }
 }
 
-/// One DatePicker bound to the booking's start time. Only rendered
-/// when `booking.start != nil`. We use a local @State because
-/// DatePicker wants a non-optional Date; the source of truth still
-/// lives in the store, and any change flushes via `store.updateTime`
-/// which optimistically writes through to RTDB.
-private struct EditableTimeRow: View {
+private struct EditableWhenRows: View {
     let booking: Booking
     @EnvironmentObject private var store: TravelStore
-    @State private var time: Date
-
-    init(booking: Booking) {
-        self.booking = booking
-        // `start` is guaranteed by WhenSection before rendering us.
-        self._time = State(initialValue: booking.start ?? Date())
-    }
 
     var body: some View {
-        // Pin the picker's calendar/timezone to UTC. Internally
-        // DatePicker uses the environment timezone to render h/m, so
-        // without this a 3:00 PM wall-clock value (stored in UTC)
-        // would display as 8:00 AM PDT on the picker dial.
-        DatePicker("Starts",
-                   selection: $time,
-                   displayedComponents: [.hourAndMinute])
+        if booking.start == nil {
+            Button {
+                store.updateStartTime(booking, newStart: defaultNoon())
+            } label: {
+                Label("Add time", systemImage: "clock")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.ink)
+            }
+        } else {
+            // Direct-binding DatePickers — no local @State so the
+            // value always tracks the store, even when the booking
+            // changes from outside (SSE sync, another tab, etc.).
+            DatePicker(
+                "Starts",
+                selection: startBinding,
+                displayedComponents: [.hourAndMinute]
+            )
             .environment(\.timeZone, TimeZone(identifier: "UTC")!)
             .environment(\.calendar, BookingDetailSheet.utcCalendar)
-            .onChange(of: time) { _, newValue in
-                store.updateTime(booking, newStart: newValue)
+
+            if booking.end == nil {
+                Button {
+                    store.updateEndTime(booking, newEnd: defaultEnd())
+                } label: {
+                    Label("Add end time", systemImage: "clock.badge.checkmark")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Theme.ink)
+                }
+            } else {
+                DatePicker(
+                    "Ends",
+                    selection: endBinding,
+                    displayedComponents: [.hourAndMinute]
+                )
+                .environment(\.timeZone, TimeZone(identifier: "UTC")!)
+                .environment(\.calendar, BookingDetailSheet.utcCalendar)
+
+                Button(role: .destructive) {
+                    store.clearEndTime(booking)
+                } label: {
+                    Text("Remove end time")
+                        .font(.system(size: 14))
+                }
             }
-        if let end = booking.end {
-            // End times stay read-only for now — auto-calculated for
-            // multi-day items and not commonly user-edited.
-            InlineDetail(label: "Ends", value: humanFormat(end))
-        }
-        Button("Remove time", role: .destructive) {
-            store.clearTime(booking)
-        }
-        .font(.system(size: 14))
-    }
 
-    private func humanFormat(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "EEE, MMM d · h:mm a"
-        f.timeZone = TimeZone(identifier: "UTC")
-        return f.string(from: date)
-    }
-}
-
-/// Untimed-booking row. Single "Add time" button that, on tap, seeds
-/// the booking with a sensible default (noon on its dayKey). Once a
-/// time exists, `WhenSection` swaps in `EditableTimeRow` instead.
-private struct AddTimeRow: View {
-    let booking: Booking
-    @EnvironmentObject private var store: TravelStore
-
-    var body: some View {
-        Button {
-            store.updateTime(booking, newStart: defaultStart(for: booking))
-        } label: {
-            HStack {
-                Image(systemName: "clock")
-                    .font(.system(size: 14, weight: .medium))
-                Text("Add time")
-                    .font(.system(size: 15, weight: .medium))
-                Spacer()
+            Button(role: .destructive) {
+                store.clearStartTime(booking)
+            } label: {
+                Text("Remove time")
+                    .font(.system(size: 14))
             }
-            .foregroundStyle(Theme.ink)
-            .padding(.vertical, 2)
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("Sets the start time to 12:00 PM by default; tap again to adjust.")
     }
 
-    /// Default seed time when the user first taps "Add time": noon
-    /// UTC on the booking's dayKey. Picked because (a) it's right in
-    /// the middle of a typical itinerary day, and (b) UTC matches
-    /// our wall-clock storage convention.
-    private func defaultStart(for booking: Booking) -> Date {
+    private var startBinding: Binding<Date> {
+        Binding(
+            get: { booking.start ?? defaultNoon() },
+            set: { store.updateStartTime(booking, newStart: $0) }
+        )
+    }
+
+    private var endBinding: Binding<Date> {
+        Binding(
+            get: { booking.end ?? defaultEnd() },
+            set: { store.updateEndTime(booking, newEnd: $0) }
+        )
+    }
+
+    /// Noon UTC on the booking's dayKey — seed value when the user
+    /// taps "Add time".
+    private func defaultNoon() -> Date {
         let base = ISO8601.day(from: booking.dayKey) ?? Date()
         return BookingDetailSheet.utcCalendar.date(byAdding: .hour, value: 12, to: base) ?? base
     }
-}
 
-extension BookingDetailSheet {
-    static let utcCalendar: Calendar = {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone(identifier: "UTC")!
-        return c
-    }()
+    /// One hour after the current start — seed value when the user
+    /// taps "Add end time".
+    private func defaultEnd() -> Date {
+        let start = booking.start ?? defaultNoon()
+        return BookingDetailSheet.utcCalendar.date(byAdding: .hour, value: 1, to: start) ?? start
+    }
 }
 
 // MARK: - Where
