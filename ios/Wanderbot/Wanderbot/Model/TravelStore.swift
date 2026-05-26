@@ -120,6 +120,89 @@ final class TravelStore: ObservableObject {
                          at: "wanderbot/bookings/\(booking.id)")
     }
 
+    // MARK: - Inline edits (time, notes)
+
+    /// Type-by-type rule for whether the start time can be edited. Same
+    /// shape as the web app: confirmation-backed bookings (flight,
+    /// hotel) stay locked because the source-of-truth is the inbox
+    /// scan; user-chosen items can be slid around.
+    func isTimeEditable(_ booking: Booking) -> Bool {
+        switch booking.type {
+        case .flight, .hotel: return false
+        case .attraction, .experience, .event, .activity, .restaurant, .transport: return true
+        }
+    }
+
+    /// Update the start time. Keeps the booking on the same dayKey
+    /// (the picker only edits hour/minute), and rewrites `position`
+    /// from the new wall-clock seconds so the itinerary stays sorted
+    /// chronologically. Persists via `start` + `position` PATCH so a
+    /// concurrent edit to another field isn't clobbered.
+    func updateTime(_ booking: Booking, newStart: Date) {
+        guard isTimeEditable(booking) else { return }
+        var updated = booking
+        updated.start = newStart
+        updated.position = positionFor(date: newStart)
+        applyBookingUpdate(updated)
+        Task { await persistTime(updated) }
+    }
+
+    private func persistTime(_ booking: Booking) async {
+        guard let rtdb, let start = booking.start else { return }
+        await rtdb.patch(
+            [
+                "start": Self.isoString(from: start),
+                "position": booking.position,
+            ],
+            at: "wanderbot/bookings/\(booking.id)"
+        )
+    }
+
+    /// Wall-clock seconds since midnight in UTC, matching the web
+    /// agent's initial position formula. Sorting within a day stays
+    /// chronological as long as we use the same units.
+    private func positionFor(date: Date) -> Double {
+        let cal = Calendar(identifier: .gregorian)
+        var c = cal
+        c.timeZone = TimeZone(identifier: "UTC")!
+        let comps = c.dateComponents([.hour, .minute, .second], from: date)
+        let h = Double(comps.hour ?? 0)
+        let m = Double(comps.minute ?? 0)
+        let s = Double(comps.second ?? 0)
+        return h * 3600 + m * 60 + s
+    }
+
+    /// Update notes. Empty string clears the field on RTDB; nil-out
+    /// rather than send `""` so the JSON stays clean.
+    func updateNotes(_ booking: Booking, notes: String) {
+        var updated = booking
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.notes = trimmed.isEmpty ? nil : trimmed
+        guard updated.notes != booking.notes else { return }
+        applyBookingUpdate(updated)
+        Task { await persistNotes(updated) }
+    }
+
+    private func persistNotes(_ booking: Booking) async {
+        guard let rtdb else { return }
+        let value: Any = booking.notes ?? NSNull()
+        await rtdb.patch(["notes": value],
+                         at: "wanderbot/bookings/\(booking.id)")
+    }
+
+    /// ISO 8601 with seconds + UTC offset — matches the shape the
+    /// agent writes (e.g. "2026-06-19T20:30:00+00:00"). Web and iOS
+    /// decoders both handle this round-trip.
+    private static let isoOutputFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private static func isoString(from date: Date) -> String {
+        isoOutputFormatter.string(from: date)
+    }
+
     /// Upcoming (asc) then past (desc) — matches the React mobile shell.
     var orderedTrips: [Trip] {
         let today = ISO8601.dayKey(from: Calendar.current.startOfDay(for: Date()))
