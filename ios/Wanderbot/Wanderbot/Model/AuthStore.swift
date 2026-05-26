@@ -93,23 +93,36 @@ final class AuthStore: NSObject, ObservableObject {
         guard let authURL = Self.buildBridgeURL() else {
             throw SignInError.missingConfig
         }
+        // The presentation anchor isn't ready the instant the gate
+        // view appears — wait a beat so the key window is mounted.
+        // Without this, session.start() returns false and the
+        // continuation resume races with the completion handler's
+        // resume (Swift treats that as a fatal SWIFT TASK
+        // CONTINUATION MISUSE).
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
         let callback = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL, Error>) in
             let scheme = WanderbotConfig.authReturnScheme
+            // Single-shot resume guard. ASWebAuthenticationSession's
+            // completion handler can still fire when start() fails,
+            // so both paths must funnel through one resume call.
+            let resumer = ContinuationResumer<URL>(cont)
             let session = ASWebAuthenticationSession(
                 url: authURL,
                 callbackURLScheme: scheme
             ) { url, error in
-                if let url { cont.resume(returning: url) }
-                else if let error {
+                if let url {
+                    resumer.resume(.success(url))
+                } else if let error {
                     let ns = error as NSError
                     if ns.domain == ASWebAuthenticationSessionError.errorDomain,
                        ns.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
-                        cont.resume(throwing: SignInError.cancelled)
+                        resumer.resume(.failure(SignInError.cancelled))
                     } else {
-                        cont.resume(throwing: SignInError.other(error.localizedDescription))
+                        resumer.resume(.failure(SignInError.other(error.localizedDescription)))
                     }
                 } else {
-                    cont.resume(throwing: SignInError.other("Unknown sign-in result"))
+                    resumer.resume(.failure(SignInError.other("Unknown sign-in result")))
                 }
             }
             session.presentationContextProvider = self
@@ -119,7 +132,7 @@ final class AuthStore: NSObject, ObservableObject {
             self.session = session
             let started = session.start()
             if !started {
-                cont.resume(throwing: SignInError.other("Could not open the sign-in browser."))
+                resumer.resume(.failure(SignInError.other("Could not open the sign-in browser.")))
             }
         }
         return try Self.parseCallback(callback)
@@ -178,11 +191,42 @@ final class AuthStore: NSObject, ObservableObject {
 extension AuthStore: ASWebAuthenticationPresentationContextProviding {
     nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         // Pick the topmost active key window. SwiftUI apps don't surface
-        // this directly, so we walk the connected scenes.
+        // this directly, so we walk the connected scenes. Falling back
+        // to a brand-new ASPresentationAnchor() makes start() fail
+        // silently, so we instead try any window from any scene before
+        // giving up.
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let anchor = scenes
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow } ?? scenes.first?.windows.first
-        return anchor ?? ASPresentationAnchor()
+        if let keyWindow = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow }) {
+            return keyWindow
+        }
+        if let anyWindow = scenes.flatMap({ $0.windows }).first {
+            return anyWindow
+        }
+        return ASPresentationAnchor()
+    }
+}
+
+/// Wraps a `CheckedContinuation` so it can only be resumed once,
+/// no matter how many code paths race to call it. ASWebAuthenticationSession's
+/// completion handler can fire even after a synchronous `start()`
+/// failure, so both paths funnel through this guard.
+private final class ContinuationResumer<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Error>?
+
+    init(_ continuation: CheckedContinuation<T, Error>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ result: Result<T, Error>) {
+        lock.lock()
+        let cont = continuation
+        continuation = nil
+        lock.unlock()
+        guard let cont else { return }
+        switch result {
+        case .success(let v): cont.resume(returning: v)
+        case .failure(let e): cont.resume(throwing: e)
+        }
     }
 }
