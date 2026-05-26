@@ -5,6 +5,10 @@ import MapKit
 /// `focusedBookingId` changes the camera animates to centre that pin —
 /// mirrors the desktop TripMap's behaviour of following the user as
 /// they scroll through itinerary cards.
+///
+/// Tapping a marker opens a confirmation dialog with "Open in Apple
+/// Maps" / "Open in Google Maps" so the user can get directions in
+/// their preferred app.
 struct TripMapView: View {
     let trip: Trip
     let bookings: [Booking]
@@ -12,20 +16,25 @@ struct TripMapView: View {
     let onMarkerTap: (Booking.ID) -> Void
 
     @State private var cameraPosition: MapCameraPosition = .automatic
+    @State private var directionsTarget: Place?
 
     private var markers: [MapMarkerItem] {
         bookings.compactMap { b in
             guard let place = b.mapPlace else { return nil }
-            return MapMarkerItem(id: b.id, type: b.type, title: b.title, coordinate: place.coordinate)
+            return MapMarkerItem(id: b.id, type: b.type, title: b.title, place: place)
         }
     }
 
     var body: some View {
         Map(position: $cameraPosition, interactionModes: [.pan, .zoom]) {
             ForEach(markers) { marker in
-                Annotation(marker.title, coordinate: marker.coordinate) {
+                Annotation(marker.title, coordinate: marker.place.coordinate) {
                     Button {
+                        // Centre the map on the tapped pin so the
+                        // confirmation dialog sits over a useful
+                        // backdrop, and then open the dialog.
                         onMarkerTap(marker.id)
+                        directionsTarget = marker.place
                     } label: {
                         ZStack {
                             Circle()
@@ -49,13 +58,14 @@ struct TripMapView: View {
         .onAppear { recenter(animated: false) }
         .onChange(of: focusedBookingId) { _, _ in recenter(animated: true) }
         .onChange(of: trip.id) { _, _ in recenter(animated: false) }
+        .directionsConfirmation(for: $directionsTarget)
     }
 
     private func recenter(animated: Bool) {
         if let focusedId = focusedBookingId,
            let m = markers.first(where: { $0.id == focusedId }) {
             let region = MKCoordinateRegion(
-                center: m.coordinate,
+                center: m.place.coordinate,
                 span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
             )
             withAnimation(animated ? .easeInOut(duration: 0.35) : nil) {
@@ -63,12 +73,12 @@ struct TripMapView: View {
             }
         } else if markers.count == 1 {
             let region = MKCoordinateRegion(
-                center: markers[0].coordinate,
+                center: markers[0].place.coordinate,
                 span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
             )
             cameraPosition = .region(region)
         } else if !markers.isEmpty {
-            let rect = boundingRect(for: markers.map(\.coordinate))
+            let rect = boundingRect(for: markers.map(\.place.coordinate))
             cameraPosition = .rect(rect)
         }
     }
@@ -91,5 +101,5 @@ private struct MapMarkerItem: Identifiable {
     let id: String
     let type: BookingType
     let title: String
-    let coordinate: CLLocationCoordinate2D
+    let place: Place
 }

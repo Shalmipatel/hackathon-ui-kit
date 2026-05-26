@@ -332,6 +332,8 @@ private struct MapPreview: View {
     let place: Place
     let type: BookingType
 
+    @State private var directionsTarget: Place?
+
     var body: some View {
         Map(initialPosition: .region(
             MKCoordinateRegion(
@@ -351,5 +353,11 @@ private struct MapPreview: View {
             }
         }
         .mapStyle(.standard(pointsOfInterest: .excludingAll))
+        // The map has interaction disabled so taps go through the
+        // hosting view — opens the directions sheet directly without
+        // needing a marker tap to land precisely.
+        .contentShape(Rectangle())
+        .onTapGesture { directionsTarget = place }
+        .directionsConfirmation(for: $directionsTarget)
     }
 }

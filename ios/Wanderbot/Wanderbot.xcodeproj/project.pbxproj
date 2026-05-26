@@ -32,6 +32,7 @@
 		A1000010000000000000019 /* ChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000019 /* ChatStore.swift */; };
 		A100001000000000000001A /* FlightHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000001A /* FlightHeaderView.swift */; };
 		A100001000000000000001B /* AllTripsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000001B /* AllTripsView.swift */; };
+		A100001000000000000001C /* MapDirections.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000001C /* MapDirections.swift */; };
 		A1000010000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000014 /* Assets.xcassets */; };
 		A1000010000000000000015 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000015 /* Preview Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -63,6 +64,7 @@
 		A1000000000000000000019 /* ChatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStore.swift; sourceTree = "<group>"; };
 		A100000000000000000001A /* FlightHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightHeaderView.swift; sourceTree = "<group>"; };
 		A100000000000000000001B /* AllTripsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllTripsView.swift; sourceTree = "<group>"; };
+		A100000000000000000001C /* MapDirections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapDirections.swift; sourceTree = "<group>"; };
 		A1000000000000000000014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000000000000000000015 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -120,6 +122,7 @@
 				A1000000000000000000017 /* FirebaseRTDB.swift */,
 				A1000000000000000000018 /* GatewayClient.swift */,
 				A1000000000000000000019 /* ChatStore.swift */,
+				A100000000000000000001C /* MapDirections.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -247,6 +250,7 @@
 				A1000010000000000000019 /* ChatStore.swift in Sources */,
 				A100001000000000000001A /* FlightHeaderView.swift in Sources */,
 				A100001000000000000001B /* AllTripsView.swift in Sources */,
+				A100001000000000000001C /* MapDirections.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -381,6 +385,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"Wanderbot/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Wanderbot/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -409,6 +414,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"Wanderbot/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Wanderbot/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
