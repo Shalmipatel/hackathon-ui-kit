@@ -66,7 +66,10 @@ struct DraggableBookingsList: View {
             .zIndex(isDragging ? 1 : 0)
             .opacity(isDragging ? 0.96 : 1)
             .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.85), value: isDragging)
-            .gesture(unlocked ? dragGesture(for: booking, at: index) : nil)
+            // simultaneousGesture so the outer List's pan recogniser
+            // still wins for normal swipes — finger-down + immediate
+            // motion is scroll, finger-down held still for 0.5s is drag.
+            .simultaneousGesture(unlocked ? dragGesture(for: booking, at: index) : nil)
 
             if dropTargetIndex == index && draggingId != nil && draggingId != booking.id {
                 DropIndicator()
@@ -82,10 +85,11 @@ struct DraggableBookingsList: View {
     }
 
     private func dragGesture(for booking: Booking, at index: Int) -> some Gesture {
-        // Long press first so a tap (open detail) doesn't get treated as
-        // a zero-distance drag. 0.3s feels close to the native iOS
-        // reorder threshold.
-        LongPressGesture(minimumDuration: 0.3)
+        // Long press first so a tap (open detail) and a quick swipe
+        // (scroll) don't get treated as drags. 0.5s matches the
+        // native iOS reorder threshold — long enough to disambiguate
+        // from any incidental finger-down during scrolling.
+        LongPressGesture(minimumDuration: 0.5)
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(dayCoordSpace)))
             .updating($dragHaptic) { value, state, _ in
                 if case .second(true, .some(_)) = value, state == false {
