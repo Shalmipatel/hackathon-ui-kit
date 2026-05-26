@@ -26,6 +26,8 @@
 		A1000010000000000000011 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000011 /* SettingsView.swift */; };
 		A1000010000000000000012 /* BookingType+UI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000012 /* BookingType+UI.swift */; };
 		A1000010000000000000013 /* DateFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000013 /* DateFormatters.swift */; };
+		A1000010000000000000016 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000016 /* Config.swift */; };
+		A1000010000000000000017 /* FirebaseRTDB.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000017 /* FirebaseRTDB.swift */; };
 		A1000010000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000014 /* Assets.xcassets */; };
 		A1000010000000000000015 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000015 /* Preview Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -51,6 +53,8 @@
 		A1000000000000000000011 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A1000000000000000000012 /* BookingType+UI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BookingType+UI.swift"; sourceTree = "<group>"; };
 		A1000000000000000000013 /* DateFormatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFormatters.swift; sourceTree = "<group>"; };
+		A1000000000000000000016 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
+		A1000000000000000000017 /* FirebaseRTDB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseRTDB.swift; sourceTree = "<group>"; };
 		A1000000000000000000014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000000000000000000015 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -104,6 +108,8 @@
 				A1000000000000000000006 /* SampleData.swift */,
 				A1000000000000000000012 /* BookingType+UI.swift */,
 				A1000000000000000000013 /* DateFormatters.swift */,
+				A1000000000000000000016 /* Config.swift */,
+				A1000000000000000000017 /* FirebaseRTDB.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -223,6 +229,8 @@
 				A1000010000000000000011 /* SettingsView.swift in Sources */,
 				A1000010000000000000012 /* BookingType+UI.swift in Sources */,
 				A1000010000000000000013 /* DateFormatters.swift in Sources */,
+				A1000010000000000000016 /* Config.swift in Sources */,
+				A1000010000000000000017 /* FirebaseRTDB.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

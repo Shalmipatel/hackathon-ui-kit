@@ -26,7 +26,7 @@ struct RootView: View {
                 )
 
                 if orderedTrips.isEmpty {
-                    EmptyTripsView()
+                    EmptyTripsView(state: store.syncState)
                 } else {
                     TripPagerView(
                         trips: orderedTrips,
@@ -106,17 +106,27 @@ struct RootView: View {
 }
 
 private struct EmptyTripsView: View {
+    let state: TravelStore.SyncState
+
     var body: some View {
-        VStack(spacing: 6) {
-            Text("No trips yet")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Theme.ink)
-            Text("Connect Gmail and ask the assistant to scan your inbox — your trips will appear here.")
-                .font(.system(size: 14))
-                .foregroundStyle(Theme.inkMuted)
-                .multilineTextAlignment(.center)
-                .lineSpacing(3)
-                .frame(maxWidth: 280)
+        VStack(spacing: 10) {
+            if state == .loading {
+                ProgressView()
+                    .tint(Theme.inkMuted)
+                Text("Loading trips…")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.inkMuted)
+            } else {
+                Text("No trips yet")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                Text("Connect Gmail and ask the assistant to scan your inbox — your trips will appear here.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.inkMuted)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .frame(maxWidth: 280)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(32)

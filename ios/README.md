@@ -41,17 +41,38 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 | "Past trip" pill | `PastTripBadge` in `ItineraryView.swift` |
 | Brand: yellow paper-plane + "Wanderbot" | `TopBarView.swift` |
 
+## Real data
+
+The iOS app reads from the same Firebase Realtime Database the web
+app does. Connection settings live in
+[`Model/Config.swift`](Wanderbot/Wanderbot/Model/Config.swift) —
+swap the database URL there for your own RTDB instance.
+
+Boot flow ([`TravelStore.bootstrap`](Wanderbot/Wanderbot/Model/TravelStore.swift)):
+1. REST `GET /wanderbot/trips.json` + `/wanderbot/bookings.json` for an
+   immediate snapshot.
+2. Open SSE streams on the same endpoints (`Accept: text/event-stream`)
+   for live updates — handles `put` / `patch` events at both root and
+   per-id paths, just like the web app's `onValue` subscription.
+3. Each snapshot is applied to the `@Published` trips/bookings; the
+   UI rerenders automatically.
+
+When `Config.firebaseDatabaseURL` is empty the app falls back to the
+bundled `SampleData` so development without RTDB still works.
+
 ## What's out of scope
 
-The React app's backend wiring (OpenClaw transport, Firebase RTDB
-sync, Gmail OAuth, booking ingestion from chat replies) is not ported.
-The Swift app loads `SampleData.trips` so the UI is populated for
-development; replace `TravelStore.sampleStore()` with real data when
-you wire up a backend.
+Bookings flow into RTDB from the web app's chat ingestion path. The
+iOS app **mirrors** them but doesn't yet write back — no inline editing,
+no booking creation, no `PUT` / `DELETE` round-trip. Add those when
+you need them; the seam is at the bottom of `FirebaseRTDB.swift`.
 
-The chat sheet (`ChatSheet.swift`) produces canned local replies and
-does not call the OpenClaw Responses API. Plug a real transport into
-its `send()` method.
+The chat sheet ([`ChatSheet.swift`](Wanderbot/Wanderbot/Views/ChatSheet.swift))
+produces canned local replies and does not call the OpenClaw Responses
+API. Plug a real transport into its `send()` method.
+
+Gmail OAuth is also not ported — `ConnectionsView` shows the source
+list as a static UI placeholder.
 
 ## Layout
 

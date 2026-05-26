@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct WanderbotApp: App {
-    @StateObject private var store = TravelStore.sampleStore()
+    @StateObject private var store = TravelStore()
 
     var body: some Scene {
         WindowGroup {
@@ -10,6 +10,7 @@ struct WanderbotApp: App {
                 .environmentObject(store)
                 .preferredColorScheme(.light)
                 .tint(Theme.ink)
+                .task { store.bootstrap() }
         }
     }
 }

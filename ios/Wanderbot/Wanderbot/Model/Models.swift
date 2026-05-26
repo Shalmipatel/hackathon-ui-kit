@@ -59,6 +59,127 @@ struct Booking: Identifiable, Hashable, Codable {
     var mapPlace: Place? {
         place ?? to ?? from
     }
+
+    init(
+        id: String,
+        tripId: String,
+        type: BookingType,
+        title: String,
+        dayKey: String,
+        position: Double,
+        start: Date? = nil,
+        end: Date? = nil,
+        confirmation: String? = nil,
+        provider: String? = nil,
+        source: BookingSource,
+        notes: String? = nil,
+        emailSubject: String? = nil,
+        link: String? = nil,
+        cost: Cost? = nil,
+        place: Place? = nil,
+        from: Place? = nil,
+        to: Place? = nil,
+        flightNumber: String? = nil,
+        cabin: String? = nil,
+        mode: String? = nil,
+        partySize: Int? = nil,
+        nights: Int? = nil
+    ) {
+        self.id = id
+        self.tripId = tripId
+        self.type = type
+        self.title = title
+        self.dayKey = dayKey
+        self.position = position
+        self.start = start
+        self.end = end
+        self.confirmation = confirmation
+        self.provider = provider
+        self.source = source
+        self.notes = notes
+        self.emailSubject = emailSubject
+        self.link = link
+        self.cost = cost
+        self.place = place
+        self.from = from
+        self.to = to
+        self.flightNumber = flightNumber
+        self.cabin = cabin
+        self.mode = mode
+        self.partySize = partySize
+        self.nights = nights
+    }
+
+    /// Decode `start`/`end` as ISO8601 strings — RTDB stores them as
+    /// strings, not numbers. Unknown extra fields (like the legacy
+    /// `hasTime` flag) get ignored, matching the web app's read path.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        tripId = try c.decode(String.self, forKey: .tripId)
+        type = try c.decode(BookingType.self, forKey: .type)
+        title = try c.decode(String.self, forKey: .title)
+        dayKey = try Booking.decodeDayKey(from: c)
+        position = try Booking.decodePosition(from: c, dayKey: dayKey)
+        start = try Booking.decodeDate(c, .start)
+        end = try Booking.decodeDate(c, .end)
+        confirmation = try c.decodeIfPresent(String.self, forKey: .confirmation)
+        provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        source = try c.decodeIfPresent(BookingSource.self, forKey: .source) ?? .agent
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        emailSubject = try c.decodeIfPresent(String.self, forKey: .emailSubject)
+        link = try c.decodeIfPresent(String.self, forKey: .link)
+        cost = try c.decodeIfPresent(Cost.self, forKey: .cost)
+        place = try c.decodeIfPresent(Place.self, forKey: .place)
+        from = try c.decodeIfPresent(Place.self, forKey: .from)
+        to = try c.decodeIfPresent(Place.self, forKey: .to)
+        flightNumber = try c.decodeIfPresent(String.self, forKey: .flightNumber)
+        cabin = try c.decodeIfPresent(String.self, forKey: .cabin)
+        mode = try c.decodeIfPresent(String.self, forKey: .mode)
+        partySize = try c.decodeIfPresent(Int.self, forKey: .partySize)
+        nights = try c.decodeIfPresent(Int.self, forKey: .nights)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, tripId, type, title, dayKey, position, start, end
+        case confirmation, provider, source, notes, emailSubject, link, cost
+        case place, from, to, flightNumber, cabin, mode, partySize, nights
+    }
+
+    private static func decodeDayKey(
+        from c: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String {
+        if let d = try c.decodeIfPresent(String.self, forKey: .dayKey) { return d }
+        // Legacy fallback: derive from `start` string prefix.
+        if let s = try c.decodeIfPresent(String.self, forKey: .start) {
+            return String(s.prefix(10))
+        }
+        throw DecodingError.dataCorruptedError(
+            forKey: .dayKey, in: c,
+            debugDescription: "Booking missing dayKey and start"
+        )
+    }
+
+    private static func decodePosition(
+        from c: KeyedDecodingContainer<CodingKeys>,
+        dayKey: String
+    ) throws -> Double {
+        if let p = try c.decodeIfPresent(Double.self, forKey: .position) { return p }
+        return 86400 // sort to end of day if missing
+    }
+
+    private static func decodeDate(
+        _ c: KeyedDecodingContainer<CodingKeys>,
+        _ key: CodingKeys
+    ) throws -> Date? {
+        // Two shapes show up in the wild: full ISO ("2026-06-20T07:52:00")
+        // and date-only ("2026-06-20"). Try both.
+        guard let raw = try c.decodeIfPresent(String.self, forKey: key) else { return nil }
+        if let d = WBDates.isoFlex.date(from: raw) { return d }
+        if let d = WBDates.iso8601.date(from: raw) { return d }
+        if let d = ISO8601.day(from: raw) { return d }
+        return nil
+    }
 }
 
 struct Trip: Identifiable, Hashable, Codable {
