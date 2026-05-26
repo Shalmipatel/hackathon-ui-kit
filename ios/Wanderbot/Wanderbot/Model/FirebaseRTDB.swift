@@ -389,8 +389,17 @@ private final class SSESession: NSObject, URLSessionDataDelegate {
     /// Apply one SSE event to the local map. RTDB's SSE protocol uses
     /// "put" (replace) and "patch" (merge) at a JSON path:
     ///   { "path": "/",         "data": {<full tree>} }
-    ///   { "path": "/<id>",     "data": {<one record>} }
+    ///   { "path": "/<id>",     "data": {<one record>} }   ← put
+    ///   { "path": "/<id>",     "data": {<partial fields>}} ← patch (PATCH)
     ///   { "path": "/<id>",     "data": null            }  ← delete
+    ///
+    /// Patch events carry only the changed fields. Trying to decode
+    /// them as a full Booking/Trip fails (missing required fields),
+    /// which left the local map stuck on the pre-patch value and
+    /// caused the snapshot we emit afterwards to overwrite the iOS
+    /// optimistic update — visible to the user as "tap Add time and
+    /// the picker disappears". For patch we merge field-by-field on
+    /// top of the existing record before re-decoding.
     private func apply(event: SSEParser.Event, toTrips isTrips: Bool) {
         guard event.eventName == "put" || event.eventName == "patch" else { return }
         guard let data = event.dataJSON,
@@ -417,11 +426,51 @@ private final class SSESession: NSObject, URLSessionDataDelegate {
             return
         }
 
+        if event.eventName == "patch" {
+            // Partial update — merge onto the existing record.
+            if isTrips, let existing = trips[id],
+               let merged: Trip = mergePatch(into: existing, with: payload) {
+                trips[id] = merged
+            } else if !isTrips, let existing = bookings[id],
+                      let merged: Booking = mergePatch(into: existing, with: payload) {
+                bookings[id] = merged
+            } else {
+                // No existing record to merge into — try a full decode
+                // in case the payload happens to be complete enough.
+                if isTrips, let trip: Trip = decodeOne(payload) { trips[id] = trip }
+                else if !isTrips, let booking: Booking = decodeOne(payload) { bookings[id] = booking }
+            }
+            return
+        }
+
+        // put — payload is the full record.
         if isTrips {
             if let trip: Trip = decodeOne(payload) { trips[id] = trip }
         } else {
             if let booking: Booking = decodeOne(payload) { bookings[id] = booking }
         }
+    }
+
+    /// Re-encode the existing record as JSON, overlay the patch's
+    /// fields (treating `null` as "remove this key" per RTDB's
+    /// convention), then decode back to T. Returns nil on any
+    /// encode/decode hiccup so the caller can keep the pre-patch
+    /// value.
+    private func mergePatch<T: Codable>(into existing: T, with payload: Any?) -> T? {
+        guard let patch = payload as? [String: Any] else { return nil }
+        guard let existingData = try? JSONEncoder().encode(existing),
+              var existingDict = try? JSONSerialization.jsonObject(with: existingData) as? [String: Any]
+        else { return nil }
+        for (k, v) in patch {
+            if v is NSNull {
+                existingDict.removeValue(forKey: k)
+            } else {
+                existingDict[k] = v
+            }
+        }
+        guard let mergedData = try? JSONSerialization.data(withJSONObject: existingDict)
+        else { return nil }
+        return try? JSONDecoder().decode(T.self, from: mergedData)
     }
 
     private func decodeMap<T: Decodable>(_ raw: Any?) -> [String: T]? {

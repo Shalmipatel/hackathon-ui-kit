@@ -1,193 +1,128 @@
 import SwiftUI
-import UIKit
+import CoreTransferable
+import UniformTypeIdentifiers
 
-/// A day's bookings, reorderable via long-press drag. Replaces the
-/// List `.onMove` approach because SwiftUI rejects moves that would
-/// shift any `.moveDisabled` row — i.e. an unlocked item couldn't
-/// pass a locked one, which violated the user's "drag around locked
-/// events" requirement.
+/// A day's bookings, reorderable via `.draggable` + `.dropDestination`.
 ///
-/// Drag feel is modelled on iOS Reminders / Files:
-///   - Long-press 0.5s on an unlocked card lifts it with a noticeable
-///     scale + drop shadow + medium haptic.
-///   - Other cards in the day dim to make the lifted card pop.
-///   - A thick brand-yellow bar shows exactly where the card will
-///     land; the bar moves between rows in response to drag location.
-///   - A light haptic ticks every time the target slot changes, so
-///     the user feels each "slot" as they pass over it.
-///   - Drop calls `store.reorder(_:toIndex:dayKey:)` which uses the
-///     visible-day midpoint math, so cards land cleanly between
-///     locked check-out / check-in pairs.
+/// Why these APIs and not a custom long-press gesture: the iOS
+/// drag-and-drop system natively coordinates with `UIScrollView`'s
+/// pan recogniser. The scroll view always wins for finger-down +
+/// immediate motion, and the drag only engages after the system's
+/// long-press is satisfied. A custom `LongPressGesture` attached via
+/// `.gesture` / `.simultaneousGesture` was holding the touch and
+/// preventing the parent List from scrolling.
 ///
-/// Locked cards have no gesture attached at all — they're inert.
+/// Drag semantics:
+///   - Unlocked card → `.draggable` payload + custom lifted-card preview.
+///     Locked cards have no `.draggable`, so they're inert (no lift).
+///   - Between every two cards (and above the first / below the last)
+///     a thin "rail" view is a `.dropDestination` that calls
+///     `store.reorder(_:toIndex:dayKey:)`. The targeted rail expands
+///     and highlights so the user can see exactly where the card will
+///     land — including in the gap between two locked items.
 struct DraggableBookingsList: View {
     let dayKey: String
     let bookings: [Booking]
     @Binding var selectedBookingId: Booking.ID?
 
     @EnvironmentObject private var store: TravelStore
-    @State private var draggingId: Booking.ID?
-    @State private var dragOffsetY: CGFloat = 0
-    @State private var rowFrames: [Booking.ID: CGRect] = [:]
-    @State private var dropTargetIndex: Int?
+    @State private var hoverIndex: Int?
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 0) {
             ForEach(Array(bookings.enumerated()), id: \.element.id) { idx, booking in
-                cardRow(for: booking, at: idx)
+                DropRail(index: idx, hoverIndex: $hoverIndex, onDrop: handleDrop)
+                row(for: booking, index: idx)
             }
+            DropRail(index: bookings.count, hoverIndex: $hoverIndex, onDrop: handleDrop)
         }
-        .coordinateSpace(name: dayCoordSpace)
-        .onPreferenceChange(BookingFrameKey.self) { rowFrames = $0 }
     }
-
-    private var dayCoordSpace: String { "day-\(dayKey)" }
 
     @ViewBuilder
-    private func cardRow(for booking: Booking, at index: Int) -> some View {
-        let isDragging = draggingId == booking.id
+    private func row(for booking: Booking, index: Int) -> some View {
         let unlocked = store.isUnlocked(booking)
-        let someoneIsDragging = draggingId != nil
-        let isOtherDimmed = someoneIsDragging && !isDragging
+        let card = BookingCardView(
+            booking: booking,
+            dayKey: dayKey,
+            unlocked: unlocked
+        )
+        .background(BookingPositionReporter(id: booking.id))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .onTapGesture { selectedBookingId = booking.id }
 
-        ZStack(alignment: .top) {
-            BookingCardView(
-                booking: booking,
-                dayKey: dayKey,
-                unlocked: unlocked
-            )
-            .background(BookingPositionReporter(id: booking.id))
-            .background(GeometryReader { proxy in
-                Color.clear.preference(
-                    key: BookingFrameKey.self,
-                    value: [booking.id: proxy.frame(in: .named(dayCoordSpace))]
-                )
-            })
-            .contentShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
-            .onTapGesture { selectedBookingId = booking.id }
-            .scaleEffect(isDragging ? 1.04 : 1)
-            .shadow(
-                color: .black.opacity(isDragging ? 0.22 : 0),
-                radius: isDragging ? 18 : 0,
-                y: isDragging ? 10 : 0
-            )
-            .offset(y: isDragging ? dragOffsetY : 0)
-            .opacity(isOtherDimmed ? 0.45 : 1)
-            .zIndex(isDragging ? 10 : 0)
-            .animation(
-                isDragging
-                    ? .interactiveSpring(response: 0.18, dampingFraction: 0.78)
-                    : .spring(response: 0.32, dampingFraction: 0.82),
-                value: isDragging
-            )
-            .animation(.easeOut(duration: 0.18), value: isOtherDimmed)
-            // simultaneousGesture so the outer List's pan recogniser
-            // still wins for normal swipes — finger-down + immediate
-            // motion is scroll, finger-down held still for 0.5s is drag.
-            .simultaneousGesture(unlocked ? dragGesture(for: booking, at: index) : nil)
-
-            // Drop indicator ABOVE this row (insertion slot at this index).
-            if dropTargetIndex == index && draggingId != nil && draggingId != booking.id {
-                DropIndicator()
-                    .offset(y: -7)
-                    .transition(.opacity)
+        if unlocked {
+            card.draggable(BookingDragPayload(id: booking.id, dayKey: dayKey)) {
+                // Custom lift preview — rounded card with deeper
+                // shadow, mirrors the cell's visual but at slightly
+                // higher elevation so it reads as "picked up".
+                BookingCardView(booking: booking, dayKey: dayKey, unlocked: true)
+                    .frame(maxWidth: 360)
+                    .padding(2)
+                    .shadow(color: .black.opacity(0.22), radius: 18, y: 10)
             }
+        } else {
+            card
         }
-        .overlay(alignment: .bottom) {
-            // Drop indicator BELOW the last row (insertion slot at count).
-            if index == bookings.count - 1,
-               dropTargetIndex == bookings.count,
-               draggingId != nil {
-                DropIndicator()
-                    .offset(y: 7)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeOut(duration: 0.12), value: dropTargetIndex)
     }
 
-    private func dragGesture(for booking: Booking, at index: Int) -> some Gesture {
-        // Long press first so a tap (open detail) and a quick swipe
-        // (scroll) don't get treated as drags. 0.5s matches the
-        // native iOS reorder threshold.
-        LongPressGesture(minimumDuration: 0.5)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(dayCoordSpace)))
-            .onChanged { value in
-                switch value {
-                case .second(true, let drag?):
-                    if draggingId != booking.id {
-                        draggingId = booking.id
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    }
-                    dragOffsetY = drag.translation.height
-                    let nextTarget = computeTargetIndex(
-                        for: booking,
-                        currentIndex: index,
-                        dragLocationY: drag.location.y
-                    )
-                    if nextTarget != dropTargetIndex {
-                        dropTargetIndex = nextTarget
-                        UISelectionFeedbackGenerator().selectionChanged()
-                    }
-                default:
-                    break
-                }
-            }
-            .onEnded { _ in
-                defer {
-                    draggingId = nil
-                    dragOffsetY = 0
-                    dropTargetIndex = nil
-                }
-                guard let target = dropTargetIndex else { return }
-                let adjusted = target > index ? target - 1 : target
-                guard adjusted != index else { return }
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                store.reorder(booking, toIndex: adjusted, dayKey: dayKey)
-            }
-    }
-
-    /// Decide where the dragged card would land, given the current
-    /// drag location. Uses the cached frames of all rows in the day,
-    /// excluding the dragged one. Returns an index in
-    /// `[0, bookings.count]` (count == drop at end).
-    private func computeTargetIndex(
-        for booking: Booking,
-        currentIndex: Int,
-        dragLocationY: CGFloat
-    ) -> Int {
-        var others: [(idx: Int, midY: CGFloat)] = []
-        for (i, b) in bookings.enumerated() where b.id != booking.id {
-            guard let frame = rowFrames[b.id] else { continue }
-            others.append((i, frame.midY))
-        }
-        others.sort { $0.midY < $1.midY }
-
-        for (i, midY) in others {
-            if dragLocationY < midY { return i }
-        }
-        return bookings.count
+    private func handleDrop(targetIndex: Int, payload: BookingDragPayload) {
+        guard payload.dayKey == dayKey else { return }
+        guard let booking = bookings.first(where: { $0.id == payload.id }) else { return }
+        guard let currentIndex = bookings.firstIndex(where: { $0.id == payload.id }) else { return }
+        let adjusted = targetIndex > currentIndex ? targetIndex - 1 : targetIndex
+        guard adjusted != currentIndex else { return }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        store.reorder(booking, toIndex: adjusted, dayKey: dayKey)
     }
 }
 
-private struct DropIndicator: View {
+/// Inter-card drop slot. Tiny by default (8pt vertical spacer) so it
+/// doesn't change the visual rhythm, but expands + glows brand-yellow
+/// when a drag is hovering over it.
+private struct DropRail: View {
+    let index: Int
+    @Binding var hoverIndex: Int?
+    let onDrop: (_ targetIndex: Int, _ payload: BookingDragPayload) -> Void
+
+    private var isHovered: Bool { hoverIndex == index }
+
     var body: some View {
-        Capsule()
-            .fill(Theme.brandYellow)
-            .frame(height: 4)
-            .overlay(
-                Capsule().strokeBorder(Theme.inkDark.opacity(0.15), lineWidth: 0.5)
-            )
-            .padding(.horizontal, 2)
-            .shadow(color: Theme.brandYellow.opacity(0.5), radius: 4)
+        ZStack {
+            // Capsule indicator that fades in while targeted.
+            Capsule()
+                .fill(Theme.brandYellow)
+                .frame(height: 4)
+                .padding(.horizontal, 2)
+                .shadow(color: Theme.brandYellow.opacity(0.5), radius: 4)
+                .opacity(isHovered ? 1 : 0)
+        }
+        .frame(height: isHovered ? 14 : 8)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .dropDestination(for: BookingDragPayload.self) { items, _ in
+            guard let payload = items.first else { return false }
+            onDrop(index, payload)
+            return true
+        } isTargeted: { targeted in
+            if targeted {
+                hoverIndex = index
+                UISelectionFeedbackGenerator().selectionChanged()
+            } else if hoverIndex == index {
+                hoverIndex = nil
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: isHovered)
     }
 }
 
-/// Per-day collection of card frames, in the day's local coordinate
-/// space. Used by the custom drag logic to compute drop targets.
-struct BookingFrameKey: PreferenceKey {
-    static var defaultValue: [Booking.ID: CGRect] = [:]
-    static func reduce(value: inout [Booking.ID: CGRect], nextValue: () -> [Booking.ID: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+/// Transferable payload carrying just the booking id and its day.
+/// Day is included so we can reject cross-day drops in `handleDrop`
+/// without a store round-trip.
+struct BookingDragPayload: Codable, Transferable {
+    let id: String
+    let dayKey: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .data)
     }
 }
