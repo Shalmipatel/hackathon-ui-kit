@@ -3,24 +3,19 @@
  *
  * Flow:
  *   1. iOS opens
- *        https://<host>/auth.html?provider=google|apple&return=<scheme>://auth
+ *        https://<host>/auth.html?return=<scheme>://auth
  *      inside ASWebAuthenticationSession.
- *   2. This page initialises Firebase, picks the provider, and triggers
- *      signInWithRedirect — Firebase handles the OAuth round-trip with
- *      Google / Apple and lands back here via the configured
- *      `__/auth/handler` callback URL.
- *   3. On the return load we call getRedirectResult to pull out the
- *      Firebase user + ID token.
- *   4. We redirect the browser to the iOS return scheme with the
- *      tokens in query params. ASWebAuthenticationSession intercepts
- *      the custom-scheme redirect, hands the URL to the app, and
- *      iOS's AuthStore parses it.
+ *   2. This page shows the brand mark and two provider buttons
+ *      (Google + Apple). Picking one triggers Firebase
+ *      signInWithRedirect — Firebase handles the OAuth round-trip
+ *      and lands back here via the configured `__/auth/handler`.
+ *   3. On the return load we call getRedirectResult to pull out
+ *      the Firebase user + ID token, then redirect the browser
+ *      to the iOS return scheme with the tokens in query params.
  *
- * Why this design (vs. wiring the Firebase iOS SDK):
- *   - Reuses the Firebase config already in the web bundle — no new
- *     credentials, no Swift Package Manager surgery.
- *   - Both providers go through the same Firebase OAuth handler URL,
- *     so adding more (e.g. GitHub) is a one-line provider switch.
+ * The iOS app does NOT show its own provider chooser — this page is
+ * the chooser. That removes the "iOS button that just opens a web
+ * sign-in" double-step.
  */
 
 import { initializeApp } from 'firebase/app';
@@ -37,10 +32,13 @@ import {
 
 type ProviderName = 'google' | 'apple';
 
-const $title = document.getElementById('title')!;
-const $sub = document.getElementById('sub')!;
-const $err = document.getElementById('err')!;
-const $spinner = document.getElementById('spinner')!;
+const $chooser = document.getElementById('chooser') as HTMLDivElement;
+const $status = document.getElementById('status') as HTMLDivElement;
+const $statusTitle = document.getElementById('status-title') as HTMLDivElement;
+const $statusSub = document.getElementById('status-sub') as HTMLDivElement;
+const $err = document.getElementById('err') as HTMLDivElement;
+const $google = document.getElementById('btn-google') as HTMLButtonElement;
+const $apple = document.getElementById('btn-apple') as HTMLButtonElement;
 
 const env = import.meta.env as Record<string, string | undefined>;
 
@@ -77,29 +75,18 @@ function getProvider(name: ProviderName): AuthProvider {
   }
 }
 
-/** Pull `provider` and `return` out of either the query string or the
- *  hash. Hash is the fallback for cases where ASWebAuthenticationSession
- *  preserves only the fragment across Firebase's redirect chain. */
-function readBridgeParams(): { provider: ProviderName | null; returnURL: string | null } {
+function readReturnURL(): string | null {
   const sources: URLSearchParams[] = [
     new URLSearchParams(window.location.search),
     new URLSearchParams(window.location.hash.replace(/^#/, '')),
   ];
-  let provider: string | null = null;
-  let returnURL: string | null = null;
   for (const s of sources) {
-    provider ??= s.get('provider');
-    returnURL ??= s.get('return');
+    const v = s.get('return');
+    if (v) return v;
   }
-  return {
-    provider: provider === 'google' || provider === 'apple' ? provider : null,
-    returnURL,
-  };
+  return null;
 }
 
-/** Re-find the return URL stashed in sessionStorage. signInWithRedirect
- *  navigates away from this page and back, so query params don't
- *  survive — sessionStorage does. */
 function stashReturnURL(url: string) {
   try { sessionStorage.setItem('wb_ios_return_url', url); } catch {}
 }
@@ -110,36 +97,59 @@ function clearReturnURL() {
   try { sessionStorage.removeItem('wb_ios_return_url'); } catch {}
 }
 
-function setStatus(title: string, sub = '') {
-  $title.textContent = title;
-  $sub.textContent = sub;
-  $err.textContent = '';
-  $spinner.style.display = '';
+function showChooser() {
+  $status.classList.add('hidden');
+  $err.classList.add('hidden');
+  $chooser.classList.remove('hidden');
 }
-function setError(message: string) {
-  $title.textContent = 'Sign-in failed';
-  $sub.textContent = '';
+function showStatus(title: string, sub = '') {
+  $chooser.classList.add('hidden');
+  $err.classList.add('hidden');
+  $statusTitle.textContent = title;
+  $statusSub.textContent = sub;
+  $status.classList.remove('hidden');
+}
+function showError(message: string) {
+  $chooser.classList.remove('hidden');
+  $status.classList.add('hidden');
   $err.textContent = message;
-  $spinner.style.display = 'none';
+  $err.classList.remove('hidden');
 }
 
 async function bounceToApp(returnURL: string, params: Record<string, string>) {
-  setStatus('Returning to Wanderbot…');
+  showStatus('Returning to Wanderbot…');
   const u = new URL(returnURL);
   for (const [k, v] of Object.entries(params)) {
     if (v) u.searchParams.set(k, v);
   }
-  /* Tiny delay so the user sees the "Returning…" copy instead of a
-     blink. The custom scheme triggers ASWebAuthenticationSession's
-     completion handler on iOS. */
+  /* Tiny delay so the user sees the "Returning…" copy instead of
+     a blink. The custom scheme triggers
+     ASWebAuthenticationSession's completion handler on iOS. */
   await new Promise((r) => setTimeout(r, 150));
   window.location.replace(u.toString());
+}
+
+async function startSignIn(provider: ProviderName) {
+  const returnURL = readReturnURL() ?? recallReturnURL();
+  if (!returnURL) {
+    showError('Missing return URL — open this page from the Wanderbot iOS app.');
+    return;
+  }
+  stashReturnURL(returnURL);
+  showStatus(`Signing in with ${provider === 'google' ? 'Google' : 'Apple'}…`);
+  try {
+    const auth = getAuth();
+    await signInWithRedirect(auth, getProvider(provider));
+  } catch (err) {
+    console.warn('[auth-bridge] signInWithRedirect failed', err);
+    showError((err as Error).message || 'Could not start sign-in.');
+  }
 }
 
 async function main() {
   const config = readConfig();
   if (!config) {
-    setError('Firebase config is missing from this build.');
+    showError('Firebase config is missing from this build.');
     return;
   }
   initializeApp(config);
@@ -149,7 +159,8 @@ async function main() {
      hostname's storage. */
   await setPersistence(auth, browserSessionPersistence);
 
-  /* First: are we landing back here after a Firebase OAuth redirect? */
+  /* If we're landing back here after a redirect sign-in, finalise
+     and bounce the token back to iOS. */
   try {
     const result = await getRedirectResult(auth);
     if (result && result.user) {
@@ -157,7 +168,7 @@ async function main() {
       const token = await result.user.getIdToken();
       const refresh = result.user.refreshToken;
       if (!returnURL) {
-        setError('Return URL was lost between redirects.');
+        showError('Return URL was lost between redirects.');
         return;
       }
       clearReturnURL();
@@ -172,28 +183,15 @@ async function main() {
     }
   } catch (err) {
     console.warn('[auth-bridge] getRedirectResult failed', err);
-    setError((err as Error).message || 'OAuth redirect failed.');
+    showError((err as Error).message || 'OAuth redirect failed.');
     return;
   }
 
-  /* Otherwise, we're the initial hit — kick off the redirect. */
-  const { provider, returnURL } = readBridgeParams();
-  if (!provider) {
-    setError('Missing provider — expected ?provider=google|apple.');
-    return;
-  }
-  if (!returnURL) {
-    setError('Missing return — expected ?return=<scheme>://...');
-    return;
-  }
-  stashReturnURL(returnURL);
-  setStatus(`Signing in with ${provider === 'google' ? 'Google' : 'Apple'}…`);
-  try {
-    await signInWithRedirect(auth, getProvider(provider));
-  } catch (err) {
-    console.warn('[auth-bridge] signInWithRedirect failed', err);
-    setError((err as Error).message || 'Could not start sign-in.');
-  }
+  /* Otherwise, this is the initial hit — wait for the user to
+     pick a provider. */
+  showChooser();
+  $google.addEventListener('click', () => void startSignIn('google'));
+  $apple.addEventListener('click', () => void startSignIn('apple'));
 }
 
 void main();

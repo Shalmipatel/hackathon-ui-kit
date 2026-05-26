@@ -2,8 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Sign in to Wanderbot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       body {
@@ -12,48 +15,164 @@
         color: #1F2421;
         min-height: 100vh;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
         padding: 24px;
+        padding-top: max(24px, env(safe-area-inset-top));
+        padding-bottom: max(24px, env(safe-area-inset-bottom));
       }
-      .card {
-        max-width: 320px;
+      .hero {
+        text-align: center;
+        margin-bottom: 32px;
+      }
+      .mark {
+        width: 88px;
+        height: 88px;
+        margin: 0 auto 18px;
+        border-radius: 50%;
+        background: #FEEB29;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 12px 32px rgba(254, 235, 41, 0.4);
+      }
+      .mark svg {
+        width: 38px;
+        height: 38px;
+        transform: rotate(-12deg);
+      }
+      .brand {
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: -0.6px;
+        margin-bottom: 6px;
+      }
+      .tag {
+        font-size: 14px;
+        color: rgba(36, 36, 36, 0.6);
+        line-height: 21px;
+      }
+      .buttons {
         width: 100%;
+        max-width: 340px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      button.provider {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 14px 16px;
+        border-radius: 14px;
+        border: 1px solid rgba(36, 36, 36, 0.07);
+        background: #fff;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 15px;
+        font-weight: 600;
+        color: #1F2421;
+        transition: transform 0.08s, box-shadow 0.08s;
+      }
+      button.provider:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+      }
+      button.provider:active {
+        transform: scale(0.99);
+      }
+      button.provider:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+      }
+      .icon.google { background: #4285F4; }
+      .icon.apple { background: #1d1d1f; }
+      .icon svg { width: 16px; height: 16px; }
+      .footnote {
+        font-size: 11px;
+        color: rgba(36, 36, 36, 0.5);
+        text-align: center;
+        line-height: 16px;
+        margin-top: 24px;
+        max-width: 320px;
+      }
+      .status {
         text-align: center;
       }
       .spinner {
-        width: 32px;
-        height: 32px;
+        width: 28px;
+        height: 28px;
         border: 3px solid rgba(36, 36, 36, 0.12);
-        border-top-color: #242424;
+        border-top-color: #1F2421;
         border-radius: 50%;
-        margin: 0 auto 16px;
+        margin: 0 auto 12px;
         animation: spin 0.8s linear infinite;
       }
       @keyframes spin { to { transform: rotate(360deg); } }
-      .title {
-        font-size: 16px;
+      .status-title {
+        font-size: 15px;
         font-weight: 600;
-        margin-bottom: 4px;
       }
-      .sub {
+      .status-sub {
         font-size: 13px;
         color: rgba(36, 36, 36, 0.6);
+        margin-top: 4px;
       }
       .err {
         color: #b91c1c;
         font-size: 13px;
         margin-top: 12px;
+        text-align: center;
       }
+      .hidden { display: none !important; }
     </style>
   </head>
   <body>
-    <div class="card">
-      <div class="spinner" id="spinner"></div>
-      <div class="title" id="title">Signing you in…</div>
-      <div class="sub" id="sub"></div>
-      <div class="err" id="err"></div>
+    <div class="hero">
+      <div class="mark">
+        <svg viewBox="0 0 24 24" fill="#242424"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
+      </div>
+      <div class="brand">Wanderbot</div>
+      <div class="tag">Sign in to see your trips,<br />chat history, and itineraries.</div>
     </div>
+
+    <div id="chooser" class="buttons hidden">
+      <button class="provider" id="btn-google">
+        <span class="icon google">
+          <svg viewBox="0 0 48 48" fill="#fff"><path d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z"/></svg>
+        </span>
+        <span>Continue with Google</span>
+      </button>
+      <button class="provider" id="btn-apple">
+        <span class="icon apple">
+          <svg viewBox="0 0 24 24" fill="#fff"><path d="M17.05 12.84c-.03-3.13 2.56-4.65 2.68-4.72-1.46-2.13-3.74-2.42-4.55-2.45-1.94-.2-3.79 1.15-4.78 1.15-.99 0-2.51-1.12-4.13-1.09-2.13.03-4.08 1.24-5.17 3.14-2.21 3.83-.57 9.47 1.59 12.57 1.05 1.53 2.31 3.23 3.96 3.17 1.6-.07 2.2-1.03 4.13-1.03s2.47 1.03 4.16.99c1.72-.03 2.81-1.55 3.86-3.08.86-1.21 1.49-2.55 1.93-3.94-3.78-1.44-4.43-7.13-4.68-7.71M14.3 4.07c.88-1.07 1.47-2.55 1.31-4.03-1.27.05-2.81.85-3.71 1.92-.81.94-1.52 2.45-1.33 3.89 1.41.11 2.85-.71 3.73-1.78"/></svg>
+        </span>
+        <span>Continue with Apple</span>
+      </button>
+    </div>
+
+    <div id="status" class="status hidden">
+      <div class="spinner"></div>
+      <div class="status-title" id="status-title">Signing you in…</div>
+      <div class="status-sub" id="status-sub"></div>
+    </div>
+
+    <div id="err" class="err hidden"></div>
+
+    <div class="footnote">
+      By continuing you agree to share your name and email so Wanderbot can sync trips across devices.
+    </div>
+
     <script type="module" src="/src/auth-bridge.ts"></script>
   </body>
 </html>

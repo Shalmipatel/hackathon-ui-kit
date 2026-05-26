@@ -34,11 +34,6 @@ final class AuthStore: NSObject, ObservableObject {
         }
     }
 
-    enum Provider: String {
-        case google
-        case apple
-    }
-
     enum SignInError: Error, LocalizedError {
         case missingConfig
         case cancelled
@@ -70,11 +65,14 @@ final class AuthStore: NSObject, ObservableObject {
         self.user = Self.loadStored()
     }
 
-    func signIn(with provider: Provider) async {
+    /// Open the web bridge. The bridge page shows the provider
+    /// chooser (Google + Apple) itself — iOS doesn't pre-pick one,
+    /// so the user only sees the buttons once, on the web side.
+    func signIn() async {
         isSigningIn = true
         defer { isSigningIn = false }
         do {
-            let user = try await runWebAuth(provider: provider)
+            let user = try await runWebAuth()
             self.user = user
             Self.persist(user)
         } catch let err as SignInError where err.localizedDescription == SignInError.cancelled.localizedDescription {
@@ -91,8 +89,8 @@ final class AuthStore: NSObject, ObservableObject {
 
     // MARK: - Web auth round-trip
 
-    private func runWebAuth(provider: Provider) async throws -> User {
-        guard let authURL = Self.buildBridgeURL(provider: provider) else {
+    private func runWebAuth() async throws -> User {
+        guard let authURL = Self.buildBridgeURL() else {
             throw SignInError.missingConfig
         }
         let callback = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL, Error>) in
@@ -127,15 +125,14 @@ final class AuthStore: NSObject, ObservableObject {
         return try Self.parseCallback(callback)
     }
 
-    /// Build the bridge URL the web page expects. Adds the iOS return
-    /// scheme so the bridge knows where to bounce us back.
-    private static func buildBridgeURL(provider: Provider) -> URL? {
+    /// Build the bridge URL the web page expects. Only carries the
+    /// iOS return scheme; the bridge page picks the provider itself.
+    private static func buildBridgeURL() -> URL? {
         guard !WanderbotConfig.authBridgeURL.isEmpty,
               var components = URLComponents(string: WanderbotConfig.authBridgeURL)
         else { return nil }
         let ret = "\(WanderbotConfig.authReturnScheme)://auth"
         var items = components.queryItems ?? []
-        items.append(URLQueryItem(name: "provider", value: provider.rawValue))
         items.append(URLQueryItem(name: "return", value: ret))
         components.queryItems = items
         return components.url

@@ -125,14 +125,25 @@ private struct AccountSection: View {
                 }
                 .padding(.vertical, 4)
             } else {
-                SignInButton(provider: .google,
-                             title: "Sign in with Google",
-                             icon: "g.circle.fill",
-                             tint: Color(red: 0.26, green: 0.52, blue: 0.96))
-                SignInButton(provider: .apple,
-                             title: "Sign in with Apple",
-                             icon: "apple.logo",
-                             tint: Theme.inkDark)
+                Button {
+                    Task { await auth.signIn() }
+                } label: {
+                    HStack {
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .font(.system(size: 16, weight: .medium))
+                        Text("Sign in")
+                            .font(.system(size: 15, weight: .medium))
+                        Spacer()
+                        if auth.isSigningIn {
+                            ProgressView().tint(Theme.inkMuted)
+                        }
+                    }
+                    .foregroundStyle(Theme.ink)
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(auth.isSigningIn)
             }
         } header: {
             Text("Account")
@@ -148,46 +159,6 @@ private struct AccountSection: View {
         let name = user.displayName
         guard let first = name.first else { return "?" }
         return String(first).uppercased()
-    }
-}
-
-private struct SignInButton: View {
-    let provider: AuthStore.Provider
-    let title: String
-    let icon: String
-    let tint: Color
-
-    @EnvironmentObject private var auth: AuthStore
-
-    var body: some View {
-        Button {
-            Task { await auth.signIn(with: provider) }
-        } label: {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(tint)
-                    Image(systemName: icon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 30, height: 30)
-
-                Text(title)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.ink)
-
-                Spacer()
-
-                if auth.isSigningIn {
-                    ProgressView().tint(Theme.inkMuted)
-                }
-            }
-            .padding(.vertical, 2)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(auth.isSigningIn)
     }
 }
 
