@@ -1,16 +1,23 @@
 import SwiftUI
 
-/// Stand-in for the React TripChatPanel. Holds a local message list and
-/// produces canned assistant replies — wiring up the OpenClaw transport
-/// is out of scope for the SwiftUI port.
+/// Trip-scoped chat. Sends messages to the OpenClaw `/v1/responses`
+/// gateway (same one the web app uses), streams the response back, and
+/// persists every message under `/wanderbot/chat_sessions/<tripId>` so
+/// the transcript is the same on every device.
 struct ChatSheet: View {
     let trip: Trip?
 
-    @State private var messages: [ChatMessage] = []
+    @EnvironmentObject private var chat: ChatStore
     @State private var draft: String = ""
-    @State private var thinking = false
     @FocusState private var inputFocused: Bool
     @Environment(\.dismiss) private var dismiss
+
+    private var tripID: String? { trip?.id }
+    private var messages: [ChatMessage] { chat.messages(for: tripID) }
+    private var isSending: Bool {
+        guard let id = tripID else { return false }
+        return chat.isSending.contains(id)
+    }
 
     var body: some View {
         NavigationStack {
@@ -28,27 +35,12 @@ struct ChatSheet: View {
                                     .id(msg.id)
                                     .padding(.horizontal, 16)
                             }
-                            if thinking {
-                                TypingDots()
-                                    .padding(.horizontal, 16)
-                                    .id("typing")
-                            }
                             Color.clear.frame(height: 12).id("bottom")
                         }
                         .padding(.vertical, 12)
                     }
-                    .onChange(of: messages.count) { _, _ in
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo("bottom", anchor: .bottom)
-                        }
-                    }
-                    .onChange(of: thinking) { _, isThinking in
-                        if isThinking {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                proxy.scrollTo("typing", anchor: .bottom)
-                            }
-                        }
-                    }
+                    .onChange(of: messages.count) { _, _ in scroll(proxy) }
+                    .onChange(of: messages.last?.text) { _, _ in scroll(proxy) }
                 }
 
                 Divider().overlay(Theme.hairline)
@@ -56,6 +48,8 @@ struct ChatSheet: View {
                 ChatComposer(
                     draft: $draft,
                     focused: $inputFocused,
+                    isSending: isSending,
+                    enabled: tripID != nil,
                     onSend: send
                 )
             }
@@ -64,34 +58,26 @@ struct ChatSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                        .tint(Theme.ink)
+                    Button("Done") { dismiss() }.tint(Theme.ink)
                 }
             }
+            .task(id: tripID) {
+                if let id = tripID { chat.ensureSubscription(for: id) }
+            }
+        }
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy) {
+        withAnimation(.easeOut(duration: 0.18)) {
+            proxy.scrollTo("bottom", anchor: .bottom)
         }
     }
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        messages.append(ChatMessage(role: .user, text: text))
+        guard !text.isEmpty, let tripID else { return }
         draft = ""
-        thinking = true
-        Task {
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            let reply = cannedReply(for: text, trip: trip)
-            await MainActor.run {
-                thinking = false
-                messages.append(ChatMessage(role: .assistant, text: reply))
-            }
-        }
-    }
-
-    private func cannedReply(for prompt: String, trip: Trip?) -> String {
-        if let trip {
-            return "On \(trip.title): I'd start by mapping out \(trip.destination) — want me to suggest a day's plan?"
-        }
-        return "I can help once you pick a trip. Add one and I'll plan around it."
+        chat.send(tripID: tripID, text: text)
     }
 }
 
@@ -118,31 +104,49 @@ private struct ChatBubble: View {
     let message: ChatMessage
 
     var body: some View {
-        HStack {
+        HStack(alignment: .bottom) {
             if message.role == .user { Spacer(minLength: 40) }
-            Text(message.text)
-                .font(.system(size: 15))
-                .foregroundStyle(message.role == .user ? .white : Theme.ink)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(message.role == .user ? Theme.inkDark : Theme.chipFill)
-                )
-                .frame(maxWidth: 320, alignment: message.role == .user ? .trailing : .leading)
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
+                Text(displayText)
+                    .font(.system(size: 15))
+                    .foregroundStyle(message.role == .user ? .white : Theme.ink)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(message.role == .user ? Theme.inkDark : Theme.chipFill)
+                    )
+                    .frame(maxWidth: 320, alignment: message.role == .user ? .trailing : .leading)
+
+                if message.role == .assistant, message.pending == true, !message.text.isEmpty {
+                    Label("typing…", systemImage: "ellipsis")
+                        .labelStyle(.titleOnly)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Theme.inkMuted)
+                }
+            }
             if message.role == .assistant { Spacer(minLength: 40) }
         }
+    }
+
+    private var displayText: String {
+        if message.role == .assistant, message.pending == true, message.text.isEmpty {
+            return "…"
+        }
+        return message.text
     }
 }
 
 private struct ChatComposer: View {
     @Binding var draft: String
     var focused: FocusState<Bool>.Binding
+    let isSending: Bool
+    let enabled: Bool
     let onSend: () -> Void
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Ask Wanderbot…", text: $draft, axis: .vertical)
+            TextField(enabled ? "Ask Wanderbot…" : "Pick a trip first", text: $draft, axis: .vertical)
                 .focused(focused)
                 .lineLimit(1...5)
                 .font(.system(size: 15))
@@ -152,16 +156,26 @@ private struct ChatComposer: View {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .fill(Theme.chipFill)
                 )
+                .disabled(!enabled)
 
             Button(action: onSend) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(Circle().fill(canSend ? Theme.inkDark : Theme.ink.opacity(0.3)))
+                Group {
+                    if isSending {
+                        ProgressView()
+                            .tint(.white)
+                            .frame(width: 40, height: 40)
+                            .background(Circle().fill(Theme.inkDark))
+                    } else {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 40)
+                            .background(Circle().fill(canSend ? Theme.inkDark : Theme.ink.opacity(0.3)))
+                    }
+                }
             }
             .buttonStyle(.plain)
-            .disabled(!canSend)
+            .disabled(!canSend || isSending)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
@@ -170,45 +184,6 @@ private struct ChatComposer: View {
     }
 
     private var canSend: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        enabled && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-}
-
-private struct TypingDots: View {
-    @State private var phase: CGFloat = 0
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<3) { i in
-                Circle()
-                    .fill(Theme.inkMuted)
-                    .frame(width: 7, height: 7)
-                    .opacity(opacity(for: i))
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Theme.chipFill)
-        )
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.8).repeatForever()) {
-                phase = 1
-            }
-        }
-    }
-
-    private func opacity(for index: Int) -> Double {
-        let offset = Double(index) * 0.2
-        let pulse = (Double(phase) + offset).truncatingRemainder(dividingBy: 1)
-        return 0.35 + 0.65 * abs(sin(pulse * .pi))
-    }
-}
-
-struct ChatMessage: Identifiable, Hashable {
-    enum Role { case user, assistant }
-    let id = UUID()
-    let role: Role
-    let text: String
 }

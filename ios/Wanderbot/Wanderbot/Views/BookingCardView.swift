@@ -2,6 +2,9 @@ import SwiftUI
 
 struct BookingCardView: View {
     let booking: Booking
+    /// When true, render the drag handle on the right edge — the
+    /// caller adds the actual `.draggable` modifier on the row.
+    var isDraggable: Bool = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -40,6 +43,15 @@ struct BookingCardView: View {
             }
 
             Spacer(minLength: 0)
+
+            if isDraggable {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.inkMuted)
+                    .padding(.leading, 4)
+                    .padding(.top, 2)
+                    .accessibilityLabel("Drag to reorder")
+            }
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 12)

@@ -87,6 +87,206 @@ actor FirebaseRTDB {
         // RTDB REST: append `.json` to the path.
         databaseURL.appendingPathComponent(path + ".json")
     }
+
+    // MARK: - Writes (PUT / DELETE)
+
+    /// PUT a JSON-encodable record to `/wanderbot/<collection>/<id>`.
+    /// Used for inline edits (reorder, future booking editing).
+    @discardableResult
+    func put<T: Encodable>(_ value: T, at path: String) async -> Bool {
+        guard let url = endpoint(path: path) else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        do {
+            let encoder = JSONEncoder()
+            request.httpBody = try encoder.encode(value)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+        } catch {
+            print("[firebase] PUT \(path) failed:", error)
+            return false
+        }
+    }
+
+    /// PATCH /booking/<id> with a partial update — keeps fields the
+    /// client didn't touch intact.
+    @discardableResult
+    func patch(_ fields: [String: Any], at path: String) async -> Bool {
+        guard let url = endpoint(path: path) else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: fields)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+        } catch {
+            print("[firebase] PATCH \(path) failed:", error)
+            return false
+        }
+    }
+
+    // MARK: - Chat sessions
+
+    private func chatPath(tripID: String) -> String {
+        "wanderbot/chat_sessions/\(tripID)"
+    }
+
+    func loadChatSession(tripID: String) async -> [ChatMessage] {
+        guard let url = endpoint(path: chatPath(tripID: tripID)) else { return [] }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
+            let messages: [ChatMessage] = (try? Self.decodeCollection(data: data)) ?? []
+            return messages.sorted { $0.createdAt < $1.createdAt }
+        } catch {
+            print("[firebase] loadChatSession \(tripID) failed:", error)
+            return []
+        }
+    }
+
+    func upsertChatMessage(tripID: String, message: ChatMessage) async {
+        let path = "\(chatPath(tripID: tripID))/\(message.id)"
+        _ = await put(message, at: path)
+    }
+
+    /// Subscribe to one trip's chat session. Yields the full message
+    /// list whenever the tree changes.
+    func subscribeToChatSession(tripID: String) -> AsyncStream<[ChatMessage]> {
+        AsyncStream { continuation in
+            guard let url = endpoint(path: chatPath(tripID: tripID)) else {
+                continuation.finish()
+                return
+            }
+            let session = ChatSSESession(url: url)
+            session.onSnapshot = { snapshot in
+                continuation.yield(snapshot.sorted { $0.createdAt < $1.createdAt })
+            }
+            session.start()
+            continuation.onTermination = { _ in session.stop() }
+        }
+    }
+}
+
+/// Mini SSE session dedicated to one chat tree. Same protocol as
+/// SSESession but specialised to `ChatMessage` payloads.
+private final class ChatSSESession: NSObject, URLSessionDataDelegate {
+    let url: URL
+    var onSnapshot: (([ChatMessage]) -> Void)?
+
+    private var session: URLSession!
+    private var task: URLSessionDataTask?
+    private var parser = ChatSSEParser()
+    private var messages: [String: ChatMessage] = [:]
+    private let queue = DispatchQueue(label: "wanderbot.chat-sse")
+
+    init(url: URL) {
+        self.url = url
+        super.init()
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 0
+        config.timeoutIntervalForResource = 0
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    }
+
+    func start() {
+        var req = URLRequest(url: url)
+        req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        task = session.dataTask(with: req)
+        task?.resume()
+    }
+
+    func stop() {
+        task?.cancel()
+        session.invalidateAndCancel()
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let events = parser.feed(data)
+        guard !events.isEmpty else { return }
+        queue.async { [weak self] in
+            guard let self else { return }
+            for event in events { self.apply(event: event) }
+            self.onSnapshot?(Array(self.messages.values))
+        }
+    }
+
+    private func apply(event: ChatSSEParser.Event) {
+        guard event.eventName == "put" || event.eventName == "patch" else { return }
+        guard let data = event.dataJSON,
+              let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let path = envelope["path"] as? String
+        else { return }
+        let payload = envelope["data"]
+
+        if path == "/" {
+            if let dict = payload as? [String: Any] {
+                var newMap: [String: ChatMessage] = [:]
+                for (id, raw) in dict {
+                    if let msg: ChatMessage = decodeOne(raw) { newMap[id] = msg }
+                }
+                messages = newMap
+            } else {
+                messages.removeAll()
+            }
+            return
+        }
+
+        let id = String(path.dropFirst())
+        if payload == nil || payload is NSNull {
+            messages.removeValue(forKey: id)
+            return
+        }
+        if let msg: ChatMessage = decodeOne(payload) { messages[id] = msg }
+    }
+
+    private func decodeOne<T: Decodable>(_ raw: Any?) -> T? {
+        guard let raw,
+              let bytes = try? JSONSerialization.data(withJSONObject: raw)
+        else { return nil }
+        return try? JSONDecoder().decode(T.self, from: bytes)
+    }
+}
+
+/// Identical to the trips parser — kept separate so SSE parser state
+/// can't leak across trees.
+private struct ChatSSEParser {
+    struct Event { var eventName: String; var dataJSON: Data? }
+    private var buffer = Data()
+
+    mutating func feed(_ chunk: Data) -> [Event] {
+        buffer.append(chunk)
+        var events: [Event] = []
+        while let range = buffer.range(of: Data([0x0A, 0x0A])) {
+            let frame = buffer.subdata(in: 0..<range.lowerBound)
+            buffer.removeSubrange(0..<range.upperBound)
+            if let event = parseFrame(frame) { events.append(event) }
+        }
+        return events
+    }
+
+    private func parseFrame(_ frame: Data) -> Event? {
+        guard let text = String(data: frame, encoding: .utf8) else { return nil }
+        var eventName: String?
+        var dataLines: [String] = []
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(raw)
+            if line.hasPrefix(":") { continue }
+            if line.hasPrefix("event:") {
+                eventName = line.dropFirst(6).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("data:") {
+                dataLines.append(String(line.dropFirst(5).trimmingCharacters(in: .whitespaces)))
+            }
+        }
+        guard let eventName else { return nil }
+        let joined = dataLines.joined(separator: "\n")
+        return Event(eventName: eventName, dataJSON: joined.data(using: .utf8))
+    }
 }
 
 /// Wraps a value decoder so a single broken row doesn't fail the whole

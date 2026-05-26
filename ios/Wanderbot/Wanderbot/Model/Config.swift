@@ -14,4 +14,25 @@ enum WanderbotConfig {
         "https://gen-lang-client-0500673478-default-rtdb.firebaseio.com"
 
     static var firebaseEnabled: Bool { !firebaseDatabaseURL.isEmpty }
+
+    /// OpenClaw gateway — same `VITE_NEOCLAW_API_URL` the web app uses.
+    /// Chat hits `<gatewayURL>/v1/responses` with SSE streaming.
+    static let gatewayURL: String =
+        "https://neoclaw-admin-us-west-1.securebrowser.com"
+
+    /// Bearer token sent as `Authorization: Bearer <key>` on gateway
+    /// requests. Matches the StubAuthProvider pattern (the starter kit
+    /// uses the env API key as the access token).
+    static let gatewayAPIKey: String =
+        "n92uN9iNfz5fipgJfnpmsLfapjVGKjwsbGRh8Qa2ZQw"
+
+    /// OpenClaw agent id header — `x-openclaw-agent-id`. The web app
+    /// defaults to "main".
+    static let gatewayAgentID: String = "main"
+
+    /// Model name passed in the `model` field of the request body. Web
+    /// app defaults to "openclaw"; the gateway routes by this name.
+    static let gatewayModel: String = "openclaw"
+
+    static var gatewayEnabled: Bool { !gatewayURL.isEmpty }
 }

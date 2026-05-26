@@ -1,4 +1,6 @@
 import SwiftUI
+import CoreTransferable
+import UniformTypeIdentifiers
 
 struct ItineraryView: View {
     let trip: Trip
@@ -87,6 +89,12 @@ private struct DaySection: View {
     @Binding var selectedBookingId: Booking.ID?
     @Binding var focusedBookingId: Booking.ID?
 
+    @EnvironmentObject private var store: TravelStore
+    @State private var draggingId: Booking.ID?
+    /// Index where the dragged card would land if dropped now. Drives
+    /// the highlighted drop-indicator strip between rows.
+    @State private var dropTarget: Int?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
@@ -105,14 +113,147 @@ private struct DaySection: View {
             if bookings.isEmpty {
                 EmptyDayPlaceholder()
             } else {
-                VStack(spacing: 10) {
-                    ForEach(bookings) { b in
-                        BookingCardView(booking: b)
-                            .onTapGesture { selectedBookingId = b.id }
-                            .onAppear { focusedBookingId = b.id }
+                VStack(spacing: 0) {
+                    ForEach(Array(bookings.enumerated()), id: \.element.id) { idx, b in
+                        DropZone(index: idx, target: $dropTarget, dragging: draggingId, perform: drop)
+                        BookingRow(
+                            booking: b,
+                            draggable: store.isUnlocked(b),
+                            isDragging: draggingId == b.id,
+                            onTap: { selectedBookingId = b.id },
+                            onDragStart: { draggingId = b.id },
+                            onDragEnd: {
+                                draggingId = nil
+                                dropTarget = nil
+                            }
+                        )
+                        .background(BookingPositionReporter(id: b.id))
+                        .padding(.bottom, 10)
                     }
+                    DropZone(index: bookings.count, target: $dropTarget, dragging: draggingId, perform: drop)
                 }
             }
+        }
+    }
+
+    private func drop(at index: Int) {
+        guard let id = draggingId,
+              let booking = bookings.first(where: { $0.id == id })
+        else { return }
+        // Index is the dragged-cards-included slot — translate to the
+        // "neighbours only" index TravelStore.reorder expects.
+        let currentIdx = bookings.firstIndex(where: { $0.id == id }) ?? 0
+        let adjusted = index > currentIdx ? index - 1 : index
+        store.reorder(booking, toIndex: adjusted)
+        draggingId = nil
+        dropTarget = nil
+    }
+}
+
+/// One row in the day section. Adds the drag affordance only when the
+/// booking is unlocked. The card itself is the drag preview.
+private struct BookingRow: View {
+    let booking: Booking
+    let draggable: Bool
+    let isDragging: Bool
+    let onTap: () -> Void
+    let onDragStart: () -> Void
+    let onDragEnd: () -> Void
+
+    var body: some View {
+        let card = BookingCardView(booking: booking, isDraggable: draggable)
+            .opacity(isDragging ? 0.4 : 1)
+            .onTapGesture(perform: onTap)
+
+        if draggable {
+            card
+                .draggable(BookingDragPayload(id: booking.id, dayKey: booking.dayKey)) {
+                    BookingCardView(booking: booking, isDraggable: true)
+                        .frame(maxWidth: 360)
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.cardRadius + 2, style: .continuous)
+                                .fill(Theme.surface)
+                                .shadow(color: .black.opacity(0.18), radius: 12, y: 8)
+                        )
+                        .onAppear(perform: onDragStart)
+                        .onDisappear(perform: onDragEnd)
+                }
+        } else {
+            card
+        }
+    }
+}
+
+/// A thin invisible strip between rows that accepts drops. Highlights
+/// while a card is hovering over it.
+private struct DropZone: View {
+    let index: Int
+    @Binding var target: Int?
+    let dragging: Booking.ID?
+    let perform: (Int) -> Void
+
+    var body: some View {
+        Rectangle()
+            .fill(.clear)
+            .frame(height: target == index ? 10 : 6)
+            .overlay(alignment: .center) {
+                if target == index {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(BookingType.flight.accent)
+                        .frame(height: 3)
+                        .padding(.horizontal, 4)
+                        .transition(.opacity)
+                }
+            }
+            .dropDestination(for: BookingDragPayload.self) { items, _ in
+                guard items.first != nil else { return false }
+                perform(index)
+                return true
+            } isTargeted: { isTargeted in
+                if isTargeted {
+                    target = index
+                } else if target == index {
+                    target = nil
+                }
+            }
+    }
+}
+
+/// Transferable payload used for booking drags. Carrying the dayKey
+/// alongside the id lets us reject cross-day drops (out of scope for
+/// v1) without a round-trip through the store.
+struct BookingDragPayload: Codable, Transferable {
+    let id: String
+    let dayKey: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .data)
+    }
+}
+
+/// Reports each card's center Y in global coordinates via a
+/// preference. The trip page reads all of these and picks the card
+/// closest to the focus line just below the sticky map header — that
+/// becomes the map's focus target. Mirrors the web shell's
+/// `onScrollFocus` behaviour without needing IntersectionObserver.
+struct BookingPositionsKey: PreferenceKey {
+    static var defaultValue: [Booking.ID: CGFloat] = [:]
+    static func reduce(value: inout [Booking.ID: CGFloat], nextValue: () -> [Booking.ID: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct BookingPositionReporter: View {
+    let id: Booking.ID
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .preference(
+                    key: BookingPositionsKey.self,
+                    value: [id: proxy.frame(in: .global).midY]
+                )
         }
     }
 }

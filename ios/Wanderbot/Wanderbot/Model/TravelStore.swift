@@ -63,6 +63,63 @@ final class TravelStore: ObservableObject {
 
     deinit { subscriptionTask?.cancel() }
 
+    /// True when the booking is editable (drag, rename, etc.). Mirrors
+    /// the web rule: items pulled out of the inbox (`source == .email`)
+    /// are locked because they reflect a real confirmation; manual /
+    /// agent items are free to rearrange.
+    func isUnlocked(_ booking: Booking) -> Bool {
+        booking.source != .email
+    }
+
+    /// Move a booking to a new position within its day. `targetIndex`
+    /// is the desired index in the day's *unlocked-and-locked* combined
+    /// ordering; this method picks a midpoint `position` that slots
+    /// between neighbours without renumbering siblings.
+    ///
+    /// Mirrors the web `@dnd-kit/sortable` reorder path:
+    /// drop-between-two-items gets the average; drop-at-end gets
+    /// `last + 1000`; drop-at-start gets `first - 1000`.
+    func reorder(_ booking: Booking, toIndex targetIndex: Int) {
+        guard isUnlocked(booking) else { return }
+        let dayBookings = bookings
+            .filter { $0.tripId == booking.tripId && $0.dayKey == booking.dayKey }
+            .sorted { $0.position < $1.position }
+        // Strip the moved card out of its current spot, then insert
+        // at the target index.
+        var remaining = dayBookings.filter { $0.id != booking.id }
+        let safeIndex = max(0, min(targetIndex, remaining.count))
+        let newPosition: Double
+        if remaining.isEmpty {
+            newPosition = booking.position
+        } else if safeIndex == 0 {
+            newPosition = remaining[0].position - 1000
+        } else if safeIndex >= remaining.count {
+            newPosition = remaining[remaining.count - 1].position + 1000
+        } else {
+            newPosition = (remaining[safeIndex - 1].position + remaining[safeIndex].position) / 2
+        }
+        guard newPosition != booking.position else { return }
+
+        var updated = booking
+        updated.position = newPosition
+        applyBookingUpdate(updated)
+        Task { await persistBooking(updated) }
+    }
+
+    private func applyBookingUpdate(_ booking: Booking) {
+        if let idx = bookings.firstIndex(where: { $0.id == booking.id }) {
+            bookings[idx] = booking
+        }
+    }
+
+    private func persistBooking(_ booking: Booking) async {
+        // Patch only the field we touched so we don't stomp other
+        // clients' edits to unrelated fields.
+        guard let rtdb else { return }
+        await rtdb.patch(["position": booking.position],
+                         at: "wanderbot/bookings/\(booking.id)")
+    }
+
     /// Upcoming (asc) then past (desc) — matches the React mobile shell.
     var orderedTrips: [Trip] {
         let today = ISO8601.dayKey(from: Calendar.current.startOfDay(for: Date()))
