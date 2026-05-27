@@ -36,6 +36,8 @@ struct SettingsSheet: View {
                     }
                 }
 
+                SyncSection()
+
                 Section {
                     NavigationLink {
                         ConnectionsView()
@@ -179,6 +181,94 @@ private struct SignInRow: View {
         }
         .buttonStyle(.plain)
         .disabled(auth.isSigningIn)
+    }
+}
+
+/// Triggers the `wanderbot-sync` skill via the gateway:
+///   - Quick scan = `shallow`, sweeps the last 7 days.
+///   - Deep scan  = `deep`, sweeps the last 30 days and wipes the
+///     locally-tracked tombstones so deleted trips/bookings can come
+///     back if they're still in the source.
+/// Buttons disable while a scan is in flight; the actual results
+/// arrive via the live RTDB SSE stream the TravelStore is already
+/// subscribed to.
+private struct SyncSection: View {
+    @EnvironmentObject private var sync: SyncService
+
+    var body: some View {
+        Section {
+            Button {
+                sync.scanForTrips(deep: false)
+            } label: {
+                SyncRow(
+                    icon: "arrow.clockwise",
+                    tint: BookingType.flight.accent,
+                    title: "Scan for new trips",
+                    subtitle: "Check the last 7 days",
+                    busy: sync.isScanning
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(sync.isScanning)
+
+            Button {
+                sync.scanForTrips(deep: true)
+            } label: {
+                SyncRow(
+                    icon: "magnifyingglass",
+                    tint: BookingType.event.accent,
+                    title: "Deep scan",
+                    subtitle: "Sweep the last 30 days across every source",
+                    busy: sync.isScanning
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(sync.isScanning)
+        } header: {
+            Text("Sync")
+        } footer: {
+            if sync.isScanning {
+                Text("Scanning your inbox… new trips will appear automatically.")
+                    .font(.system(size: 12))
+            } else {
+                Text("Wanderbot reads your connected sources to find new bookings. Deep scan may take a minute.")
+                    .font(.system(size: 12))
+            }
+        }
+    }
+}
+
+private struct SyncRow: View {
+    let icon: String
+    let tint: Color
+    let title: String
+    let subtitle: String
+    let busy: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(tint)
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 30, height: 30)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 16)).foregroundStyle(Theme.ink)
+                Text(subtitle).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
+            }
+
+            Spacer()
+
+            if busy {
+                ProgressView().tint(Theme.inkMuted)
+            }
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
     }
 }
 

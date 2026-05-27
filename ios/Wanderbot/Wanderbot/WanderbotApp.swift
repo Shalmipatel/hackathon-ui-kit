@@ -6,6 +6,7 @@ struct WanderbotApp: App {
     @StateObject private var chat = ChatStore()
     @StateObject private var auth = AuthStore()
     @StateObject private var connections = ConnectionsStore()
+    @StateObject private var sync = SyncService()
 
     var body: some Scene {
         WindowGroup {
@@ -32,6 +33,7 @@ struct WanderbotApp: App {
             .environmentObject(chat)
             .environmentObject(auth)
             .environmentObject(connections)
+            .environmentObject(sync)
             .preferredColorScheme(.light)
             .tint(Theme.ink)
         }

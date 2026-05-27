@@ -96,34 +96,72 @@ struct TripPageView: View {
     }
 }
 
-/// Trip identity card — destination, title, dates — rendered as the
-/// first non-list-styled row before any day section.
+/// Trip identity card — destination, title, dates, and a per-trip
+/// Rescan button that fires `wanderbot-sync rescan <tripId>` via
+/// SyncService. The skill writes any newly-found bookings to RTDB
+/// and the existing TravelStore SSE picks them up.
 private struct TripIntro: View {
     let trip: Trip
+    @EnvironmentObject private var sync: SyncService
+
+    private var rescanning: Bool { sync.rescanningTripID == trip.id }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(trip.destination.uppercased())
-                .font(.system(size: 10.5, weight: .bold))
-                .tracking(0.12 * 10.5)
-                .foregroundStyle(Theme.inkMuted)
-            Text(trip.title)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(Theme.ink)
-                .tracking(-0.5)
-            Text(WBFormat.tripDateRange(trip))
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.inkMuted)
-            if trip.isPast {
-                Text("PAST TRIP")
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(trip.destination.uppercased())
                     .font(.system(size: 10.5, weight: .bold))
-                    .tracking(0.08 * 10.5)
-                    .foregroundStyle(Theme.ink.opacity(0.65))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(Theme.chipFill))
-                    .padding(.top, 4)
+                    .tracking(0.12 * 10.5)
+                    .foregroundStyle(Theme.inkMuted)
+                Text(trip.title)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(Theme.ink)
+                    .tracking(-0.5)
+                Text(WBFormat.tripDateRange(trip))
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.inkMuted)
+                if trip.isPast {
+                    Text("PAST TRIP")
+                        .font(.system(size: 10.5, weight: .bold))
+                        .tracking(0.08 * 10.5)
+                        .foregroundStyle(Theme.ink.opacity(0.65))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Theme.chipFill))
+                        .padding(.top, 4)
+                }
             }
+
+            Spacer(minLength: 0)
+
+            // Rescan pill — sits in the corner of the intro card.
+            // Disabled while a rescan for THIS trip is in flight; a
+            // rescan on another trip doesn't block this one (each
+            // trip gets its own in-flight flag, but the SyncService
+            // serialises through one Task at a time).
+            Button {
+                sync.rescanTrip(id: trip.id)
+            } label: {
+                HStack(spacing: 5) {
+                    if rescanning {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(Theme.ink)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    Text(rescanning ? "Rescanning…" : "Rescan")
+                        .font(.system(size: 11.5, weight: .semibold))
+                }
+                .foregroundStyle(Theme.ink)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Theme.chipFill))
+            }
+            .buttonStyle(.plain)
+            .disabled(rescanning)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
