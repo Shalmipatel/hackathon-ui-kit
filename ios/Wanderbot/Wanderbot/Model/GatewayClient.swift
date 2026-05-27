@@ -101,12 +101,33 @@ struct GatewayClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (bytes, response) = try await session.bytes(for: request)
+        let urlForLogs = request.url?.absoluteString ?? "<nil>"
+        let (bytes, response): (URLSession.AsyncBytes, URLResponse)
+        do {
+            (bytes, response) = try await session.bytes(for: request)
+        } catch {
+            /* Surface the underlying URL error code in the console.
+               URLError.Code values give a much clearer picture than
+               localizedDescription alone — e.g. .timedOut (-1001) vs.
+               .notConnectedToInternet (-1009) vs. .cannotFindHost
+               (-1003) — when the chat sheet shows "couldn't reach
+               the gateway" we want to know which of those it was. */
+            if let urlErr = error as? URLError {
+                NSLog("[gateway] %@ failed: URLError code=%ld (%@)",
+                      urlForLogs, urlErr.code.rawValue, urlErr.localizedDescription)
+            } else {
+                NSLog("[gateway] %@ failed: %@", urlForLogs, String(describing: error))
+            }
+            throw error
+        }
         guard let http = response as? HTTPURLResponse else {
+            NSLog("[gateway] %@ returned non-HTTP response", urlForLogs)
             throw URLError(.badServerResponse)
         }
         guard (200..<300).contains(http.statusCode) else {
             let payload = try await Self.collect(bytes: bytes)
+            NSLog("[gateway] %@ HTTP %ld body=%@",
+                  urlForLogs, http.statusCode, payload.prefix(400) as NSString)
             throw GatewayError.http(status: http.statusCode, body: payload)
         }
 

@@ -140,9 +140,20 @@ final class ChatStore: ObservableObject {
                 }
             }
         } catch {
+            /* Include a URL error code where we can — turns a vague
+               "the request timed out" into something we can actually
+               diagnose (.timedOut vs. .cannotFindHost vs. .notConnectedToInternet
+               etc.). Mirrors the NSLog in GatewayClient.stream so the
+               UI message + console log agree. */
+            let detail: String
+            if let urlErr = error as? URLError {
+                detail = "\(urlErr.localizedDescription) (URLError \(urlErr.code.rawValue))"
+            } else {
+                detail = error.localizedDescription
+            }
             assistant.content += assistant.content.isEmpty
-                ? "Couldn't reach the gateway: \(error.localizedDescription)"
-                : "\n\n⚠️ \(error.localizedDescription)"
+                ? "Couldn't reach the gateway: \(detail)"
+                : "\n\n⚠️ \(detail)"
             updateLocal(assistant, for: tripID)
         }
 
