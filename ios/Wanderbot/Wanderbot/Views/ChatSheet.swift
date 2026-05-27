@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// Trip-scoped chat. Sends messages to the OpenClaw `/v1/responses`
-/// gateway (same one the web app uses), streams the response back, and
-/// persists every message under `/wanderbot/chat_sessions/<tripId>` so
-/// the transcript is the same on every device.
+/// gateway (same one the web app uses) with the per-trip
+/// `x-openclaw-session-key` header, then reads the canonical
+/// transcript back from OpenClaw via `sessions_history` — so both
+/// devices see the same conversation without an intermediary store.
 struct ChatSheet: View {
     let trip: Trip?
 

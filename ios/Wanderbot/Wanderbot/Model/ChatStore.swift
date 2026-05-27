@@ -1,10 +1,7 @@
 import Foundation
 
-/// One persisted chat message. Field names match the web
-/// `ChatMessage` shape (`content`, `timestamp`, `isHidden`) so the
-/// web mirror writing to RTDB and the iOS reader hit the same JSON.
-/// `responseID` / `previousResponseID` are iOS-side extras for
-/// OpenClaw conversation chaining — web ignores them.
+/// One chat message. Field names match the web `ChatMessage` shape
+/// (`content`, `timestamp`) so the OpenClaw transcript maps cleanly.
 struct ChatMessage: Identifiable, Hashable, Codable {
     enum Role: String, Codable { case user, assistant, system }
 
@@ -13,18 +10,15 @@ struct ChatMessage: Identifiable, Hashable, Codable {
     var content: String
     /// Milliseconds since epoch (web uses `Date.now()` which is ms).
     var timestamp: Double
-    /// Excluded from the visible UI but kept in history. The web flag
-    /// — we honour it so context-injection messages don't show up.
+    /// Excluded from the visible UI. Matches the web flag.
     var isHidden: Bool?
-    /// Server-issued id for this turn (assistant turns only). Used as
-    /// `previous_response_id` on the next user turn so OpenClaw keeps
-    /// the transcript across devices.
+    /// Server-issued id for this turn (assistant turns only).
     var responseID: String?
-    /// `previous_response_id` we sent for this turn (user turns).
+    /// Reserved for future use; we used to chain by previous-id, now
+    /// the OpenClaw session key handles it server-side.
     var previousResponseID: String?
-    /// `true` while the assistant message is still being streamed.
-    /// Not persisted — clients show a "typing" indicator locally and
-    /// overwrite when the final text lands.
+    /// `true` while the assistant message is streaming locally —
+    /// keeps it pinned in the merged view until OpenClaw catches up.
     var pending: Bool?
 
     enum CodingKeys: String, CodingKey {
@@ -32,48 +26,78 @@ struct ChatMessage: Identifiable, Hashable, Codable {
     }
 }
 
-/// Chat sessions keyed by trip id. Persisted under
-/// `/wanderbot/chat_sessions/<tripId>/<messageId>` in RTDB so every
-/// device sees the same transcript.
+/// Chat sessions keyed by trip id. The transcript is owned by
+/// OpenClaw — we read it via `OpenClawSessionClient.loadHistory` and
+/// poll every few seconds while a chat sheet is open so the other
+/// device's messages show up. No RTDB, no IndexedDB on this side.
 @MainActor
 final class ChatStore: ObservableObject {
     /// `tripId → messages (sorted by createdAt asc)`
     @Published var messagesByTrip: [String: [ChatMessage]] = [:]
     @Published var isSending: Set<String> = []
 
-    private var rtdb: FirebaseRTDB?
-    private var gateway: GatewayClient?
-    private var subscriptionTasks: [String: Task<Void, Never>] = [:]
+    private let gateway: GatewayClient?
+    private let openclaw: OpenClawSessionClient?
+    private var pollTasks: [String: Task<Void, Never>] = [:]
+    /// Per-trip optimistic messages — user turns we just sent and the
+    /// assistant turn that's streaming. They survive a poll refresh
+    /// until OpenClaw has the same content, then drop out.
+    private var localOptimistic: [String: [ChatMessage]] = [:]
+
+    /// Cadence for OpenClaw polls while a chat sheet is open.
+    /// 4 seconds — fast enough to feel live across devices without
+    /// hammering the gateway, since OpenClaw doesn't expose a push API.
+    private let pollInterval: TimeInterval = 4
 
     init() {
-        if WanderbotConfig.firebaseEnabled {
-            self.rtdb = FirebaseRTDB(databaseURLString: WanderbotConfig.firebaseDatabaseURL)
-        }
         self.gateway = GatewayClient()
+        self.openclaw = OpenClawSessionClient()
     }
 
-    /// Open the live SSE subscription for one trip's chat. Idempotent.
+    /// Open the polling loop for one trip's chat. Idempotent — calling
+    /// again while already polling is a no-op.
     func ensureSubscription(for tripID: String) {
-        guard subscriptionTasks[tripID] == nil else { return }
-        guard let rtdb else { return }
-        subscriptionTasks[tripID] = Task { [weak self] in
-            // Initial load + live updates.
-            let initial = await rtdb.loadChatSession(tripID: tripID)
-            await self?.applyMessages(initial, for: tripID)
-            for await snapshot in await rtdb.subscribeToChatSession(tripID: tripID) {
-                await self?.applyMessages(snapshot, for: tripID)
-            }
+        guard pollTasks[tripID] == nil else { return }
+        guard openclaw != nil else { return }
+        pollTasks[tripID] = Task { [weak self] in
+            await self?.pollLoop(tripID: tripID)
         }
     }
 
     func stopSubscriptions() {
-        for task in subscriptionTasks.values { task.cancel() }
-        subscriptionTasks.removeAll()
+        for task in pollTasks.values { task.cancel() }
+        pollTasks.removeAll()
     }
 
-    /// Send a user message, stream the assistant reply, and persist
-    /// both to RTDB. Returns the assistant message id so callers can
-    /// scroll-to-bottom etc.
+    /// Polling loop: initial load + refresh every `pollInterval`
+    /// seconds until cancelled. We just trust whatever OpenClaw
+    /// returns — local optimistic messages are merged in `applyRemote`.
+    private func pollLoop(tripID: String) async {
+        await refresh(tripID: tripID)
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+            if Task.isCancelled { return }
+            await refresh(tripID: tripID)
+        }
+    }
+
+    /// Fetch the OpenClaw transcript for one trip and merge into
+    /// `messagesByTrip`. Safe to call at any time.
+    func refresh(tripID: String) async {
+        guard let openclaw else { return }
+        do {
+            let remote = try await openclaw.loadHistory(forTripID: tripID)
+            applyRemote(remote, for: tripID)
+        } catch {
+            /* Tolerated — empty/missing session is a normal "first
+               open" state; transient network blips will re-attempt
+               on the next tick. Log so we can see persistent failures. */
+            NSLog("[chat] loadHistory failed for tripID=%@ err=%@", tripID, String(describing: error))
+        }
+    }
+
+    /// Send a user message, stream the assistant reply, and let the
+    /// next poll cycle pick up the canonical state from OpenClaw.
     @discardableResult
     func send(tripID: String, text: String) -> Task<Void, Never> {
         Task { [weak self] in
@@ -84,21 +108,22 @@ final class ChatStore: ObservableObject {
     private func _send(tripID: String, text: String) async {
         let now = Date().timeIntervalSince1970 * 1000
 
+        /* Optimistic local user message — pinned until OpenClaw
+           returns a turn with matching content. */
         let userMsg = ChatMessage(
-            id: UUID().uuidString,
+            id: "local:user:\(UUID().uuidString)",
             role: .user,
             content: text,
             timestamp: now,
             isHidden: nil,
             responseID: nil,
             previousResponseID: nil,
-            pending: nil
+            pending: true
         )
-        appendLocal(userMsg, for: tripID)
-        await rtdb?.upsertChatMessage(tripID: tripID, message: userMsg)
+        appendOptimistic(userMsg, for: tripID)
 
         var assistant = ChatMessage(
-            id: UUID().uuidString,
+            id: "local:assistant:\(UUID().uuidString)",
             role: .assistant,
             content: "",
             timestamp: now + 1,
@@ -107,23 +132,20 @@ final class ChatStore: ObservableObject {
             previousResponseID: nil,
             pending: true
         )
-        appendLocal(assistant, for: tripID)
+        appendOptimistic(assistant, for: tripID)
         isSending.insert(tripID)
         defer { isSending.remove(tripID) }
 
         guard let gateway else {
             assistant.content = "Gateway not configured. Set `WanderbotConfig.gatewayURL`."
             assistant.pending = false
-            updateLocal(assistant, for: tripID)
-            await rtdb?.upsertChatMessage(tripID: tripID, message: assistant)
+            updateOptimistic(assistant, for: tripID)
             return
         }
 
-        /* Stamp the same x-openclaw-session-key the web uses so this
-           turn lands in the existing trip session on OpenClaw — that
-           way the agent has continuous context with whatever the user
-           sent from the browser. The session id matches the web's
-           `trip-<tripId>` convention (see useBookingIngestion.ts). */
+        /* Stamp the trip's OpenClaw session-key so this turn lands in
+           the same server-side session the web writes to (shared
+           transcript across devices). */
         let sessionKey = WanderbotConfig.sessionKeyHeader(forTripID: tripID)
 
         do {
@@ -131,25 +153,16 @@ final class ChatStore: ObservableObject {
                 switch event {
                 case .delta(let chunk):
                     assistant.content += chunk
-                    updateLocal(assistant, for: tripID)
+                    updateOptimistic(assistant, for: tripID)
                 case .completed(let id):
-                    /* Hold off on flipping pending=false until the
-                       RTDB mirror lands below — pending acts as the
-                       "keep me visible locally even if a snapshot
-                       arrives mid-flight" flag in applyMessages. */
                     assistant.responseID = id
-                    updateLocal(assistant, for: tripID)
+                    updateOptimistic(assistant, for: tripID)
                 case .failed(let msg):
                     assistant.content += assistant.content.isEmpty ? msg : "\n\n⚠️ \(msg)"
-                    updateLocal(assistant, for: tripID)
+                    updateOptimistic(assistant, for: tripID)
                 }
             }
         } catch {
-            /* Include a URL error code where we can — turns a vague
-               "the request timed out" into something we can actually
-               diagnose (.timedOut vs. .cannotFindHost vs. .notConnectedToInternet
-               etc.). Mirrors the NSLog in GatewayClient.stream so the
-               UI message + console log agree. */
             let detail: String
             if let urlErr = error as? URLError {
                 detail = "\(urlErr.localizedDescription) (URLError \(urlErr.code.rawValue))"
@@ -159,57 +172,81 @@ final class ChatStore: ObservableObject {
             assistant.content += assistant.content.isEmpty
                 ? "Couldn't reach the gateway: \(detail)"
                 : "\n\n⚠️ \(detail)"
-            updateLocal(assistant, for: tripID)
+            updateOptimistic(assistant, for: tripID)
         }
 
-        /* Mirror first, THEN clear pending. This sequence guarantees
-           the message exists on the remote (so applyMessages always
-           sees it in `incoming`) before we drop the local pending
-           override. */
-        await rtdb?.upsertChatMessage(tripID: tripID, message: assistant)
+        /* Stream is done. Pull the canonical transcript from OpenClaw
+           immediately so the local optimistic placeholders flip over
+           to the server's view (and our deltas reconcile with the
+           real responseId / final text). Then clear pending so the
+           merge starts trusting OpenClaw entirely. */
+        await refresh(tripID: tripID)
         assistant.pending = false
-        updateLocal(assistant, for: tripID)
+        updateOptimistic(assistant, for: tripID)
+        /* Mark the user message as no-longer-pending too — by now
+           OpenClaw definitely has it, and the next poll will dedupe
+           it cleanly. */
+        if let idx = localOptimistic[tripID]?.firstIndex(where: { $0.id == userMsg.id }) {
+            localOptimistic[tripID]?[idx].pending = false
+        }
+        await refresh(tripID: tripID)
     }
 
-    // MARK: - Local mutation helpers
+    // MARK: - Optimistic + remote merge
 
-    private func appendLocal(_ message: ChatMessage, for tripID: String) {
-        var list = messagesByTrip[tripID] ?? []
+    private func appendOptimistic(_ message: ChatMessage, for tripID: String) {
+        var list = localOptimistic[tripID] ?? []
         list.append(message)
-        messagesByTrip[tripID] = list
+        localOptimistic[tripID] = list
+        rebuild(tripID: tripID)
     }
 
-    private func updateLocal(_ message: ChatMessage, for tripID: String) {
-        guard var list = messagesByTrip[tripID] else { return }
+    private func updateOptimistic(_ message: ChatMessage, for tripID: String) {
+        guard var list = localOptimistic[tripID] else { return }
         if let idx = list.firstIndex(where: { $0.id == message.id }) {
             list[idx] = message
         } else {
             list.append(message)
         }
-        messagesByTrip[tripID] = list
+        localOptimistic[tripID] = list
+        rebuild(tripID: tripID)
     }
 
-    private func applyMessages(_ incoming: [ChatMessage], for tripID: String) {
-        /* Merge remote snapshot onto local state. Two classes of local
-           messages must survive a snapshot tick or they'll briefly
-           vanish from the UI:
-             • pending=true     — assistant currently streaming; not
-                                  written to RTDB until the loop ends.
-             • not-yet-on-remote — finished assistants (pending=false)
-                                  in the gap between the .completed
-                                  event and the upsertChatMessage call,
-                                  and freshly-appended user messages
-                                  whose write hasn't round-tripped yet.
-           Once the remote catches up, the incoming copy wins (same id),
-           so this never displays stale local state for long. */
-        let local = messagesByTrip[tripID] ?? []
-        let incomingIDs = Set(incoming.map { $0.id })
-        let localPreserved = local.filter {
-            $0.pending == true || !incomingIDs.contains($0.id)
+    /// Latest remote snapshot — overwrites previous remote view.
+    private var remoteByTrip: [String: [ChatMessage]] = [:]
+
+    private func applyRemote(_ remote: [ChatMessage], for tripID: String) {
+        remoteByTrip[tripID] = remote.filter { $0.isHidden != true }
+        /* Once the remote contains text matching one of our optimistic
+           turns, drop the optimistic (the remote copy wins). Match by
+           role + trimmed text to avoid double-render. We compare a
+           prefix of the text rather than the full string so partially-
+           streamed remote turns (web mid-stream) don't fail to match
+           our completed optimistic turn or vice-versa. */
+        if var local = localOptimistic[tripID], !local.isEmpty {
+            local.removeAll { opt in
+                /* Streaming assistants stay until completion. */
+                if opt.pending == true && opt.role == .assistant { return false }
+                /* Streaming user turns get dropped once a matching
+                   remote turn shows up — they're cheap to identify by
+                   exact content + role. */
+                return remoteByTrip[tripID]?.contains(where: { rem in
+                    rem.role == opt.role &&
+                    rem.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                        == opt.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                }) ?? false
+            }
+            localOptimistic[tripID] = local
         }
+        rebuild(tripID: tripID)
+    }
+
+    /// Rebuild the merged published list = remote + optimistic, sorted
+    /// by timestamp. Optimistic always wins on duplicate ids.
+    private func rebuild(tripID: String) {
         var byID: [String: ChatMessage] = [:]
-        for m in incoming where m.isHidden != true { byID[m.id] = m }
-        for p in localPreserved { byID[p.id] = p }
+        for m in remoteByTrip[tripID] ?? [] { byID[m.id] = m }
+        for m in localOptimistic[tripID] ?? [] { byID[m.id] = m }
         messagesByTrip[tripID] = byID.values
             .sorted { $0.timestamp < $1.timestamp }
     }
