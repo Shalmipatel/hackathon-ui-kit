@@ -15,10 +15,14 @@ enum WanderbotConfig {
 
     static var firebaseEnabled: Bool { !firebaseDatabaseURL.isEmpty }
 
-    /// OpenClaw gateway — same `VITE_NEOCLAW_API_URL` the web app uses.
-    /// Chat hits `<gatewayURL>/v1/responses` with SSE streaming.
+    /// OpenClaw gateway base URL — the web app hits `/v1/responses`
+    /// at its own origin, which Vercel rewrites to `…/api/gw/v1/…`
+    /// upstream (see vercel.json). iOS doesn't have the Vercel proxy
+    /// in the loop, so the `/api/gw` prefix has to be baked into the
+    /// base URL or every request gets bounced (302 → login, then 401
+    /// from the chat endpoint).
     static let gatewayURL: String =
-        "https://neoclaw-admin-us-west-1.securebrowser.com"
+        "https://neoclaw-admin-us-west-1.securebrowser.com/api/gw"
 
     /// Bearer token sent as `Authorization: Bearer <key>` on gateway
     /// requests. Matches the StubAuthProvider pattern (the starter kit
