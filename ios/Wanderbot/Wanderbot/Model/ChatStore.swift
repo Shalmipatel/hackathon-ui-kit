@@ -128,12 +128,14 @@ final class ChatStore: ObservableObject {
                     assistant.content += chunk
                     updateLocal(assistant, for: tripID)
                 case .completed(let id):
+                    /* Hold off on flipping pending=false until the
+                       RTDB mirror lands below — pending acts as the
+                       "keep me visible locally even if a snapshot
+                       arrives mid-flight" flag in applyMessages. */
                     assistant.responseID = id
-                    assistant.pending = false
                     updateLocal(assistant, for: tripID)
                 case .failed(let msg):
                     assistant.content += assistant.content.isEmpty ? msg : "\n\n⚠️ \(msg)"
-                    assistant.pending = false
                     updateLocal(assistant, for: tripID)
                 }
             }
@@ -141,11 +143,16 @@ final class ChatStore: ObservableObject {
             assistant.content += assistant.content.isEmpty
                 ? "Couldn't reach the gateway: \(error.localizedDescription)"
                 : "\n\n⚠️ \(error.localizedDescription)"
-            assistant.pending = false
             updateLocal(assistant, for: tripID)
         }
 
+        /* Mirror first, THEN clear pending. This sequence guarantees
+           the message exists on the remote (so applyMessages always
+           sees it in `incoming`) before we drop the local pending
+           override. */
         await rtdb?.upsertChatMessage(tripID: tripID, message: assistant)
+        assistant.pending = false
+        updateLocal(assistant, for: tripID)
     }
 
     // MARK: - Local mutation helpers
@@ -167,14 +174,26 @@ final class ChatStore: ObservableObject {
     }
 
     private func applyMessages(_ incoming: [ChatMessage], for tripID: String) {
-        // Merge: keep `pending` messages still streaming locally on top
-        // of the remote snapshot, since the assistant turn isn't
-        // mirrored to RTDB until it completes.
+        /* Merge remote snapshot onto local state. Two classes of local
+           messages must survive a snapshot tick or they'll briefly
+           vanish from the UI:
+             • pending=true     — assistant currently streaming; not
+                                  written to RTDB until the loop ends.
+             • not-yet-on-remote — finished assistants (pending=false)
+                                  in the gap between the .completed
+                                  event and the upsertChatMessage call,
+                                  and freshly-appended user messages
+                                  whose write hasn't round-tripped yet.
+           Once the remote catches up, the incoming copy wins (same id),
+           so this never displays stale local state for long. */
         let local = messagesByTrip[tripID] ?? []
-        let localPending = local.filter { $0.pending == true }
+        let incomingIDs = Set(incoming.map { $0.id })
+        let localPreserved = local.filter {
+            $0.pending == true || !incomingIDs.contains($0.id)
+        }
         var byID: [String: ChatMessage] = [:]
         for m in incoming where m.isHidden != true { byID[m.id] = m }
-        for p in localPending { byID[p.id] = p }
+        for p in localPreserved { byID[p.id] = p }
         messagesByTrip[tripID] = byID.values
             .sorted { $0.timestamp < $1.timestamp }
     }
