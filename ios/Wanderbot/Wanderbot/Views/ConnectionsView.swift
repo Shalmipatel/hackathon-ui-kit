@@ -1,19 +1,22 @@
 import SwiftUI
 
-/// Connections list — mirrors the web app's surface.
+/// Connections list — shows only what's actually connected for this
+/// user (cross-device state, read from RTDB).
 ///
-/// Only Gmail is fully reactive on iOS today: the web app stores the
-/// connected account in RTDB at `/wanderbot/connections/gmail`, and
-/// `ConnectionsStore` subscribes to it so connect/disconnect from any
-/// device shows up here within a second.
+/// Today that's:
+///   - **Gmail** — `/wanderbot/connections/gmail` carries the
+///     connected account; status + email update live via
+///     `ConnectionsStore`.
+///   - **OpenClaw runtime** — informational pill so the page has
+///     a non-empty resting state.
 ///
-/// Other integrations (Google Calendar, browser apps, social) live
-/// inside the OpenClaw gateway's per-user state, which iOS doesn't
-/// speak to yet. They're listed with a "Manage on web" affordance
-/// that opens the same Connections page in Safari.
+/// The mobile-web app surfaces a richer "browse and connect" panel
+/// (Google Calendar, browser apps for Airbnb/Booking, social
+/// accounts) but those flows live entirely in the OpenClaw gateway
+/// and aren't replicated to RTDB. On iOS we deliberately don't
+/// pretend to manage them — adding new connections happens on the
+/// web app; iOS just reflects what's already on.
 struct ConnectionsView: View {
-    @EnvironmentObject private var connections: ConnectionsStore
-
     var body: some View {
         List {
             Section {
@@ -21,33 +24,7 @@ struct ConnectionsView: View {
             } header: {
                 Text("Trip discovery")
             } footer: {
-                Text("Wanderbot scans your Gmail for booking confirmations and adds them to your trips.")
-                    .font(.system(size: 12))
-            }
-
-            Section {
-                ManageOnWebRow(
-                    icon: "calendar",
-                    tint: Color(red: 0.20, green: 0.46, blue: 0.86),
-                    title: "Google Calendar",
-                    subtitle: "Read upcoming events"
-                )
-                ManageOnWebRow(
-                    icon: "safari.fill",
-                    tint: Color(red: 0.42, green: 0.46, blue: 0.55),
-                    title: "Browser apps",
-                    subtitle: "Airbnb, Booking, Expedia…"
-                )
-                ManageOnWebRow(
-                    icon: "person.2.crop.square.stack",
-                    tint: Color(red: 0.86, green: 0.22, blue: 0.49),
-                    title: "Social accounts",
-                    subtitle: "Instagram, TikTok, X…"
-                )
-            } header: {
-                Text("Manage on the web")
-            } footer: {
-                Text("These integrations live in your OpenClaw account. Tap any row to open the web Connections page.")
+                Text("Wanderbot scans your inbox for booking confirmations and adds them to your trips.")
                     .font(.system(size: 12))
             }
 
@@ -113,7 +90,7 @@ private struct GmailRow: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Wanderbot will stop scanning your inbox for new trips on every device until you reconnect.")
+            Text("Wanderbot will stop scanning your inbox for new trips on every device until you reconnect from the web app.")
         }
     }
 
@@ -140,9 +117,9 @@ private struct GmailRow: View {
             }
             .buttonStyle(.plain)
             .disabled(connections.isMutating)
-        } else if connections.didLoadInitial {
-            ConnectOnWebButton(label: "Connect")
         }
+        // Not connected = no trailing action. Connection itself happens
+        // on the web app; iOS only reflects state.
     }
 }
 
@@ -152,56 +129,6 @@ private struct StatusDot: View {
             Circle().fill(Color.green.opacity(0.25)).frame(width: 12, height: 12)
             Circle().fill(Color.green).frame(width: 7, height: 7)
         }
-    }
-}
-
-// MARK: - "Manage on web" rows
-
-private struct ManageOnWebRow: View {
-    let icon: String
-    let tint: Color
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        Button {
-            openWebConnections()
-        } label: {
-            HStack(spacing: 12) {
-                IconTile(icon: icon, tint: tint)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
-                    Text(subtitle).font(.system(size: 12)).foregroundStyle(Theme.inkMuted)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "arrow.up.right.square")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.inkMuted)
-            }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct ConnectOnWebButton: View {
-    let label: String
-
-    var body: some View {
-        Button {
-            openWebConnections()
-        } label: {
-            HStack(spacing: 4) {
-                Text(label).font(.system(size: 12, weight: .semibold))
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 10, weight: .bold))
-            }
-            .foregroundStyle(Theme.ink)
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(Capsule().fill(Theme.chipFill))
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -242,9 +169,4 @@ private struct IconTile: View {
                 .foregroundStyle(tint)
         }
     }
-}
-
-private func openWebConnections() {
-    guard let url = URL(string: "https://wanderbot-ai.vercel.app/?view=connections") else { return }
-    UIApplication.shared.open(url)
 }
