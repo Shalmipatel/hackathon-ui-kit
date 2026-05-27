@@ -564,17 +564,6 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       sourcemap: true,
-      rollupOptions: {
-        input: {
-          /* Main SPA entry. */
-          main: resolve(__dirname, 'index.html'),
-          /* iOS sign-in bridge — loaded by ASWebAuthenticationSession,
-             drives Firebase Auth via signInWithRedirect, then bounces
-             the resulting ID token back to the iOS app via a custom
-             URL scheme. See src/auth-bridge.ts. */
-          auth: resolve(__dirname, 'auth.html'),
-        },
-      },
     },
   };
 });

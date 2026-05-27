@@ -14,10 +14,14 @@
 
 import { useEffect, useState } from 'react';
 import {
+  browserLocalPersistence,
   getAuth,
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
+  setPersistence,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   type Auth,
   type User,
@@ -43,7 +47,43 @@ function getAuthInstance(): Auth | null {
   const app = getFirebaseApp();
   if (!app) return null;
   authInstance = getAuth(app);
+  /* Force IndexedDB persistence (browserLocalPersistence). Firebase
+     defaults to this on most browsers but falls back silently when
+     the env looks ITP-strict (Safari, third-party-cookies disabled),
+     which makes onAuthStateChanged hang on the very first load. Pin
+     it explicitly so the auth state resolves quickly even when the
+     env is tight. */
+  void setPersistence(authInstance, browserLocalPersistence).catch((err) => {
+    console.warn('[firebase-auth] setPersistence failed', err);
+  });
   return authInstance;
+}
+
+/** Build a Google provider tuned for an account-picker flow.
+ *  Centralised so popup + redirect paths stay in sync. */
+function googleProvider(): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  /* Force account picker every time so a wrong-account sign-in is
+     easy to undo without a deep "remove account" flow. */
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return provider;
+}
+
+/** Errors signInWithPopup throws when the OS / browser blocks the
+ *  popup or the user dismisses the implicit-new-tab fallback. When we
+ *  see one of these we kick off a same-tab redirect instead. */
+const POPUP_FALLBACK_CODES: ReadonlySet<string> = new Set([
+  'auth/popup-blocked',
+  'auth/popup-closed-by-user',
+  'auth/cancelled-popup-request',
+  'auth/operation-not-supported-in-this-environment',
+  'auth/web-storage-unsupported',
+]);
+
+function shouldFallbackToRedirect(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' && POPUP_FALLBACK_CODES.has(code);
 }
 
 export async function signInWithGoogle(): Promise<User | null> {
@@ -52,14 +92,26 @@ export async function signInWithGoogle(): Promise<User | null> {
     console.warn('[firebase-auth] Firebase not configured — sign-in skipped.');
     return null;
   }
-  const provider = new GoogleAuthProvider();
-  /* Force account picker every time so a wrong-account sign-in is
-     easy to undo without a deep "remove account" flow. */
-  provider.setCustomParameters({ prompt: 'select_account' });
   try {
-    const cred = await signInWithPopup(auth, provider);
+    /* Try popup first — fastest happy-path on Chrome / Edge desktop
+       where popups are allowed. Returns immediately on success and
+       avoids losing the page state to a redirect. */
+    const cred = await signInWithPopup(auth, googleProvider());
     return cred.user;
   } catch (err) {
+    if (shouldFallbackToRedirect(err)) {
+      /* Popup blocked (common on Safari, locked-down Chrome profiles,
+         or anywhere third-party cookies are off). Switch to redirect
+         — this navigates the whole tab to Google's consent screen and
+         bounces back; getRedirectResult on next load picks up the
+         credential and onAuthStateChanged fires. */
+      console.warn('[firebase-auth] popup blocked, falling back to redirect', err);
+      await signInWithRedirect(auth, googleProvider());
+      /* Page is navigating away — the promise never resolves locally.
+         Return null so callers stop the spinner; the redirect flow
+         completes after the round-trip. */
+      return null;
+    }
     console.warn('[firebase-auth] sign-in failed', err);
     throw err;
   }
@@ -111,6 +163,14 @@ export function useFirebaseUser(): AuthState {
     if (isDevAuthBypassed()) return;
     const auth = getAuthInstance();
     if (!auth) return;
+    /* Drain any pending redirect result first — when the user lands
+       back here after signInWithRedirect, Firebase needs this call
+       to consume the URL hash, create the credential and fire
+       onAuthStateChanged. Without it the gate sits at "Checking
+       sign-in…" indefinitely on the redirect return trip. */
+    getRedirectResult(auth).catch((err) => {
+      console.warn('[firebase-auth] getRedirectResult failed', err);
+    });
     const unsub = onAuthStateChanged(auth, (user) => {
       if (!user) {
         setState({ status: 'signed-out' });

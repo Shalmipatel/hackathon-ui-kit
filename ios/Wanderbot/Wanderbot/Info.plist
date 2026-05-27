@@ -6,14 +6,6 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.wanderbot.Wanderbot.auth</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>wanderbot</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleURLName</key>
 			<string>com.wanderbot.Wanderbot.google</string>
 			<key>CFBundleURLSchemes</key>
 			<array>

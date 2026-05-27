@@ -71,12 +71,18 @@ function readEnvConfig(): FirebaseConfig | null {
   const projectId = env.VITE_FIREBASE_PROJECT_ID;
   const appId = env.VITE_FIREBASE_APP_ID;
   if (!apiKey || !databaseURL || !projectId || !appId) return null;
+  /* signInWithRedirect bounces through `<authDomain>/__/auth/handler`
+     — Firebase needs a concrete value to build that URL. Default to
+     the project's auto-provisioned firebaseapp.com host when the env
+     doesn't override it; without this the redirect leg silently
+     misroutes and the gate gets stuck on "Checking sign-in…". */
+  const authDomain = env.VITE_FIREBASE_AUTH_DOMAIN ?? `${projectId}.firebaseapp.com`;
   return {
     apiKey,
     databaseURL,
     projectId,
     appId,
-    authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
+    authDomain,
     storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET,
     messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   };
