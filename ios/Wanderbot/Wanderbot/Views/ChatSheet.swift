@@ -41,6 +41,18 @@ struct ChatSheet: View {
                     }
                     .onChange(of: messages.count) { _, _ in scroll(proxy) }
                     .onChange(of: messages.last?.content) { _, _ in scroll(proxy) }
+                    // Jump to the latest message when the sheet
+                    // opens. .task fires after the first layout pass,
+                    // so the bottom anchor exists by the time we
+                    // scroll. The instant scroll (no animation) keeps
+                    // the open feeling like "you're already at the
+                    // bottom" rather than "you watched it scroll".
+                    .task(id: tripID) {
+                        // Wait one frame for LazyVStack to materialise
+                        // any backlog of messages, then jump.
+                        try? await Task.sleep(nanoseconds: 50_000_000)
+                        proxy.scrollTo("bottom", anchor: .bottom)
+                    }
                 }
 
                 Divider().overlay(Theme.hairline)
