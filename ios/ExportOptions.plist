@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- TestFlight + App Store distribution. -->
+	<key>method</key>
+	<string>app-store-connect</string>
+
+	<key>teamID</key>
+	<string>QN7REDCUD3</string>
+
+	<!-- Let Xcode fetch / refresh the provisioning profile automatically.
+	     With CODE_SIGN_STYLE=Automatic in the pbxproj plus a valid Apple
+	     Developer team membership, this avoids managing .mobileprovision
+	     files by hand. -->
+	<key>signingStyle</key>
+	<string>automatic</string>
+
+	<!-- Strip Swift symbols from the IPA — smaller upload, no source
+	     leakage in App Store builds. -->
+	<key>stripSwiftSymbols</key>
+	<true/>
+
+	<!-- Compile bitcode is no longer required for App Store submissions
+	     (Apple deprecated it in Xcode 14). Explicitly false to silence
+	     warnings. -->
+	<key>compileBitcode</key>
+	<false/>
+
+	<!-- Make Apple manage the symbols upload for crash reporting in App
+	     Store Connect. -->
+	<key>uploadSymbols</key>
+	<true/>
+</dict>
+</plist>
