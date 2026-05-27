@@ -38,6 +38,26 @@ enum WanderbotConfig {
     /// app defaults to "openclaw"; the gateway routes by this name.
     static let gatewayModel: String = "openclaw"
 
+    /// Prefix for the `x-openclaw-session-key` header. The web's
+    /// `toSessionKeyHeader(clientId)` returns
+    ///   `agent:main:neoclaw-<clientId>`
+    /// — see src/providers/sync/session-key.util.ts. Sending the same
+    /// value from iOS makes both clients land on the same OpenClaw
+    /// server-side session, so the conversation transcript is shared
+    /// across devices (the gateway chains turns by session key).
+    static let gatewaySessionKeyPrefix: String = "agent:main:neoclaw-"
+
+    /// Session id we use for a trip's chat — matches the web's
+    /// `trip-<tripId>` convention (see useBookingIngestion.ts).
+    static func chatSessionID(forTripID tripID: String) -> String {
+        "trip-\(tripID)"
+    }
+
+    /// Build the `x-openclaw-session-key` header value for one trip.
+    static func sessionKeyHeader(forTripID tripID: String) -> String {
+        "\(gatewaySessionKeyPrefix)\(chatSessionID(forTripID: tripID))"
+    }
+
     static var gatewayEnabled: Bool { !gatewayURL.isEmpty }
 
     /// Firebase Web API key — public value, ships in any Firebase web

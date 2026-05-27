@@ -56,16 +56,23 @@ struct GatewayClient {
     /// POST a user message to `/v1/responses` and yield streamed events.
     /// The async stream terminates after a `.completed` or `.failed`
     /// event, or when the connection closes.
+    ///
+    /// `sessionKeyHeader` is the value for `x-openclaw-session-key`.
+    /// Pass the web-compatible session key (see
+    /// `WanderbotConfig.sessionKeyHeader(forTripID:)`) so the OpenClaw
+    /// server-side session is shared across web and iOS — the gateway
+    /// chains conversation turns by this key, so we no longer need to
+    /// track `previous_response_id` ourselves.
     func send(
         text: String,
-        previousResponseID: String?
+        sessionKeyHeader: String?
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     try await stream(
                         text: text,
-                        previousResponseID: previousResponseID,
+                        sessionKeyHeader: sessionKeyHeader,
                         continuation: continuation
                     )
                 } catch {
@@ -78,7 +85,7 @@ struct GatewayClient {
 
     private func stream(
         text: String,
-        previousResponseID: String?,
+        sessionKeyHeader: String?,
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async throws {
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/responses"))
@@ -87,8 +94,14 @@ struct GatewayClient {
         request.setValue(agentID, forHTTPHeaderField: "x-openclaw-agent-id")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        if let sessionKeyHeader, !sessionKeyHeader.isEmpty {
+            /* Server-side conversation chaining lives behind this
+               header. Same value web sends → same OpenClaw session →
+               cross-device transcript. */
+            request.setValue(sessionKeyHeader, forHTTPHeaderField: "x-openclaw-session-key")
+        }
 
-        var body: [String: Any] = [
+        let body: [String: Any] = [
             "model": model,
             "stream": true,
             "user": "neoclaw",
@@ -96,9 +109,6 @@ struct GatewayClient {
                 ["type": "message", "role": "user", "content": text]
             ]
         ]
-        if let previousResponseID, !previousResponseID.isEmpty {
-            body["previous_response_id"] = previousResponseID
-        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let urlForLogs = request.url?.absoluteString ?? "<nil>"

@@ -54,7 +54,10 @@ final class SyncService: ObservableObject {
     private func runCommand(_ command: String) async {
         guard let gateway else { return }
         do {
-            let stream = gateway.send(text: command, previousResponseID: nil)
+            /* Sync commands are fire-and-forget skill invocations
+               (`/wanderbot-sync …`) — no per-trip conversation
+               context to preserve, so we send without a session key. */
+            let stream = gateway.send(text: command, sessionKeyHeader: nil)
             let timeoutTask = Task<Void, Never> {
                 try? await Task.sleep(nanoseconds: 12_000_000_000)
             }

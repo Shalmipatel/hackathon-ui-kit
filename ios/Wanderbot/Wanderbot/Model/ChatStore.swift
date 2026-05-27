@@ -83,8 +83,6 @@ final class ChatStore: ObservableObject {
 
     private func _send(tripID: String, text: String) async {
         let now = Date().timeIntervalSince1970 * 1000
-        let lastAssistant = messagesByTrip[tripID]?.last(where: { $0.role == .assistant })
-        let previousID = lastAssistant?.responseID
 
         let userMsg = ChatMessage(
             id: UUID().uuidString,
@@ -93,7 +91,7 @@ final class ChatStore: ObservableObject {
             timestamp: now,
             isHidden: nil,
             responseID: nil,
-            previousResponseID: previousID,
+            previousResponseID: nil,
             pending: nil
         )
         appendLocal(userMsg, for: tripID)
@@ -106,7 +104,7 @@ final class ChatStore: ObservableObject {
             timestamp: now + 1,
             isHidden: nil,
             responseID: nil,
-            previousResponseID: previousID,
+            previousResponseID: nil,
             pending: true
         )
         appendLocal(assistant, for: tripID)
@@ -121,8 +119,15 @@ final class ChatStore: ObservableObject {
             return
         }
 
+        /* Stamp the same x-openclaw-session-key the web uses so this
+           turn lands in the existing trip session on OpenClaw — that
+           way the agent has continuous context with whatever the user
+           sent from the browser. The session id matches the web's
+           `trip-<tripId>` convention (see useBookingIngestion.ts). */
+        let sessionKey = WanderbotConfig.sessionKeyHeader(forTripID: tripID)
+
         do {
-            for try await event in gateway.send(text: text, previousResponseID: previousID) {
+            for try await event in gateway.send(text: text, sessionKeyHeader: sessionKey) {
                 switch event {
                 case .delta(let chunk):
                     assistant.content += chunk
