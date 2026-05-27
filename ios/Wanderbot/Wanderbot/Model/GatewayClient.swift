@@ -14,6 +14,7 @@ struct GatewayClient {
     let apiKey: String
     let agentID: String
     let model: String
+    let session: URLSession
 
     init?(config: WanderbotConfig.Type = WanderbotConfig.self) {
         guard config.gatewayEnabled,
@@ -22,6 +23,21 @@ struct GatewayClient {
         self.apiKey = config.gatewayAPIKey
         self.agentID = config.gatewayAgentID
         self.model = config.gatewayModel
+        self.session = Self.makeSession()
+    }
+
+    /// URLSession sized for LLM streaming. URLSession.shared defaults
+    /// to a 60s request timeout — that's the maximum idle gap allowed
+    /// between bytes — which routinely kills slow first-token latencies
+    /// (cold gateway, big context, etc.) and surfaces as "the request
+    /// timed out" in the chat. Bump both the per-byte gap (120s) and
+    /// the overall resource ceiling (10m, matching long agent runs).
+    private static func makeSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120     // idle gap between bytes
+        config.timeoutIntervalForResource = 600    // hard ceiling per stream
+        config.waitsForConnectivity = true         // ride out brief network blips
+        return URLSession(configuration: config)
     }
 
     /// One streaming reply event.
@@ -83,7 +99,7 @@ struct GatewayClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
         }
