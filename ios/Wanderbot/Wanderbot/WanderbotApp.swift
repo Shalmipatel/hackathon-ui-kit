@@ -5,6 +5,7 @@ struct WanderbotApp: App {
     @StateObject private var store = TravelStore()
     @StateObject private var chat = ChatStore()
     @StateObject private var auth = AuthStore()
+    @StateObject private var connections = ConnectionsStore()
 
     var body: some Scene {
         WindowGroup {
@@ -16,7 +17,10 @@ struct WanderbotApp: App {
             Group {
                 if auth.isSignedIn {
                     RootView()
-                        .task { store.bootstrap() }
+                        .task {
+                            store.bootstrap()
+                            connections.bootstrap()
+                        }
                         .transition(.opacity)
                 } else {
                     SignInGateView()
@@ -27,6 +31,7 @@ struct WanderbotApp: App {
             .environmentObject(store)
             .environmentObject(chat)
             .environmentObject(auth)
+            .environmentObject(connections)
             .preferredColorScheme(.light)
             .tint(Theme.ink)
         }

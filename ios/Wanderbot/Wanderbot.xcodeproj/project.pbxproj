@@ -36,6 +36,7 @@
 		A100001000000000000001D /* DraggableBookingsList.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000001D /* DraggableBookingsList.swift */; };
 		A100001000000000000001E /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000001E /* AuthStore.swift */; };
 		A100001000000000000001F /* SignInGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000001F /* SignInGateView.swift */; };
+		A1000010000000000000020 /* ConnectionsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000020 /* ConnectionsStore.swift */; };
 		A1000010000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000014 /* Assets.xcassets */; };
 		A1000010000000000000015 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000015 /* Preview Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -71,6 +72,7 @@
 		A100000000000000000001D /* DraggableBookingsList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraggableBookingsList.swift; sourceTree = "<group>"; };
 		A100000000000000000001E /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
 		A100000000000000000001F /* SignInGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInGateView.swift; sourceTree = "<group>"; };
+		A1000000000000000000020 /* ConnectionsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsStore.swift; sourceTree = "<group>"; };
 		A1000000000000000000014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000000000000000000015 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -130,6 +132,7 @@
 				A1000000000000000000019 /* ChatStore.swift */,
 				A100000000000000000001C /* MapDirections.swift */,
 				A100000000000000000001E /* AuthStore.swift */,
+				A1000000000000000000020 /* ConnectionsStore.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -263,6 +266,7 @@
 				A100001000000000000001D /* DraggableBookingsList.swift in Sources */,
 				A100001000000000000001E /* AuthStore.swift in Sources */,
 				A100001000000000000001F /* SignInGateView.swift in Sources */,
+				A1000010000000000000020 /* ConnectionsStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -127,6 +127,57 @@ actor FirebaseRTDB {
         }
     }
 
+    // MARK: - Generic single-path value (REST + SSE)
+
+    /// One-shot GET of a single RTDB path. Returns nil if the path
+    /// is empty (RTDB serves `null`) or on any transport error.
+    func loadValue<T: Decodable>(at path: String) async -> T? {
+        guard let url = endpoint(path: path) else { return nil }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            if data.isEmpty || data == Data("null".utf8) { return nil }
+            return try? JSONDecoder().decode(T.self, from: data)
+        } catch {
+            print("[firebase] loadValue \(path) failed:", error)
+            return nil
+        }
+    }
+
+    /// Subscribe to a single RTDB path. Yields the decoded value on
+    /// every change; yields `nil` when the value is deleted. The
+    /// stream cancels the underlying SSE connection on teardown.
+    func subscribeToValue<T: Decodable>(at path: String) -> AsyncStream<T?> {
+        AsyncStream { continuation in
+            guard let url = endpoint(path: path) else {
+                continuation.finish()
+                return
+            }
+            let session = SingleValueSSESession<T>(url: url)
+            session.onValue = { value in continuation.yield(value) }
+            session.start()
+            continuation.onTermination = { _ in session.stop() }
+        }
+    }
+
+    /// DELETE at `path` — RTDB removes the node. Used for things like
+    /// disconnecting Gmail (clears the connections/gmail subtree).
+    @discardableResult
+    func delete(at path: String) async -> Bool {
+        guard let url = endpoint(path: path) else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+        } catch {
+            print("[firebase] DELETE \(path) failed:", error)
+            return false
+        }
+    }
+
     // MARK: - Chat sessions
 
     private func chatPath(tripID: String) -> String {
@@ -249,6 +300,90 @@ private final class ChatSSESession: NSObject, URLSessionDataDelegate {
         guard let raw,
               let bytes = try? JSONSerialization.data(withJSONObject: raw)
         else { return nil }
+        return try? JSONDecoder().decode(T.self, from: bytes)
+    }
+}
+
+/// SSE session that subscribes to a single RTDB path and yields the
+/// decoded value (or nil on delete) each time it changes. Wraps the
+/// same `put`/`patch` envelope handling the other sessions use, but
+/// projects everything down to one value type.
+private final class SingleValueSSESession<T: Decodable>: NSObject, URLSessionDataDelegate {
+    let url: URL
+    var onValue: ((T?) -> Void)?
+
+    private var session: URLSession!
+    private var task: URLSessionDataTask?
+    private var parser = ChatSSEParser()
+    private var current: Any?            // raw JSON payload for patch merges
+    private let queue = DispatchQueue(label: "wanderbot.value-sse")
+
+    init(url: URL) {
+        self.url = url
+        super.init()
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 0
+        config.timeoutIntervalForResource = 0
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    }
+
+    func start() {
+        var req = URLRequest(url: url)
+        req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        task = session.dataTask(with: req)
+        task?.resume()
+    }
+
+    func stop() {
+        task?.cancel()
+        session.invalidateAndCancel()
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let events = parser.feed(data)
+        guard !events.isEmpty else { return }
+        queue.async { [weak self] in
+            guard let self else { return }
+            for event in events { self.apply(event: event) }
+            self.onValue?(self.decodeCurrent())
+        }
+    }
+
+    private func apply(event: ChatSSEParser.Event) {
+        guard event.eventName == "put" || event.eventName == "patch" else { return }
+        guard let data = event.dataJSON,
+              let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let path = envelope["path"] as? String
+        else { return }
+        let payload = envelope["data"]
+
+        if path == "/" {
+            // Whole-subtree put → replaces the value outright.
+            current = payload is NSNull ? nil : payload
+            return
+        }
+
+        // Field-level update — merge into the current dict.
+        if var dict = current as? [String: Any] {
+            let key = String(path.dropFirst())
+            if payload == nil || payload is NSNull {
+                dict.removeValue(forKey: key)
+            } else if let value = payload {
+                dict[key] = value
+            }
+            current = dict
+        } else if let payload, !(payload is NSNull) {
+            // First field arriving at a previously-empty path.
+            let key = String(path.dropFirst())
+            current = [key: payload]
+        }
+    }
+
+    private func decodeCurrent() -> T? {
+        guard let current, !(current is NSNull) else { return nil }
+        guard let bytes = try? JSONSerialization.data(withJSONObject: current) else { return nil }
         return try? JSONDecoder().decode(T.self, from: bytes)
     }
 }
