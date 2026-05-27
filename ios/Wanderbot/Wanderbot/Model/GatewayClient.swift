@@ -29,13 +29,15 @@ struct GatewayClient {
     /// URLSession sized for LLM streaming. URLSession.shared defaults
     /// to a 60s request timeout — that's the maximum idle gap allowed
     /// between bytes — which routinely kills slow first-token latencies
-    /// (cold gateway, big context, etc.) and surfaces as "the request
-    /// timed out" in the chat. Bump both the per-byte gap (120s) and
-    /// the overall resource ceiling (10m, matching long agent runs).
+    /// (cold gateway, big context, agent that's reasoning before
+    /// producing tokens, etc.) and surfaces as "the request timed
+    /// out" in the chat. Bump both the per-byte gap (5m, generous —
+    /// agent responses can stall while tools run) and the overall
+    /// resource ceiling (15m, matches long agent task budgets).
     private static func makeSession() -> URLSession {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 120     // idle gap between bytes
-        config.timeoutIntervalForResource = 600    // hard ceiling per stream
+        config.timeoutIntervalForRequest = 300     // idle gap between bytes
+        config.timeoutIntervalForResource = 900    // hard ceiling per stream
         config.waitsForConnectivity = true         // ride out brief network blips
         return URLSession(configuration: config)
     }

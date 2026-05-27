@@ -339,14 +339,22 @@ private struct InlineDetail: View {
 
 // MARK: - Notes
 
-/// Always-editable notes. We debounce the persist call so a fast
-/// typist doesn't slam RTDB with one PATCH per keystroke — the
-/// local view updates immediately either way.
+/// Two-mode notes section:
+///   • Read mode (default): renders the body as an AttributedString
+///     with detected URLs styled as tappable links. Tapping a link
+///     hands off to UIApplication.shared.open via SwiftUI's default
+///     OpenURLAction, which opens Safari (no in-app webview).
+///   • Edit mode: standard TextEditor with debounced persist.
+///
+/// We split the modes — instead of bolting tap-to-edit onto a Text
+/// — so link taps stay unambiguous; the "Edit" / "Done" toggle in
+/// the section header drives mode switching.
 private struct NotesSection: View {
     let booking: Booking
     @EnvironmentObject private var store: TravelStore
     @State private var text: String
     @State private var debounceTask: Task<Void, Never>?
+    @State private var isEditing: Bool = false
     @FocusState private var focused: Bool
 
     init(booking: Booking) {
@@ -356,33 +364,98 @@ private struct NotesSection: View {
 
     var body: some View {
         Section {
-            ZStack(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text("Add a note…")
+            if isEditing || text.isEmpty {
+                ZStack(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text("Add a note…")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Theme.inkMuted)
+                            .padding(.top, 8)
+                            .padding(.leading, 4)
+                            .allowsHitTesting(false)
+                    }
+                    TextEditor(text: $text)
                         .font(.system(size: 14))
-                        .foregroundStyle(Theme.inkMuted)
-                        .padding(.top, 8)
-                        .padding(.leading, 4)
-                        .allowsHitTesting(false)
+                        .foregroundStyle(Theme.ink)
+                        .frame(minHeight: 80)
+                        .focused($focused)
+                        .scrollContentBackground(.hidden)
+                        .onChange(of: text) { _, _ in scheduleSave() }
+                        .onChange(of: focused) { _, isFocused in
+                            if !isFocused {
+                                flushSave()
+                                /* Only collapse back to read mode when
+                                   there's actual content to render —
+                                   an empty note has no read view. */
+                                if !text.isEmpty { isEditing = false }
+                            }
+                        }
+                        .onAppear {
+                            if isEditing { focused = true }
+                        }
                 }
-                TextEditor(text: $text)
+            } else {
+                Text(notesAttributed)
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.ink)
-                    .frame(minHeight: 80)
-                    .focused($focused)
-                    .scrollContentBackground(.hidden)
-                    .onChange(of: text) { _, _ in scheduleSave() }
-                    .onChange(of: focused) { _, isFocused in
-                        if !isFocused { flushSave() }
-                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(.vertical, 4)
+                    /* `.tint` sets the link colour for the rendered
+                       AttributedString. SwiftUI's default OpenURLAction
+                       calls UIApplication.shared.open(url) which routes
+                       http(s) to Safari (not a webview). Use system
+                       blue — it's the universal "this is a link" cue
+                       and reads well on the cream background. */
+                    .tint(.blue)
+                    .textSelection(.enabled)
             }
         } header: {
-            Text("Notes")
+            HStack {
+                Text("Notes")
+                Spacer()
+                /* Only show the toggle when there's content; the
+                   empty-state already uses the editor itself as the
+                   tap target via the placeholder. */
+                if !text.isEmpty {
+                    Button(isEditing ? "Done" : "Edit") {
+                        if isEditing {
+                            focused = false   // triggers flushSave + mode switch
+                        } else {
+                            isEditing = true
+                            focused = true
+                        }
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.ink)
+                    .textCase(nil)
+                }
+            }
         } footer: {
             Text("Notes sync to every device.")
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.inkMuted)
         }
+    }
+
+    /// Detect URLs in the note body and mark them as `.link` so the
+    /// rendered Text routes taps through OpenURLAction → Safari.
+    private var notesAttributed: AttributedString {
+        var attr = AttributedString(text)
+        guard let detector = try? NSDataDetector(
+            types: NSTextCheckingResult.CheckingType.link.rawValue
+        ) else { return attr }
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        detector.enumerateMatches(in: text, range: nsRange) { match, _, _ in
+            guard let match,
+                  let url = match.url,
+                  let strRange = Range(match.range, in: text),
+                  let lower = AttributedString.Index(strRange.lowerBound, within: attr),
+                  let upper = AttributedString.Index(strRange.upperBound, within: attr)
+            else { return }
+            attr[lower..<upper].link = url
+            attr[lower..<upper].underlineStyle = .single
+        }
+        return attr
     }
 
     private func scheduleSave() {
