@@ -90,6 +90,12 @@ struct GatewayClient {
     ) async throws {
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/responses"))
         request.httpMethod = "POST"
+        // URLRequest defaults to a 60s timeout, which overrides the
+        // session's 300s `timeoutIntervalForRequest`. Agent web searches
+        // routinely run 60s+ with no intermediate bytes (it searches, then
+        // streams the whole answer), so the default cut them off at ~1 min
+        // and surfaced as an empty result. Match the session ceiling.
+        request.timeoutInterval = 300
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue(agentID, forHTTPHeaderField: "x-openclaw-agent-id")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

@@ -10,6 +10,7 @@ struct ChatSheet: View {
 
     @EnvironmentObject private var chat: ChatStore
     @State private var draft: String = ""
+    @State private var showVoiceCall = false
     @FocusState private var inputFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
@@ -70,12 +71,27 @@ struct ChatSheet: View {
             .navigationTitle(trip.map { "Chat · \($0.title)" } ?? "Chat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showVoiceCall = true
+                    } label: {
+                        Image(systemName: "waveform")
+                    }
+                    .tint(Theme.ink)
+                    .disabled(trip == nil)
+                    .accessibilityLabel("Talk to Wanderbot")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }.tint(Theme.ink)
                 }
             }
             .task(id: tripID) {
                 if let id = tripID { chat.ensureSubscription(for: id) }
+            }
+            .fullScreenCover(isPresented: $showVoiceCall) {
+                if let trip {
+                    VoiceCallView(trip: trip)
+                }
             }
         }
     }
@@ -120,16 +136,23 @@ private struct ChatBubble: View {
         HStack(alignment: .bottom) {
             if message.role == .user { Spacer(minLength: 40) }
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
-                Text(displayText)
-                    .font(.system(size: 15))
-                    .foregroundStyle(message.role == .user ? .white : Theme.ink)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(message.role == .user ? Theme.inkDark : Theme.chipFill)
-                    )
-                    .frame(maxWidth: 320, alignment: message.role == .user ? .trailing : .leading)
+                Group {
+                    if message.role == .user {
+                        Text(displayText)
+                    } else {
+                        MarkdownContent(raw: displayText)
+                    }
+                }
+                .font(.system(size: 15))
+                .foregroundStyle(message.role == .user ? .white : Theme.ink)
+                .tint(message.role == .user ? .white : .blue)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(message.role == .user ? Theme.inkDark : Theme.chipFill)
+                )
+                .frame(maxWidth: 320, alignment: message.role == .user ? .trailing : .leading)
 
                 if message.role == .assistant, message.pending == true, !message.content.isEmpty {
                     Label("typing…", systemImage: "ellipsis")
@@ -212,5 +235,208 @@ private struct ChatComposer: View {
 
     private var canSend: Bool {
         enabled && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+// MARK: - Markdown rendering
+
+/// Renders an assistant reply's Markdown. SwiftUI's `AttributedString`
+/// markdown handles inline syntax (bold/italic/code/links) but ignores
+/// block-level tables — they'd show as raw pipes. So we split the text
+/// into paragraph blocks (rendered inline) and GFM table blocks (laid out
+/// with a `Grid`), and stitch them back together top-to-bottom.
+private struct MarkdownContent: View {
+    let raw: String
+
+    var body: some View {
+        let blocks = MarkdownBlock.parse(raw)
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                switch block {
+                case .paragraph(let text):
+                    Text(Self.inline(text))
+                case .table(let table):
+                    MarkdownTableView(table: table)
+                case .image(let url, let alt):
+                    MarkdownImageView(url: url, alt: alt)
+                }
+            }
+        }
+    }
+
+    /// Inline-only markdown, preserving newlines. Partial-parse policy keeps
+    /// streaming text legible while a `**` token is still mid-flight.
+    static func inline(_ s: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible
+        )
+        return (try? AttributedString(markdown: s, options: options)) ?? AttributedString(s)
+    }
+}
+
+private struct MarkdownTableView: View {
+    let table: MarkdownTable
+
+    private var columnCount: Int { max(1, table.headers.count) }
+
+    var body: some View {
+        Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 6) {
+            GridRow {
+                ForEach(table.headers.indices, id: \.self) { c in
+                    Text(MarkdownContent.inline(table.headers[c]))
+                        .font(.system(size: 12.5, weight: .semibold))
+                }
+            }
+            Divider().gridCellColumns(columnCount)
+            ForEach(table.rows.indices, id: \.self) { r in
+                GridRow {
+                    ForEach(0..<columnCount, id: \.self) { c in
+                        Text(MarkdownContent.inline(cell(row: r, col: c)))
+                            .font(.system(size: 12.5))
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Theme.surface.opacity(0.7))
+        )
+    }
+
+    private func cell(row: Int, col: Int) -> String {
+        let cells = table.rows[row]
+        return col < cells.count ? cells[col] : ""
+    }
+}
+
+/// Async image with a loading placeholder. Failures collapse to nothing
+/// (or the alt text) so a dead link doesn't leave a broken-image box.
+private struct MarkdownImageView: View {
+    let url: URL
+    let alt: String
+
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .empty:
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 80)
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 280, maxHeight: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            case .failure:
+                if !alt.isEmpty {
+                    Text(alt)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.inkMuted)
+                } else {
+                    EmptyView()
+                }
+            @unknown default:
+                EmptyView()
+            }
+        }
+    }
+}
+
+private struct MarkdownTable {
+    let headers: [String]
+    let rows: [[String]]
+}
+
+private enum MarkdownBlock {
+    case paragraph(String)
+    case table(MarkdownTable)
+    case image(url: URL, alt: String)
+
+    static func parse(_ raw: String) -> [MarkdownBlock] {
+        let lines = raw.components(separatedBy: "\n")
+        var blocks: [MarkdownBlock] = []
+        var buffer: [String] = []
+        var i = 0
+
+        func flushParagraph() {
+            let text = buffer.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { blocks.append(.paragraph(text)) }
+            buffer.removeAll()
+        }
+
+        while i < lines.count {
+            // A table is a row line immediately followed by a `|---|---|`
+            // separator. That two-line signature avoids misreading a stray
+            // pipe in prose as a table.
+            if isRow(lines[i]), i + 1 < lines.count, isSeparator(lines[i + 1]) {
+                flushParagraph()
+                let headers = cells(lines[i])
+                i += 2
+                var rows: [[String]] = []
+                while i < lines.count, isRow(lines[i]) {
+                    rows.append(cells(lines[i]))
+                    i += 1
+                }
+                blocks.append(.table(MarkdownTable(headers: headers, rows: rows)))
+            } else if let image = imageBlock(lines[i]) {
+                // An image on its own line (markdown `![alt](url)` or a bare
+                // image URL) renders inline; everything else is prose.
+                flushParagraph()
+                blocks.append(image)
+                i += 1
+            } else {
+                buffer.append(lines[i])
+                i += 1
+            }
+        }
+        flushParagraph()
+        return blocks
+    }
+
+    /// Recognise an image-only line: markdown `![alt](url)` or a bare URL
+    /// ending in a known image extension.
+    private static func imageBlock(_ line: String) -> MarkdownBlock? {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return nil }
+
+        if t.hasPrefix("!["), let close = t.range(of: "]("), t.hasSuffix(")") {
+            let alt = String(t[t.index(t.startIndex, offsetBy: 2)..<close.lowerBound])
+            let urlStr = String(t[close.upperBound..<t.index(before: t.endIndex)])
+                .trimmingCharacters(in: .whitespaces)
+            if let url = URL(string: urlStr), url.scheme?.hasPrefix("http") == true {
+                return .image(url: url, alt: alt)
+            }
+            return nil
+        }
+
+        if isImageURL(t), let url = URL(string: t) {
+            return .image(url: url, alt: "")
+        }
+        return nil
+    }
+
+    private static func isImageURL(_ s: String) -> Bool {
+        guard s.lowercased().hasPrefix("http"), !s.contains(" ") else { return false }
+        let path = (URL(string: s)?.path ?? s).lowercased()
+        return [".png", ".jpg", ".jpeg", ".gif", ".webp"].contains { path.hasSuffix($0) }
+    }
+
+    private static func isRow(_ line: String) -> Bool {
+        line.contains("|")
+    }
+
+    private static func isSeparator(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard t.contains("-"), t.contains("|") else { return false }
+        return t.allSatisfy { "|-: ".contains($0) }
+    }
+
+    private static func cells(_ line: String) -> [String] {
+        var t = line.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("|") { t.removeFirst() }
+        if t.hasSuffix("|") { t.removeLast() }
+        return t.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
     }
 }

@@ -60,6 +60,28 @@ enum WanderbotConfig {
 
     static var gatewayEnabled: Bool { !gatewayURL.isEmpty }
 
+    // MARK: - xAI Voice Agent
+
+    /// xAI realtime endpoint. Auth is passed via `Sec-WebSocket-Protocol`
+    /// (`xai-client-secret.<key>`) because `URLSessionWebSocketTask`
+    /// drops the `Authorization` header on the HTTP→WS upgrade.
+    static let xaiRealtimeURL: String = "wss://api.x.ai/v1/realtime"
+
+    /// Billing credential for the realtime API. Hackathon-mode: baked
+    /// into the binary like the gateway key. Swap to an ephemeral-token
+    /// endpoint before shipping — this is a real xAI key.
+    static let xaiAPIKey: String =
+        "xai-d6Kjq9HbxXxyR2AKg4YfQPRQai8XcCBZrMfBP9kYDDdwJahUIoiKCSexcaHfSJASOklW3JYEmwFZF8XP"
+
+    /// Realtime model. `grok-voice-latest` tracks the newest version.
+    static let xaiVoiceModel: String = "grok-voice-latest"
+
+    /// One of: eve, ara, rex, sal, leo (or a custom voice id). `ara`
+    /// is warm/conversational — reads as the most human of the set.
+    static let xaiVoice: String = "ara"
+
+    static var xaiVoiceEnabled: Bool { !xaiAPIKey.isEmpty }
+
     /// Firebase Web API key — public value, ships in any Firebase web
     /// app's compiled bundle. Used to call the Identity Toolkit REST
     /// API directly (no Firebase SDK), e.g. for the Apple sign-in

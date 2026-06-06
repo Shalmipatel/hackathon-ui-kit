@@ -39,6 +39,10 @@
 		A1000010000000000000020 /* ConnectionsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000020 /* ConnectionsStore.swift */; };
 		A1000010000000000000021 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000021 /* SyncService.swift */; };
 		A1000010000000000000022 /* OpenClawSessionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000022 /* OpenClawSessionClient.swift */; };
+		A1000010000000000000023 /* VoiceWebSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000023 /* VoiceWebSocket.swift */; };
+		A1000010000000000000024 /* VoiceAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000024 /* VoiceAudioEngine.swift */; };
+		A1000010000000000000025 /* VoiceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000025 /* VoiceStore.swift */; };
+		A1000010000000000000026 /* VoiceCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000026 /* VoiceCallView.swift */; };
 		A1000010000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000014 /* Assets.xcassets */; };
 		A1000010000000000000015 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000015 /* Preview Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -77,6 +81,10 @@
 		A1000000000000000000020 /* ConnectionsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsStore.swift; sourceTree = "<group>"; };
 		A1000000000000000000021 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		A1000000000000000000022 /* OpenClawSessionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawSessionClient.swift; sourceTree = "<group>"; };
+		A1000000000000000000023 /* VoiceWebSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceWebSocket.swift; sourceTree = "<group>"; };
+		A1000000000000000000024 /* VoiceAudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAudioEngine.swift; sourceTree = "<group>"; };
+		A1000000000000000000025 /* VoiceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceStore.swift; sourceTree = "<group>"; };
+		A1000000000000000000026 /* VoiceCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCallView.swift; sourceTree = "<group>"; };
 		A1000000000000000000014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000000000000000000015 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -139,6 +147,9 @@
 				A1000000000000000000020 /* ConnectionsStore.swift */,
 				A1000000000000000000021 /* SyncService.swift */,
 				A1000000000000000000022 /* OpenClawSessionClient.swift */,
+				A1000000000000000000023 /* VoiceWebSocket.swift */,
+				A1000000000000000000024 /* VoiceAudioEngine.swift */,
+				A1000000000000000000025 /* VoiceStore.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -161,6 +172,7 @@
 				A100000000000000000001B /* AllTripsView.swift */,
 				A100000000000000000001D /* DraggableBookingsList.swift */,
 				A100000000000000000001F /* SignInGateView.swift */,
+				A1000000000000000000026 /* VoiceCallView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -275,6 +287,10 @@
 				A1000010000000000000020 /* ConnectionsStore.swift in Sources */,
 				A1000010000000000000021 /* SyncService.swift in Sources */,
 				A1000010000000000000022 /* OpenClawSessionClient.swift in Sources */,
+				A1000010000000000000023 /* VoiceWebSocket.swift in Sources */,
+				A1000010000000000000024 /* VoiceAudioEngine.swift in Sources */,
+				A1000010000000000000025 /* VoiceStore.swift in Sources */,
+				A1000010000000000000026 /* VoiceCallView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -405,7 +421,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = QN7REDCUD3;
 				DEVELOPMENT_ASSET_PATHS = "\"Wanderbot/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
@@ -436,7 +452,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = QN7REDCUD3;
 				DEVELOPMENT_ASSET_PATHS = "\"Wanderbot/Preview Content\"";
 				ENABLE_PREVIEWS = YES;

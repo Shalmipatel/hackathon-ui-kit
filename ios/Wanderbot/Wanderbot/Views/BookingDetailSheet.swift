@@ -20,6 +20,7 @@ struct BookingDetailSheet: View {
     let initialBooking: Booking
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: TravelStore
+    @State private var showDeleteConfirm = false
 
     private var booking: Booking {
         store.bookings.first(where: { $0.id == initialBooking.id }) ?? initialBooking
@@ -51,6 +52,20 @@ struct BookingDetailSheet: View {
                 FlightSection(booking: b)
                 DetailsSection(booking: b)
                 NotesSection(booking: b)
+
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteConfirm = true
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Label("Remove from itinerary", systemImage: "trash")
+                                .font(.system(size: 15, weight: .medium))
+                            Spacer()
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+                }
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -61,6 +76,15 @@ struct BookingDetailSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }.tint(Theme.ink)
                 }
+            }
+            .alert("Remove from itinerary?", isPresented: $showDeleteConfirm) {
+                Button("Remove", role: .destructive) {
+                    store.deleteBooking(b)
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("“\(b.title)” will be removed on every device.")
             }
         }
     }

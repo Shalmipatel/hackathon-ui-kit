@@ -255,6 +255,19 @@ final class TravelStore: ObservableObject {
                          at: "wanderbot/bookings/\(booking.id)")
     }
 
+    // MARK: - Delete
+
+    /// Remove a booking from the itinerary. Optimistically drops it from
+    /// the local array, then deletes the RTDB node. The SSE stream's
+    /// next snapshot confirms the removal across devices.
+    func deleteBooking(_ booking: Booking) {
+        bookings.removeAll { $0.id == booking.id }
+        Task { [rtdb, id = booking.id] in
+            guard let rtdb else { return }
+            await rtdb.delete(at: "wanderbot/bookings/\(id)")
+        }
+    }
+
 
     /// Upcoming (asc) then past (desc) — matches the React mobile shell.
     var orderedTrips: [Trip] {
