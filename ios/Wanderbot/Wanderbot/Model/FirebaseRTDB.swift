@@ -36,7 +36,7 @@ actor FirebaseRTDB {
         path: String,
         decode: T.Type
     ) async -> [T] {
-        guard let url = endpoint(path: path) else { return [] }
+        guard let url = await authedURL(path: path) else { return [] }
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         do {
@@ -71,7 +71,8 @@ actor FirebaseRTDB {
         AsyncStream { continuation in
             let session = SSESession(
                 tripsURL: endpoint(path: "wanderbot/trips"),
-                bookingsURL: endpoint(path: "wanderbot/bookings")
+                bookingsURL: endpoint(path: "wanderbot/bookings"),
+                tokenProvider: { await FirebaseAuthToken.shared.validToken() }
             )
             session.onSnapshot = { trips, bookings in
                 continuation.yield((trips, bookings))
@@ -88,13 +89,29 @@ actor FirebaseRTDB {
         databaseURL.appendingPathComponent(path + ".json")
     }
 
+    /// REST endpoint for `path` with `?auth=<idToken>` appended when a
+    /// Firebase user is signed in. The DB rules now require auth on every
+    /// path, so an unauthenticated request is expected to 401 — which all
+    /// callers already treat as "no data" / "write failed".
+    private func authedURL(path: String, query: [URLQueryItem] = []) async -> URL? {
+        guard let base = endpoint(path: path),
+              var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        else { return nil }
+        var items = query
+        if let token = await FirebaseAuthToken.shared.validToken() {
+            items.append(URLQueryItem(name: "auth", value: token))
+        }
+        if !items.isEmpty { comps.queryItems = items }
+        return comps.url
+    }
+
     // MARK: - Writes (PUT / DELETE)
 
     /// PUT a JSON-encodable record to `/wanderbot/<collection>/<id>`.
     /// Used for inline edits (reorder, future booking editing).
     @discardableResult
     func put<T: Encodable>(_ value: T, at path: String) async -> Bool {
-        guard let url = endpoint(path: path) else { return false }
+        guard let url = await authedURL(path: path) else { return false }
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -113,7 +130,7 @@ actor FirebaseRTDB {
     /// client didn't touch intact.
     @discardableResult
     func patch(_ fields: [String: Any], at path: String) async -> Bool {
-        guard let url = endpoint(path: path) else { return false }
+        guard let url = await authedURL(path: path) else { return false }
         var request = URLRequest(url: url)
         request.httpMethod = "PATCH"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -132,7 +149,7 @@ actor FirebaseRTDB {
     /// One-shot GET of a single RTDB path. Returns nil if the path
     /// is empty (RTDB serves `null`) or on any transport error.
     func loadValue<T: Decodable>(at path: String) async -> T? {
-        guard let url = endpoint(path: path) else { return nil }
+        guard let url = await authedURL(path: path) else { return nil }
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         do {
@@ -155,7 +172,10 @@ actor FirebaseRTDB {
                 continuation.finish()
                 return
             }
-            let session = SingleValueSSESession<T>(url: url)
+            let session = SingleValueSSESession<T>(
+                url: url,
+                tokenProvider: { await FirebaseAuthToken.shared.validToken() }
+            )
             session.onValue = { value in continuation.yield(value) }
             session.start()
             continuation.onTermination = { _ in session.stop() }
@@ -166,7 +186,7 @@ actor FirebaseRTDB {
     /// disconnecting Gmail (clears the connections/gmail subtree).
     @discardableResult
     func delete(at path: String) async -> Bool {
-        guard let url = endpoint(path: path) else { return false }
+        guard let url = await authedURL(path: path) else { return false }
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         do {
@@ -185,12 +205,26 @@ actor FirebaseRTDB {
        writes its IndexedDB locally as before. */
 }
 
+/// Append `?auth=<idToken>` to an RTDB streaming URL so the connection
+/// authenticates under the locked-down security rules. Replaces any
+/// existing `auth` param (on reconnect the token is fresh).
+private func rtdbAuthed(_ url: URL, token: String?) -> URL {
+    guard let token,
+          var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    else { return url }
+    var items = (comps.queryItems ?? []).filter { $0.name != "auth" }
+    items.append(URLQueryItem(name: "auth", value: token))
+    comps.queryItems = items
+    return comps.url ?? url
+}
+
 /// SSE session that subscribes to a single RTDB path and yields the
 /// decoded value (or nil on delete) each time it changes. Wraps the
 /// same `put`/`patch` envelope handling the other sessions use, but
 /// projects everything down to one value type.
 private final class SingleValueSSESession<T: Decodable>: NSObject, URLSessionDataDelegate {
     let url: URL
+    let tokenProvider: @Sendable () async -> String?
     var onValue: ((T?) -> Void)?
 
     private var session: URLSession!
@@ -198,9 +232,12 @@ private final class SingleValueSSESession<T: Decodable>: NSObject, URLSessionDat
     private var parser = ChatSSEParser()
     private var current: Any?            // raw JSON payload for patch merges
     private let queue = DispatchQueue(label: "wanderbot.value-sse")
+    private var stopped = false
+    private var attempts = 0
 
-    init(url: URL) {
+    init(url: URL, tokenProvider: @escaping @Sendable () async -> String?) {
         self.url = url
+        self.tokenProvider = tokenProvider
         super.init()
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 0
@@ -209,15 +246,35 @@ private final class SingleValueSSESession<T: Decodable>: NSObject, URLSessionDat
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
 
-    func start() {
-        var req = URLRequest(url: url)
-        req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        task = session.dataTask(with: req)
-        task?.resume()
+    func start() { connect() }
+
+    private func connect() {
+        Task { [weak self] in
+            guard let self, !self.stopped else { return }
+            let token = await self.tokenProvider()
+            guard !self.stopped else { return }
+            var req = URLRequest(url: rtdbAuthed(self.url, token: token))
+            req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            let task = self.session.dataTask(with: req)
+            self.task = task
+            task.resume()
+        }
+    }
+
+    /// Reconnect with a fresh token after a bounded backoff. Called when
+    /// the stream ends or RTDB revokes the auth token (~hourly on expiry).
+    private func scheduleReconnect() {
+        guard !stopped else { return }
+        attempts += 1
+        let delay = min(pow(2.0, Double(min(attempts, 5))), 30)   // 2…30s
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.connect()
+        }
     }
 
     func stop() {
+        stopped = true
         task?.cancel()
         session.invalidateAndCancel()
     }
@@ -227,9 +284,19 @@ private final class SingleValueSSESession<T: Decodable>: NSObject, URLSessionDat
         guard !events.isEmpty else { return }
         queue.async { [weak self] in
             guard let self else { return }
+            if events.contains(where: { $0.eventName == "auth_revoked" }) {
+                self.task?.cancel()           // triggers didComplete → reconnect
+                return
+            }
             for event in events { self.apply(event: event) }
+            self.attempts = 0                 // healthy data resets backoff
             self.onValue?(self.decodeCurrent())
         }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error as NSError?, error.code == NSURLErrorCancelled, stopped { return }
+        scheduleReconnect()
     }
 
     private func apply(event: ChatSSEParser.Event) {
@@ -325,6 +392,7 @@ private struct FailableDecodable<T: Decodable>: Decodable {
 private final class SSESession: NSObject, URLSessionDataDelegate {
     let tripsURL: URL?
     let bookingsURL: URL?
+    let tokenProvider: @Sendable () async -> String?
 
     var onSnapshot: ((_ trips: [Trip], _ bookings: [Booking]) -> Void)?
 
@@ -337,12 +405,17 @@ private final class SSESession: NSObject, URLSessionDataDelegate {
 
     private var tripsParser = SSEParser()
     private var bookingsParser = SSEParser()
+    private var stopped = false
+    private var tripsAttempts = 0
+    private var bookingsAttempts = 0
 
     private let snapshotQueue = DispatchQueue(label: "wanderbot.sse.snapshot")
 
-    init(tripsURL: URL?, bookingsURL: URL?) {
+    init(tripsURL: URL?, bookingsURL: URL?,
+         tokenProvider: @escaping @Sendable () async -> String?) {
         self.tripsURL = tripsURL
         self.bookingsURL = bookingsURL
+        self.tokenProvider = tokenProvider
         super.init()
         let config = URLSessionConfiguration.default
         // Long timeouts: SSE connections sit idle between events.
@@ -353,21 +426,43 @@ private final class SSESession: NSObject, URLSessionDataDelegate {
     }
 
     func start() {
-        if let tripsURL { tripsTask = makeTask(for: tripsURL); tripsTask?.resume() }
-        if let bookingsURL { bookingsTask = makeTask(for: bookingsURL); bookingsTask?.resume() }
+        if tripsURL != nil { connect(isTrips: true) }
+        if bookingsURL != nil { connect(isTrips: false) }
     }
 
     func stop() {
+        stopped = true
         tripsTask?.cancel()
         bookingsTask?.cancel()
         session.invalidateAndCancel()
     }
 
-    private func makeTask(for url: URL) -> URLSessionDataTask {
-        var req = URLRequest(url: url)
-        req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        return session.dataTask(with: req)
+    private func connect(isTrips: Bool) {
+        guard let base = isTrips ? tripsURL : bookingsURL else { return }
+        Task { [weak self] in
+            guard let self, !self.stopped else { return }
+            let token = await self.tokenProvider()
+            guard !self.stopped else { return }
+            var req = URLRequest(url: rtdbAuthed(base, token: token))
+            req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            let task = self.session.dataTask(with: req)
+            if isTrips { self.tripsTask = task } else { self.bookingsTask = task }
+            task.resume()
+        }
+    }
+
+    /// Reconnect one stream with a fresh token after a bounded backoff —
+    /// covers both dropped connections and RTDB's hourly `auth_revoked`.
+    private func scheduleReconnect(isTrips: Bool) {
+        guard !stopped else { return }
+        let attempts: Int
+        if isTrips { tripsAttempts += 1; attempts = tripsAttempts }
+        else { bookingsAttempts += 1; attempts = bookingsAttempts }
+        let delay = min(pow(2.0, Double(min(attempts, 5))), 30)   // 2…30s
+        snapshotQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.connect(isTrips: isTrips)
+        }
     }
 
     // MARK: URLSessionDataDelegate
@@ -383,21 +478,31 @@ private final class SSESession: NSObject, URLSessionDataDelegate {
         guard !events.isEmpty else { return }
         snapshotQueue.async { [weak self] in
             guard let self else { return }
+            if events.contains(where: { $0.eventName == "auth_revoked" }) {
+                // Token expired mid-stream — drop and reconnect with a fresh one.
+                if isTrips { self.tripsTask?.cancel() } else { self.bookingsTask?.cancel() }
+                return
+            }
             for event in events {
                 self.apply(event: event, toTrips: isTrips)
             }
+            if isTrips { self.tripsAttempts = 0 } else { self.bookingsAttempts = 0 }
             let snap = (Array(self.trips.values), Array(self.bookings.values))
             self.onSnapshot?(snap.0, snap.1)
         }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        // SSE connections are expected to stay open. If they drop, the
-        // user can pull-to-refresh later; auto-reconnect is out of
-        // scope for the v1 port.
+        // SSE connections are expected to stay open. Reconnect with a
+        // fresh token when one drops or RTDB revokes the auth token —
+        // unless we deliberately stopped.
+        if stopped { return }
+        if let error = error as NSError?, error.code == NSURLErrorCancelled, stopped { return }
+        let isTrips = task == tripsTask
         if let error, (error as NSError).code != NSURLErrorCancelled {
             print("[firebase] SSE task ended:", error)
         }
+        scheduleReconnect(isTrips: isTrips)
     }
 
     // MARK: Event application

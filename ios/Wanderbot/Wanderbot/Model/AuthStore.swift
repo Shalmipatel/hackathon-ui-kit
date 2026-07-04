@@ -75,7 +75,15 @@ final class AuthStore: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        self.user = Self.loadStored()
+        let stored = Self.loadStored()
+        self.user = stored
+        // Make the persisted token available to RTDB immediately on cold
+        // launch; the provider refreshes it (it's likely expired) before
+        // the first authenticated request.
+        if let stored {
+            Task { await FirebaseAuthToken.shared.seed(idToken: stored.idToken,
+                                                        refreshToken: stored.refreshToken) }
+        }
     }
 
     func signIn(with provider: Provider) async {
@@ -90,6 +98,8 @@ final class AuthStore: NSObject, ObservableObject {
             }
             self.user = signedIn
             Self.persist(signedIn)
+            await FirebaseAuthToken.shared.seed(idToken: signedIn.idToken,
+                                                refreshToken: signedIn.refreshToken)
         } catch let err as SignInError {
             if case .cancelled = err { return } // user-initiated, silent
             lastError = err.errorDescription
@@ -101,6 +111,7 @@ final class AuthStore: NSObject, ObservableObject {
     func signOut() {
         user = nil
         Self.clearStored()
+        Task { await FirebaseAuthToken.shared.clear() }
     }
 
     // MARK: - Native Apple

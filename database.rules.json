@@ -1,0 +1,36 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "wanderbot": {
+      "trips": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+      "bookings": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+      "chat_sessions": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+      "connections": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+      "auth_requests": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+
+      "browser_state": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    }
+  }
+}
