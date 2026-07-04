@@ -224,17 +224,64 @@ private struct SyncSection: View {
             }
             .buttonStyle(.plain)
             .disabled(sync.isScanning)
+
+            SyncStatusRow(state: sync.state)
         } header: {
             Text("Sync")
         } footer: {
-            if sync.isScanning {
-                Text("Scanning your inbox… new trips will appear automatically.")
-                    .font(.system(size: 12))
-            } else {
-                Text("Wanderbot reads your connected sources to find new bookings. Deep scan may take a minute.")
-                    .font(.system(size: 12))
-            }
+            Text("Runs in the background across every connected source (Gmail, connected accounts). New bookings appear in your trips automatically — you don't have to wait here.")
+                .font(.system(size: 12))
         }
+    }
+}
+
+/// Live status of the background sync: running step, or the last
+/// success/failure with a relative time. Persists across launches.
+private struct SyncStatusRow: View {
+    let state: SyncService.SyncState
+
+    var body: some View {
+        switch state {
+        case .idle:
+            EmptyView()
+        case .running(let step):
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small).tint(Theme.inkMuted)
+                Text(step).font(.system(size: 13)).foregroundStyle(Theme.ink)
+                Spacer()
+            }
+            .padding(.vertical, 2)
+        case .done(let summary, let at):
+            statusLine(icon: "checkmark.circle.fill", color: .green,
+                       title: summary, at: at)
+        case .failed(let reason, let at):
+            statusLine(icon: "exclamationmark.triangle.fill", color: Theme.destructive,
+                       title: reason, at: at)
+        }
+    }
+
+    private func statusLine(icon: String, color: Color, title: String, at: Double) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(color)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 13)).foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Last sync · \(Self.ago(at))")
+                    .font(.system(size: 11)).foregroundStyle(Theme.inkMuted)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 2)
+    }
+
+    private static func ago(_ ms: Double) -> String {
+        let date = Date(timeIntervalSince1970: ms / 1000)
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f.localizedString(for: date, relativeTo: Date())
     }
 }
 

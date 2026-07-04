@@ -17,6 +17,33 @@ enum Theme {
     static let cardRadius: CGFloat = 16
 }
 
+extension View {
+    /// Liquid Glass (iOS 26+) with a tinted-material fallback on older
+    /// systems. `tint` lightly colors the glass; `interactive` gives the
+    /// glass a press/hover response on controls.
+    @ViewBuilder
+    func wbGlass(in shape: some Shape = Capsule(),
+                tint: Color? = nil,
+                interactive: Bool = false) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(Glass.build(tint: tint, interactive: interactive), in: shape)
+        } else {
+            self.background(.ultraThinMaterial, in: shape)
+                .overlay(shape.stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+        }
+    }
+}
+
+@available(iOS 26.0, *)
+private extension Glass {
+    static func build(tint: Color?, interactive: Bool) -> Glass {
+        var glass: Glass = .regular
+        if let tint { glass = glass.tint(tint) }
+        if interactive { glass = glass.interactive() }
+        return glass
+    }
+}
+
 extension Font {
     static let wbTitle = Font.system(size: 16, weight: .semibold)
     static let wbBrand = Font.system(size: 16, weight: .bold)

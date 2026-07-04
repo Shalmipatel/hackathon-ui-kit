@@ -40,6 +40,11 @@
 		A1000010000000000000021 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000021 /* SyncService.swift */; };
 		A1000010000000000000022 /* OpenClawSessionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000022 /* OpenClawSessionClient.swift */; };
 		A1000010000000000000023 /* VoiceWebSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000023 /* VoiceWebSocket.swift */; };
+		A1000010000000000000027 /* TripAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000027 /* TripAgentTools.swift */; };
+		A1000010000000000000028 /* XAIChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000028 /* XAIChatClient.swift */; };
+		A1000010000000000000029 /* GmailConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000029 /* GmailConnector.swift */; };
+		A1000010000000000000030 /* BrowserConnections.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000030 /* BrowserConnections.swift */; };
+		A1000010000000000000031 /* RemoteBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000031 /* RemoteBrowserView.swift */; };
 		A1000010000000000000024 /* VoiceAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000024 /* VoiceAudioEngine.swift */; };
 		A1000010000000000000025 /* VoiceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000025 /* VoiceStore.swift */; };
 		A1000010000000000000026 /* VoiceCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000026 /* VoiceCallView.swift */; };
@@ -82,6 +87,11 @@
 		A1000000000000000000021 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		A1000000000000000000022 /* OpenClawSessionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawSessionClient.swift; sourceTree = "<group>"; };
 		A1000000000000000000023 /* VoiceWebSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceWebSocket.swift; sourceTree = "<group>"; };
+		A1000000000000000000027 /* TripAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripAgentTools.swift; sourceTree = "<group>"; };
+		A1000000000000000000028 /* XAIChatClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XAIChatClient.swift; sourceTree = "<group>"; };
+		A1000000000000000000029 /* GmailConnector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GmailConnector.swift; sourceTree = "<group>"; };
+		A1000000000000000000030 /* BrowserConnections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConnections.swift; sourceTree = "<group>"; };
+		A1000000000000000000031 /* RemoteBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteBrowserView.swift; sourceTree = "<group>"; };
 		A1000000000000000000024 /* VoiceAudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAudioEngine.swift; sourceTree = "<group>"; };
 		A1000000000000000000025 /* VoiceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceStore.swift; sourceTree = "<group>"; };
 		A1000000000000000000026 /* VoiceCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCallView.swift; sourceTree = "<group>"; };
@@ -148,6 +158,10 @@
 				A1000000000000000000021 /* SyncService.swift */,
 				A1000000000000000000022 /* OpenClawSessionClient.swift */,
 				A1000000000000000000023 /* VoiceWebSocket.swift */,
+				A1000000000000000000027 /* TripAgentTools.swift */,
+				A1000000000000000000028 /* XAIChatClient.swift */,
+				A1000000000000000000029 /* GmailConnector.swift */,
+				A1000000000000000000030 /* BrowserConnections.swift */,
 				A1000000000000000000024 /* VoiceAudioEngine.swift */,
 				A1000000000000000000025 /* VoiceStore.swift */,
 			);
@@ -173,6 +187,7 @@
 				A100000000000000000001D /* DraggableBookingsList.swift */,
 				A100000000000000000001F /* SignInGateView.swift */,
 				A1000000000000000000026 /* VoiceCallView.swift */,
+				A1000000000000000000031 /* RemoteBrowserView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -288,6 +303,11 @@
 				A1000010000000000000021 /* SyncService.swift in Sources */,
 				A1000010000000000000022 /* OpenClawSessionClient.swift in Sources */,
 				A1000010000000000000023 /* VoiceWebSocket.swift in Sources */,
+				A1000010000000000000027 /* TripAgentTools.swift in Sources */,
+				A1000010000000000000028 /* XAIChatClient.swift in Sources */,
+				A1000010000000000000029 /* GmailConnector.swift in Sources */,
+				A1000010000000000000030 /* BrowserConnections.swift in Sources */,
+				A1000010000000000000031 /* RemoteBrowserView.swift in Sources */,
 				A1000010000000000000024 /* VoiceAudioEngine.swift in Sources */,
 				A1000010000000000000025 /* VoiceStore.swift in Sources */,
 				A1000010000000000000026 /* VoiceCallView.swift in Sources */,
@@ -421,7 +441,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = QN7REDCUD3;
 				DEVELOPMENT_ASSET_PATHS = "\"Wanderbot/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
@@ -452,7 +472,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 26;
 				DEVELOPMENT_TEAM = QN7REDCUD3;
 				DEVELOPMENT_ASSET_PATHS = "\"Wanderbot/Preview Content\"";
 				ENABLE_PREVIEWS = YES;

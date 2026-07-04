@@ -21,6 +21,8 @@ struct WanderbotApp: App {
                         .task {
                             store.bootstrap()
                             connections.bootstrap()
+                            chat.configure(travelStore: store)
+                            sync.configure(travel: store)
                         }
                         .transition(.opacity)
                 } else {

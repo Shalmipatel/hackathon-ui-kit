@@ -80,6 +80,30 @@ enum WanderbotConfig {
     /// is warm/conversational — reads as the most human of the set.
     static let xaiVoice: String = "ara"
 
+    /// HTTP chat-completions endpoint + vision-capable model. The realtime
+    /// (voice) API has no image input, so shared photos are described via
+    /// this endpoint and the description is injected into the voice session
+    /// as a text turn.
+    static let xaiChatCompletionsURL: String = "https://api.x.ai/v1/chat/completions"
+    static let xaiVisionModel: String = "grok-4-fast"
+
+    /// Text-chat model + endpoint. With OpenClaw retired, the text chat
+    /// talks to xAI's Responses API directly (hosted web_search/x_search
+    /// plus our client-side trip tools). grok-4.3 reasons by default and
+    /// is the strongest at multi-tool orchestration (scans, CRUD).
+    static let xaiChatModel: String = "grok-4.3"
+    static let xaiResponsesURL: String = "https://api.x.ai/v1/responses"
+
+    // MARK: - Cloud browser (Skyvern)
+
+    /// Skyvern cloud API for the `browse_and_extract` agent tool —
+    /// drives a real browser for login-gated / JS-heavy sites (Airbnb
+    /// account sync, private Wanderlog trips). Verified live against
+    /// POST /v1/run/tasks + GET /v1/runs/<id> with `x-api-key`.
+    static let skyvernAPIURL: String = "https://api.skyvern.com"
+    static let skyvernAPIKey: String =
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQ4ODkyMDIwMjIsInN1YiI6Im9fMzgwMzU3MjM4MDAyOTUyNjY2In0.dIuKJ5VvfNx3S3iEzh6n_oNNro2UKMjVZTDHbom63OY"
+
     static var xaiVoiceEnabled: Bool { !xaiAPIKey.isEmpty }
 
     /// Firebase Web API key — public value, ships in any Firebase web

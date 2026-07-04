@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// Full-screen voice conversation with the trip assistant. Owns a
@@ -8,7 +9,8 @@ import SwiftUI
 /// the transcript is tucked away behind a toggle so the default state is
 /// just you and the orb. Controls are minimal and neutral.
 struct VoiceCallView: View {
-    let trip: Trip
+    /// nil → general (trip-less) assistant.
+    let trip: Trip?
 
     @EnvironmentObject private var store: TravelStore
     @Environment(\.dismiss) private var dismiss
@@ -16,6 +18,10 @@ struct VoiceCallView: View {
     @State private var showTranscript = false
     @State private var showImageViewer = false
     @State private var viewerStartIndex = 0
+    @State private var showPhotoOptions = false
+    @State private var showCamera = false
+    @State private var showLibraryPicker = false
+    @State private var pickedPhoto: PhotosPickerItem?
 
     private var hasImages: Bool { !voice.images.isEmpty }
 
@@ -48,6 +54,12 @@ struct VoiceCallView: View {
                     .padding(.top, hasImages ? 14 : 28)
                     .frame(minHeight: 28)
 
+                if let link = voice.sharedLink {
+                    LinkCard(link: link, onDismiss: { voice.clearSharedLink() })
+                        .padding(.top, 12)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
                 if !showTranscript, !hasImages, let caption = latestAssistantText {
                     Text(caption)
                         .font(.system(size: 16, weight: .regular))
@@ -75,13 +87,44 @@ struct VoiceCallView: View {
             .padding(.horizontal, 24)
             .animation(.easeInOut(duration: 0.25), value: latestAssistantText != nil)
             .animation(.spring(response: 0.42, dampingFraction: 0.86), value: voice.images)
+            .animation(.spring(response: 0.42, dampingFraction: 0.86), value: voice.sharedLink)
         }
         .task {
-            voice.start(trip: trip, bookings: store.bookings(for: trip.id))
+            // A live voice call must survive the system idle timer — if the
+            // screen sleeps, the app suspends and the conversation dies.
+            UIApplication.shared.isIdleTimerDisabled = true
+            voice.start(trip: trip, travelStore: store)
         }
-        .onDisappear { voice.stop() }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+            voice.stop()
+        }
         .fullScreenCover(isPresented: $showImageViewer) {
             VoiceImageViewer(images: voice.images, startIndex: viewerStartIndex)
+        }
+        .confirmationDialog("Share a photo", isPresented: $showPhotoOptions, titleVisibility: .visible) {
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button("Take Photo") { showCamera = true }
+            }
+            Button("Choose from Library") { showLibraryPicker = true }
+            Button("Cancel", role: .cancel) {}
+        }
+        .photosPicker(isPresented: $showLibraryPicker, selection: $pickedPhoto, matching: .images)
+        .onChange(of: pickedPhoto) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    voice.sendPhoto(image)
+                }
+                pickedPhoto = nil
+            }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { image in
+                voice.sendPhoto(image)
+            }
+            .ignoresSafeArea()
         }
     }
 
@@ -106,7 +149,7 @@ struct VoiceCallView: View {
                 Text("Wanderbot")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Theme.inkMuted)
-                Text(trip.title)
+                Text(trip?.title ?? "Ask me anything")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Theme.ink)
             }
@@ -190,14 +233,21 @@ struct VoiceCallView: View {
             Button {
                 voice.isMuted.toggle()
             } label: {
-                controlIcon(
-                    systemName: voice.isMuted ? "mic.slash.fill" : "mic.fill",
-                    background: Theme.chipFill,
-                    foreground: Theme.ink
-                )
+                controlIcon(systemName: voice.isMuted ? "mic.slash.fill" : "mic.fill",
+                            foreground: voice.isMuted ? Theme.destructive : Theme.ink)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(voice.isMuted ? "Unmute" : "Mute")
+
+            // Share a photo (camera or library)
+            Button {
+                showPhotoOptions = true
+            } label: {
+                controlIcon(systemName: "camera.fill", foreground: Theme.ink)
+            }
+            .buttonStyle(.plain)
+            .disabled(voice.state != .connected)
+            .accessibilityLabel("Share a photo")
 
             // Transcript toggle
             Button {
@@ -205,11 +255,8 @@ struct VoiceCallView: View {
                     showTranscript.toggle()
                 }
             } label: {
-                controlIcon(
-                    systemName: showTranscript ? "text.bubble.fill" : "text.bubble",
-                    background: Theme.chipFill,
-                    foreground: Theme.ink
-                )
+                controlIcon(systemName: showTranscript ? "text.bubble.fill" : "text.bubble",
+                            foreground: Theme.ink)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(showTranscript ? "Hide transcript" : "Show transcript")
@@ -219,23 +266,21 @@ struct VoiceCallView: View {
                 voice.stop()
                 dismiss()
             } label: {
-                controlIcon(
-                    systemName: "xmark",
-                    background: Theme.inkDark,
-                    foreground: .white
-                )
+                controlIcon(systemName: "xmark", foreground: .white, endCall: true)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("End voice chat")
         }
     }
 
-    private func controlIcon(systemName: String, background: Color, foreground: Color) -> some View {
+    /// Circular glass control. The end-call button tints its glass dark
+    /// so it reads as the primary/destructive action.
+    private func controlIcon(systemName: String, foreground: Color, endCall: Bool = false) -> some View {
         Image(systemName: systemName)
             .font(.system(size: 21, weight: .semibold))
             .foregroundStyle(foreground)
             .frame(width: 60, height: 60)
-            .background(Circle().fill(background))
+            .wbGlass(in: Circle(), tint: endCall ? Theme.inkDark : nil, interactive: true)
     }
 }
 
@@ -391,6 +436,94 @@ private struct VoiceImagePanel: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture { onSelect(i) }
+    }
+}
+
+/// Tappable link the agent surfaced via `show_link` — opens Safari.
+private struct LinkCard: View {
+    let link: VoiceStore.SharedLink
+    let onDismiss: () -> Void
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "safari")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.ink)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(link.title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+                if let host = link.url.host {
+                    Text(host)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.inkMuted)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "arrow.up.right")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Theme.inkMuted)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.inkMuted)
+                    .padding(6)
+                    .background(Circle().fill(Theme.chipFill))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss link")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Theme.surface)
+                .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+        )
+        .frame(maxWidth: 360)
+        .contentShape(Rectangle())
+        .onTapGesture { openURL(link.url) }
+        .accessibilityLabel("Open \(link.title)")
+    }
+}
+
+/// Thin UIImagePickerController wrapper for taking a photo with the
+/// camera mid-call. (PhotosPicker covers the library case natively.)
+private struct CameraPicker: UIViewControllerRepresentable {
+    let onImage: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraPicker
+        init(_ parent: CameraPicker) { self.parent = parent }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.onImage(image)
+            }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
     }
 }
 

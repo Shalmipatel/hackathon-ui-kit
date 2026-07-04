@@ -1,10 +1,7 @@
 import SwiftUI
 
-/// Trip-scoped chat. Sends messages to the OpenClaw `/v1/responses`
-/// gateway (same one the web app uses) with the per-trip
-/// `x-openclaw-session-key` header, then reads the canonical
-/// transcript back from OpenClaw via `sessions_history` — so both
-/// devices see the same conversation without an intermediary store.
+/// Trip-scoped chat (or the general assistant when `trip == nil`),
+/// powered by xAI's Responses API with trip tools + web search.
 struct ChatSheet: View {
     let trip: Trip?
 
@@ -14,12 +11,10 @@ struct ChatSheet: View {
     @FocusState private var inputFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
-    private var tripID: String? { trip?.id }
+    /// nil trip → the shared "general" transcript.
+    private var tripID: String { trip?.id ?? ChatStore.generalChatID }
     private var messages: [ChatMessage] { chat.messages(for: tripID) }
-    private var isSending: Bool {
-        guard let id = tripID else { return false }
-        return chat.isSending.contains(id)
-    }
+    private var isSending: Bool { chat.isSending.contains(tripID) }
 
     var body: some View {
         NavigationStack {
@@ -63,12 +58,12 @@ struct ChatSheet: View {
                     draft: $draft,
                     focused: $inputFocused,
                     isSending: isSending,
-                    enabled: tripID != nil,
+                    enabled: true,
                     onSend: send
                 )
             }
             .background(Theme.surface)
-            .navigationTitle(trip.map { "Chat · \($0.title)" } ?? "Chat")
+            .navigationTitle(trip.map { "Chat · \($0.title)" } ?? "Wanderbot")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -78,7 +73,6 @@ struct ChatSheet: View {
                         Image(systemName: "waveform")
                     }
                     .tint(Theme.ink)
-                    .disabled(trip == nil)
                     .accessibilityLabel("Talk to Wanderbot")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -86,12 +80,10 @@ struct ChatSheet: View {
                 }
             }
             .task(id: tripID) {
-                if let id = tripID { chat.ensureSubscription(for: id) }
+                chat.ensureSubscription(for: tripID)
             }
             .fullScreenCover(isPresented: $showVoiceCall) {
-                if let trip {
-                    VoiceCallView(trip: trip)
-                }
+                VoiceCallView(trip: trip)
             }
         }
     }
@@ -104,7 +96,7 @@ struct ChatSheet: View {
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, let tripID else { return }
+        guard !text.isEmpty else { return }
         draft = ""
         chat.send(tripID: tripID, text: text)
     }
@@ -122,7 +114,9 @@ private struct EmptyChatHero: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Theme.ink)
             }
-            Text("Ask anything about this trip — restaurants, routes, fixes to the itinerary, or what to do tomorrow.")
+            Text(trip == nil
+                 ? "Ask anything — plan a brand-new trip, compare destinations, or get travel advice. I can create trips and build itineraries for you."
+                 : "Ask anything about this trip — restaurants, routes, fixes to the itinerary, or what to do tomorrow.")
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.inkMuted)
         }

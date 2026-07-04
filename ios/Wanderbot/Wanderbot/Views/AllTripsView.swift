@@ -2,11 +2,12 @@ import SwiftUI
 
 /// Settings → All Trips. A grouped browse of every trip in the store,
 /// upcoming vs. past. Tap a row to jump the trip carousel to that page
-/// and dismiss the settings sheet.
+/// and dismiss the settings sheet. Swipe a row to delete the trip.
 struct AllTripsView: View {
     let onSelectTrip: (Trip.ID) -> Void
 
     @EnvironmentObject private var store: TravelStore
+    @State private var tripPendingDelete: Trip?
 
     private var grouped: (upcoming: [Trip], past: [Trip]) {
         let today = ISO8601.dayKey(from: Calendar.current.startOfDay(for: Date()))
@@ -32,18 +33,14 @@ struct AllTripsView: View {
                 if !g.upcoming.isEmpty {
                     Section("Upcoming") {
                         ForEach(g.upcoming) { trip in
-                            TripRow(trip: trip,
-                                    itemCount: store.bookings(for: trip.id).count,
-                                    onTap: { onSelectTrip(trip.id) })
+                            deletableRow(trip)
                         }
                     }
                 }
                 if !g.past.isEmpty {
                     Section("Past") {
                         ForEach(g.past) { trip in
-                            TripRow(trip: trip,
-                                    itemCount: store.bookings(for: trip.id).count,
-                                    onTap: { onSelectTrip(trip.id) })
+                            deletableRow(trip)
                         }
                     }
                 }
@@ -54,6 +51,40 @@ struct AllTripsView: View {
         .background(Theme.background)
         .navigationTitle("All Trips")
         .navigationBarTitleDisplayMode(.inline)
+        .alert(
+            "Delete this trip?",
+            isPresented: Binding(
+                get: { tripPendingDelete != nil },
+                set: { if !$0 { tripPendingDelete = nil } }
+            )
+        ) {
+            Button("Delete", role: .destructive) {
+                if let trip = tripPendingDelete { store.deleteTrip(trip) }
+                tripPendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { tripPendingDelete = nil }
+        } message: {
+            Text("“\(tripPendingDelete?.title ?? "")” and all its itinerary items will be removed on every device.")
+        }
+    }
+
+    /// Trip row with swipe-to-delete (full delete lives behind a
+    /// confirmation alert — a trip takes its whole itinerary with it).
+    private func deletableRow(_ trip: Trip) -> some View {
+        TripRow(trip: trip,
+                itemCount: store.bookings(for: trip.id).count,
+                onTap: { onSelectTrip(trip.id) })
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                // Deliberately NOT role: .destructive — SwiftUI animates
+                // destructive swipe rows out immediately, before our
+                // confirmation alert answers.
+                Button {
+                    tripPendingDelete = trip
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .tint(Theme.destructive)
+            }
     }
 }
 

@@ -15,6 +15,12 @@
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Wanderbot uses your microphone so you can talk to your trip assistant by voice.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Wanderbot uses the camera so you can show your trip assistant what you're looking at.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Wanderbot uses your location so the assistant can help with things near you — directions, distances, and nearby recommendations.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>comgooglemaps</string>

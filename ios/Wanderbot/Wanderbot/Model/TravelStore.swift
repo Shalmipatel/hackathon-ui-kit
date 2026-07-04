@@ -268,6 +268,23 @@ final class TravelStore: ObservableObject {
         }
     }
 
+    /// Remove a trip AND all of its bookings. Optimistic local removal,
+    /// then RTDB deletes (bookings first so a mid-failure never leaves
+    /// orphaned items pointing at a missing trip).
+    func deleteTrip(_ trip: Trip) {
+        let bookingIDs = bookings.filter { $0.tripId == trip.id }.map(\.id)
+        trips.removeAll { $0.id == trip.id }
+        bookings.removeAll { $0.tripId == trip.id }
+        if activeTripId == trip.id { activeTripId = orderedTrips.first?.id }
+        Task { [rtdb, id = trip.id] in
+            guard let rtdb else { return }
+            for bookingID in bookingIDs {
+                await rtdb.delete(at: "wanderbot/bookings/\(bookingID)")
+            }
+            await rtdb.delete(at: "wanderbot/trips/\(id)")
+        }
+    }
+
 
     /// Upcoming (asc) then past (desc) — matches the React mobile shell.
     var orderedTrips: [Trip] {

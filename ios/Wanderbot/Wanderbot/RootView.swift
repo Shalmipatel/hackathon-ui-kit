@@ -2,12 +2,20 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var store: TravelStore
-    @State private var activeIndex: Int = 0
+    /// Pager index: 0 = general assistant, 1…N = trips.
+    @State private var activeIndex: Int = 1
     @State private var showChat = false
+    @State private var showVoice = false
     @State private var showSettings = false
     @State private var selectedBookingId: Booking.ID?
 
     private var orderedTrips: [Trip] { store.orderedTrips }
+
+    /// Trip behind the current page — nil on the general page.
+    private var currentTrip: Trip? {
+        let tripIdx = activeIndex - 1
+        return orderedTrips.indices.contains(tripIdx) ? orderedTrips[tripIdx] : nil
+    }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -19,27 +27,32 @@ struct RootView: View {
                     onSettingsTap: { showSettings = true }
                 )
 
-                if orderedTrips.isEmpty {
+                if orderedTrips.isEmpty && store.syncState == .loading {
                     EmptyTripsView(state: store.syncState)
                 } else {
                     TripPagerView(
                         trips: orderedTrips,
                         activeIndex: $activeIndex,
-                        selectedBookingId: $selectedBookingId
+                        selectedBookingId: $selectedBookingId,
+                        onOpenChat: { showChat = true },
+                        onOpenVoice: { showVoice = true }
                     )
                 }
             }
 
-            if !orderedTrips.isEmpty {
+            if activeIndex > 0 {
                 ChatFab { showChat = true }
                     .padding(.trailing, 18)
                     .padding(.bottom, 20)
             }
         }
         .sheet(isPresented: $showChat) {
-            ChatSheet(trip: orderedTrips.indices.contains(activeIndex) ? orderedTrips[activeIndex] : nil)
+            ChatSheet(trip: currentTrip)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+        }
+        .fullScreenCover(isPresented: $showVoice) {
+            VoiceCallView(trip: currentTrip)
         }
         .sheet(isPresented: $showSettings) {
             SettingsSheet(onSelectTrip: jumpToTrip)
@@ -51,22 +64,32 @@ struct RootView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-        .onChange(of: activeIndex) { _, newValue in
-            if orderedTrips.indices.contains(newValue) {
-                store.activeTripId = orderedTrips[newValue].id
+        .onChange(of: activeIndex) { _, _ in
+            if let trip = currentTrip {
+                store.activeTripId = trip.id
+            }
+        }
+        .onAppear {
+            if orderedTrips.isEmpty { activeIndex = 0 }
+        }
+        // Trips load async — when the first snapshot lands, hop from the
+        // general page to the first trip so trips stay the default view.
+        .onChange(of: orderedTrips.count) { old, new in
+            if old == 0, new > 0, activeIndex == 0 {
+                activeIndex = 1
             }
         }
     }
 
     private func jumpToTrip(_ id: Trip.ID) {
         if let idx = orderedTrips.firstIndex(where: { $0.id == id }) {
-            activeIndex = idx
+            activeIndex = idx + 1
         }
     }
 
     private var pageLabel: String {
-        if orderedTrips.isEmpty { return "No trips" }
-        return "\(min(activeIndex + 1, orderedTrips.count)) / \(orderedTrips.count)"
+        if activeIndex == 0 || orderedTrips.isEmpty { return "Assistant" }
+        return "\(min(activeIndex, orderedTrips.count)) / \(orderedTrips.count)"
     }
 
     private var bookingBinding: Binding<Booking?> {
