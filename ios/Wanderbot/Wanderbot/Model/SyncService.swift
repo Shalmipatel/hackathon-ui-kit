@@ -43,8 +43,12 @@ final class SyncService: ObservableObject {
 
     // MARK: - Public triggers
 
-    /// DISCOVERY scan — finds bookings across all sources and organizes
-    /// them into trips (creating new ones as needed).
+    /// DISCOVERY scan — its ONLY job is to find which trips exist across
+    /// every connected source and create the trip shells. It deliberately
+    /// does NOT extract full itineraries; a per-trip scan (`rescanTrip`)
+    /// fills each one in. Keeping discovery lightweight means each browser
+    /// run only has to LIST trips (fast) rather than extract hundreds of
+    /// places in one go — which is what used to blow the timeout.
     ///
     /// `deep` widens the email lookback to a full year (trips are often
     /// booked many months ahead — a short window finds nothing). The
@@ -52,64 +56,58 @@ final class SyncService: ObservableObject {
     func scanForTrips(deep: Bool) {
         let days = deep ? 365 : 90
         let prompt = """
-        \(deep ? "DEEP " : "")DISCOVERY SCAN. Rebuild the traveler's trips by finding EVERY real \
-        booking across their connected sources, then organizing them into trips. \
-        Bookings are frequently made MONTHS before the trip, so do NOT judge by \
-        recency — a confirmation email from long ago can be for an upcoming trip.
+        \(deep ? "DEEP " : "")DISCOVERY SCAN. Your ONLY job is to discover which TRIPS the \
+        traveler has and create them. Do NOT extract or add individual bookings — a \
+        separate per-trip scan fills in each itinerary later. Bookings are often made \
+        MONTHS ahead, so don't judge by recency.
 
-        STEP 1 — SWEEP (fire these in parallel, don't wait between them):
-        • search_email — run MANY targeted queries over a WIDE window \
-        (newer_than:\(days)d on every one): from:airbnb.com; from:booking.com; \
-        from:(marriott.com OR hilton.com OR hyatt.com OR ihg.com); \
+        STEP 1 — find trips across EVERY source (fire in parallel):\(discoveryAccountsClause)
+        • search_email over a WIDE window (newer_than:\(days)d): from:airbnb.com; \
+        from:booking.com; from:(marriott.com OR hilton.com OR hyatt.com OR ihg.com); \
         from:(united.com OR delta.com OR aa.com OR swiss.com OR lufthansa.com OR \
-        klm.com); subject:(confirmation OR reservation OR itinerary OR "e-ticket" \
-        OR "booking confirmed" OR "your trip"). Read the bodies for dates, places, \
-        and confirmation numbers.\(connectedAccountsClause)
+        klm.com); subject:(confirmation OR reservation OR itinerary OR "e-ticket" OR \
+        "booking confirmed" OR "your trip"). From each hit, note only the trip's \
+        DESTINATION and DATES — not every line item.
         STEP 2 — get_trips to see what already exists.
-        STEP 3 — ORGANIZE everything you found: items in the same destination whose \
-        dates overlap or fall within ~3 days of each other are ONE trip (a flight + \
-        hotel + activities for the same city/week = one trip, not many).
-        STEP 4 — RECORD (this is mandatory, not optional). For EACH group: if it \
-        matches an existing trip (overlapping dates AND same region), add the \
-        missing bookings to it; otherwise create_trip — name it by the primary \
-        destination (e.g. "Tokyo", "Lake Atitlán"), set start_date/end_date to span \
-        all its items (pad ±1 day for travel) — then add_booking for EVERY item. \
-        Call get_itinerary before adding so you don't duplicate (same venue + dates \
-        = already there, even if worded differently).
+        STEP 3 — For each distinct trip you found, decide if it's new: a trip is the \
+        same when destination + dates overlap. Group items in the same place within \
+        ~3 days into ONE trip.
+        STEP 4 — For each NEW trip only, create_trip: name it by the primary \
+        destination (e.g. "Switzerland", "Maui"), set start_date/end_date to its \
+        span. Do NOT recreate trips that already exist, and do NOT add bookings.
 
-        Discovering a booking and NOT recording it is a failure. Do not write your \
-        closing summary until the trips are created and the bookings added. Never \
-        invent bookings; only record what you actually found. Don't create a trip \
-        from a single ambiguous item unless it clearly implies travel.
-
-        End with one line: N trips created, M items added.
+        Creating the trip shells is the entire job. Never invent trips. Don't create \
+        one from a single ambiguous item unless it clearly implies travel.
+        End with one line: N trips created (and their names).
         """
         run(prompt: prompt, tripID: nil)
     }
 
-    /// UPDATE scan — scoped to ONE existing trip. Fills in missing
-    /// bookings/details; never creates new trips.
+    /// DETAIL scan — scoped to ONE existing trip. Goes deep across every
+    /// connected account + email to pull this trip's FULL itinerary, then
+    /// fills in what's missing. Never creates new trips. Because it targets
+    /// a single trip, each browser run stays within the timeout.
     func rescanTrip(id: String) {
         let trip = travel?.trips.first(where: { $0.id == id })
         let context = trip.map { "\"\($0.title)\" — \($0.destination), \($0.startDate) to \($0.endDate) (trip_id: \($0.id))" } ?? id
+        let dest = trip?.destination ?? trip?.title ?? ""
+        let dates = trip.map { "\($0.startDate) to \($0.endDate)" } ?? ""
         let prompt = """
-        UPDATE SCAN for ONE trip: \(context). Fill in what's missing for THIS trip \
-        only — do NOT create any new trips, and do NOT add bookings for other trips.
+        DETAIL SCAN for ONE trip: \(context). Pull this trip's FULL itinerary and \
+        fill in everything that's missing. Do NOT create new trips or touch other trips.
 
-        1. Call get_itinerary(\(trip?.id ?? id)) to see exactly what's already there.
-        2. Sweep sources for bookings that belong to THIS trip: search_email with \
-        queries scoped to the destination, hotel/airline names, from:airbnb.com, \
-        subject:(confirmation OR reservation OR itinerary), over newer_than:365d \
-        (bookings are often made many months ahead).\(connectedAccountsClause)
-        3. A booking belongs to this trip only if its dates fall within the trip's \
-        window AND its location matches the destination. Ignore everything else.
-        4. Add genuinely missing bookings with add_booking. If a matching booking \
-        already exists but the scan has MORE detail (a confirmation number, exact \
-        time, address), improve it with update_booking instead of adding a copy. \
-        NEVER duplicate (same venue + dates = already there).
+        1. get_itinerary(\(trip?.id ?? id)) to see what's already there.
+        2. Go deep on THIS trip across every source:\(detailAccountsClause(destination: dest, dates: dates))
+        • search_email scoped to the destination, hotel/airline names, from:airbnb.com, \
+        subject:(confirmation OR reservation OR itinerary), newer_than:365d.
+        3. A booking belongs here only if its dates fall within the trip window AND its \
+        location matches the destination. Ignore everything else.
+        4. add_booking for every genuinely missing item (hotels, flights, activities, \
+        restaurants — with date, time, place). If a matching booking exists but you \
+        now have MORE detail (confirmation number, exact time, address), update_booking \
+        instead of adding a copy. NEVER duplicate (same venue + dates = already there).
 
-        Dates as YYYY-MM-DD; pick the right type (hotel for lodging/Airbnb, flight, \
-        restaurant, etc.). Finish with one line: what you added or updated.
+        Dates as YYYY-MM-DD; pick the right type. Finish with one line: what you added or updated.
         """
         run(prompt: prompt, tripID: id)
     }
@@ -187,18 +185,36 @@ final class SyncService: ObservableObject {
 
     // MARK: - Prompt bits
 
-    private var connectedAccountsClause: String {
+    private var connectedSitesList: String {
+        BrowserConnections.shared.connectedSites
+            .map { "\($0.title) — \($0.syncURL)" }.joined(separator: "; ")
+    }
+
+    /// Discovery: just LIST the trips in each account (fast — one page).
+    private var discoveryAccountsClause: String {
         let sites = BrowserConnections.shared.connectedSites
         guard !sites.isEmpty else { return "" }
-        let list = sites.map { "\($0.title) — \($0.syncURL)" }.joined(separator: "; ")
         return """
 
-        • browse_and_extract on each connected travel account (a saved login \
-        already exists, so you arrive signed in): \(list). These are index pages: \
-        open the account, find EACH trip/reservation listed, open it, and extract \
-        its FULL day-by-day itinerary — every hotel, flight, activity, and \
-        restaurant with its date (YYYY-MM-DD), time, and place. Return them as \
-        structured items, not a summary. This is slow (minutes) — that's expected.
+        • browse_and_extract on each connected travel account (you arrive already \
+        signed in): \(connectedSitesList). Ask ONLY for the LIST of trips/reservations \
+        — each one's name, destination, and dates. Do NOT open individual trips or \
+        extract their itineraries; that's a separate per-trip step.
+        """
+    }
+
+    /// Detail: for ONE trip, open the matching trip in each account and
+    /// extract its full day-by-day itinerary.
+    private func detailAccountsClause(destination: String, dates: String) -> String {
+        let sites = BrowserConnections.shared.connectedSites
+        guard !sites.isEmpty else { return "" }
+        return """
+
+        • browse_and_extract on each connected travel account (already signed in): \
+        \(connectedSitesList). Find the trip/reservation matching "\(destination)" \
+        around \(dates), open it, and extract its FULL day-by-day itinerary — every \
+        hotel, flight, activity, and restaurant with date (YYYY-MM-DD), time, and \
+        place. Return structured items. This is slow (minutes) — that's expected.
         """
     }
 

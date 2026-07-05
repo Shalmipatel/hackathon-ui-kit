@@ -578,12 +578,13 @@ final class TripAgentTools {
                     + (String(data: data, encoding: .utf8)?.prefix(200).description ?? "")
             }
 
-            // Poll for up to ~8 minutes — cloud-browser runs are slow.
+            // Poll for up to ~15 minutes — cloud-browser runs are slow, and
+            // this runs in the background sync so the user isn't waiting.
             guard let statusURL = URL(string: "\(WanderbotConfig.skyvernAPIURL)/v1/runs/\(runID)") else {
                 return "Bad status URL."
             }
-            for _ in 0..<60 {
-                try await Task.sleep(nanoseconds: 8_000_000_000)
+            for _ in 0..<90 {
+                try await Task.sleep(nanoseconds: 10_000_000_000)
                 var poll = URLRequest(url: statusURL)
                 poll.setValue(WanderbotConfig.skyvernAPIKey, forHTTPHeaderField: "x-api-key")
                 guard let (pdata, presp) = try? await URLSession.shared.data(for: poll),
@@ -600,7 +601,7 @@ final class TripAgentTools {
                         : "Cloud browser ended with status '\(status)'. \(String(output.prefix(500)))"
                 }
             }
-            return "Cloud browser task timed out after 8 minutes — it may still finish; try again shortly."
+            return "Cloud browser task timed out after 15 minutes — it may still finish; try again shortly."
         } catch {
             return "Cloud browser error: \(error.localizedDescription)"
         }
