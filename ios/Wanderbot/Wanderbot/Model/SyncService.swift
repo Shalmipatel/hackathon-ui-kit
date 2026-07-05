@@ -30,7 +30,7 @@ final class SyncService: ObservableObject {
     private let client = XAIChatClient()
     private let tools = TripAgentTools(travelStore: nil)
     private var travel: TravelStore?
-    private let maxRounds = 14
+    private let maxRounds = 20
 
     private static let lastResultKey = "wanderbot.sync.lastResult"
 
@@ -45,32 +45,44 @@ final class SyncService: ObservableObject {
 
     /// DISCOVERY scan — finds bookings across all sources and organizes
     /// them into trips (creating new ones as needed).
+    ///
+    /// `deep` widens the email lookback to a full year (trips are often
+    /// booked many months ahead — a short window finds nothing). The
+    /// quick scan still looks back 90 days, not 7, for the same reason.
     func scanForTrips(deep: Bool) {
-        let days = deep ? 30 : 7
+        let days = deep ? 365 : 90
         let prompt = """
-        DISCOVERY SCAN. Find the traveler's travel bookings from the last \(days) \
-        days and organize them into trips.
+        \(deep ? "DEEP " : "")DISCOVERY SCAN. Rebuild the traveler's trips by finding EVERY real \
+        booking across their connected sources, then organizing them into trips. \
+        Bookings are frequently made MONTHS before the trip, so do NOT judge by \
+        recency — a confirmation email from long ago can be for an upcoming trip.
 
-        1. Sweep sources: search_email with several targeted queries \
-        (from:airbnb.com, from:booking.com, from known airlines/hotels, \
-        subject:(confirmation OR reservation OR itinerary OR "booking confirmed") \
-        — always newer_than:\(days)d).\(connectedAccountsClause)
-        2. Call get_trips to see what already exists.
-        3. GROUP the bookings you find: bookings in the same destination whose \
-        dates overlap or fall within ~3 days of each other belong to ONE trip. A \
-        flight + hotel + activities for the same city/week = one trip, not many.
-        4. For each group, decide: does it match an existing trip (overlapping \
-        dates AND same region)? If yes, add the missing bookings to it. If no, \
-        create_trip — name it by the primary destination (e.g. "Tokyo", "Lake \
-        Atitlán"), set start_date/end_date to span all its bookings (pad ±1 day \
-        for travel), then add each booking.
-        5. Before adding to ANY trip, call get_itinerary and skip anything already \
-        present (match by venue + dates — the same hotel on the same nights is a \
-        duplicate even if worded differently).
-        6. Don't create a trip from a single ambiguous item unless it clearly \
-        implies travel (lodging or a flight to another city). Never invent bookings.
+        STEP 1 — SWEEP (fire these in parallel, don't wait between them):
+        • search_email — run MANY targeted queries over a WIDE window \
+        (newer_than:\(days)d on every one): from:airbnb.com; from:booking.com; \
+        from:(marriott.com OR hilton.com OR hyatt.com OR ihg.com); \
+        from:(united.com OR delta.com OR aa.com OR swiss.com OR lufthansa.com OR \
+        klm.com); subject:(confirmation OR reservation OR itinerary OR "e-ticket" \
+        OR "booking confirmed" OR "your trip"). Read the bodies for dates, places, \
+        and confirmation numbers.\(connectedAccountsClause)
+        STEP 2 — get_trips to see what already exists.
+        STEP 3 — ORGANIZE everything you found: items in the same destination whose \
+        dates overlap or fall within ~3 days of each other are ONE trip (a flight + \
+        hotel + activities for the same city/week = one trip, not many).
+        STEP 4 — RECORD (this is mandatory, not optional). For EACH group: if it \
+        matches an existing trip (overlapping dates AND same region), add the \
+        missing bookings to it; otherwise create_trip — name it by the primary \
+        destination (e.g. "Tokyo", "Lake Atitlán"), set start_date/end_date to span \
+        all its items (pad ±1 day for travel) — then add_booking for EVERY item. \
+        Call get_itinerary before adding so you don't duplicate (same venue + dates \
+        = already there, even if worded differently).
 
-        Finish with one line: trips created and items added.
+        Discovering a booking and NOT recording it is a failure. Do not write your \
+        closing summary until the trips are created and the bookings added. Never \
+        invent bookings; only record what you actually found. Don't create a trip \
+        from a single ambiguous item unless it clearly implies travel.
+
+        End with one line: N trips created, M items added.
         """
         run(prompt: prompt, tripID: nil)
     }
@@ -87,8 +99,8 @@ final class SyncService: ObservableObject {
         1. Call get_itinerary(\(trip?.id ?? id)) to see exactly what's already there.
         2. Sweep sources for bookings that belong to THIS trip: search_email with \
         queries scoped to the destination, hotel/airline names, from:airbnb.com, \
-        subject:(confirmation OR reservation OR itinerary), over newer_than:90d \
-        (bookings are often made weeks ahead).\(connectedAccountsClause)
+        subject:(confirmation OR reservation OR itinerary), over newer_than:365d \
+        (bookings are often made many months ahead).\(connectedAccountsClause)
         3. A booking belongs to this trip only if its dates fall within the trip's \
         window AND its location matches the destination. Ignore everything else.
         4. Add genuinely missing bookings with add_booking. If a matching booking \
@@ -178,9 +190,16 @@ final class SyncService: ObservableObject {
     private var connectedAccountsClause: String {
         let sites = BrowserConnections.shared.connectedSites
         guard !sites.isEmpty else { return "" }
-        let list = sites.map { "\($0.title) (browse_and_extract on \($0.syncURL) — a saved login "
-            + "exists; extract upcoming reservations)" }.joined(separator: "; ")
-        return " Also sweep the connected accounts: \(list)."
+        let list = sites.map { "\($0.title) — \($0.syncURL)" }.joined(separator: "; ")
+        return """
+
+        • browse_and_extract on each connected travel account (a saved login \
+        already exists, so you arrive signed in): \(list). These are index pages: \
+        open the account, find EACH trip/reservation listed, open it, and extract \
+        its FULL day-by-day itinerary — every hotel, flight, activity, and \
+        restaurant with its date (YYYY-MM-DD), time, and place. Return them as \
+        structured items, not a summary. This is slow (minutes) — that's expected.
+        """
     }
 
     private static func systemPrompt() -> String {
