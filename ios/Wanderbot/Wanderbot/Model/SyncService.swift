@@ -300,11 +300,18 @@ final class SyncService: ObservableObject {
 
         1. get_itinerary(\(tripID)) to see what's already there.
         2. For each real booking in the data that belongs to THIS trip (dates within the \
-        trip window AND location matches the destination), add_booking — hotels, flights, \
-        activities, restaurants, with date (YYYY-MM-DD), time and place (include coordinates \
-        when you know them; search the web if needed). If a matching booking already exists \
-        but you now have more detail, update_booking instead of adding a copy. NEVER \
-        duplicate (same venue + dates = already there).
+        trip window AND location matches the destination), add_booking (or update_booking if \
+        a matching one exists with less detail — NEVER duplicate). Fill it in properly:
+        • HOTELS / AIRBNB (always use type "hotel"): a multi-night stay, not a single day. \
+        Set day = check-in date and start_time = check-in time; set end_day = check-out date \
+        so it spans every night; set nights. (If check-out isn't stated, use the trip's end \
+        date.)
+        • FLIGHTS (type "flight"): set start_time, from_name/to_name and their coords.
+        • Every item: include place_name and place_lat/place_lng so it maps — if the data \
+        doesn't give coordinates, use web_search to look up the venue's lat/lng.
+        • link: only pass a REAL, complete URL that appears in the data. Never fabricate one \
+        or append words to it (e.g. never "airbnb.com/rooms/ (from reservation)") — if you \
+        don't have the exact URL, omit link and put the detail in notes instead.
 
         Pick the correct type; only record what's in the data below. Finish with one line: \
         what you added or updated.
