@@ -358,6 +358,25 @@ final class BrowserConnections: ObservableObject {
         return sessionID
     }
 
+    /// FAST path for discovery: open a logged-in cloud browser, navigate to
+    /// `urlString`, and return the rendered page's visible text (~15s) — no
+    /// Skyvern agent. The agentic engine takes 10+ minutes to "list a page";
+    /// for discovery we just need the text and let the model pull the trips
+    /// out of it. Returns nil if there's no saved login for the URL.
+    func fetchLoggedInText(urlString: String) async -> String? {
+        guard hasCookies(forURL: urlString) else { return nil }
+        guard let session = try? await Self.post(
+            path: "/v1/browser_sessions", body: ["timeout": 15], requestTimeout: 180
+        ), let sessionID = session["browser_session_id"] as? String,
+           let address = session["browser_address"] as? String,
+           let cdpURL = URL(string: address)
+        else { return nil }
+        defer { Task { await close(sessionID) } }
+        return await PageText.fetch(
+            cdpURL: cdpURL, url: urlString, cookies: cookieJar(), storage: storageSeed()
+        )
+    }
+
     func closeSession(_ sessionID: String) async { await close(sessionID) }
 
     /// Emergency stop: close every running cloud browser.
@@ -536,6 +555,140 @@ private enum CredentialInjector {
                 }
                 // Give the round-trips a beat, then done.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.finish() }
+            }
+        }
+    }
+}
+
+/// Headless CDP client that loads one logged-in page and returns its visible
+/// text. Attaches to the page target, seeds cookies + localStorage, navigates,
+/// waits for the SPA to render, then reads `document.body.innerText`.
+private enum PageText {
+    static func fetch(
+        cdpURL: URL, url: String,
+        cookies: [[String: Any]], storage: [String: [String: String]]
+    ) async -> String? {
+        await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+            let worker = Worker(url: url, cookies: cookies, storage: storage) { cont.resume(returning: $0) }
+            worker.start(cdpURL: cdpURL)
+        }
+    }
+
+    private final class Worker: NSObject, @unchecked Sendable {
+        private let targetURL: String
+        private let cookies: [[String: Any]]
+        private let storage: [String: [String: String]]
+        private let done: (String?) -> Void
+        private var task: URLSessionWebSocketTask?
+        private var nextID = 1
+        private var getTargetsID = -1
+        private var attachID = -1
+        private var navID = -1
+        private var evalID = -1
+        private var sessionID: String?
+        private var finished = false
+        private var keepAlive: Worker?   // see CredentialInjector.Worker
+
+        init(url: String, cookies: [[String: Any]], storage: [String: [String: String]],
+             done: @escaping (String?) -> Void) {
+            self.targetURL = url; self.cookies = cookies; self.storage = storage; self.done = done
+        }
+
+        private var storageSeedScript: String? {
+            guard !storage.isEmpty,
+                  let data = try? JSONSerialization.data(withJSONObject: storage),
+                  let json = String(data: data, encoding: .utf8) else { return nil }
+            return "(function(){try{var S=\(json);var o=location.origin;"
+                + "if(S[o]){var m=S[o];for(var k in m){try{localStorage.setItem(k,m[k])}catch(e){}}}}catch(e){}})()"
+        }
+
+        func start(cdpURL: URL) {
+            keepAlive = self
+            var request = URLRequest(url: cdpURL)
+            request.setValue(WanderbotConfig.skyvernAPIKey, forHTTPHeaderField: "x-api-key")
+            task = URLSession(configuration: .default).webSocketTask(with: request)
+            task?.resume()
+            // Hard cap so a stuck page never hangs the sync (nav 8s + render).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self] in self?.finish(nil) }
+            receive()
+            getTargetsID = send("Target.getTargets")
+        }
+
+        private func finish(_ text: String?) {
+            if finished { return }
+            finished = true
+            task?.cancel(with: .normalClosure, reason: nil)
+            done(text)
+            keepAlive = nil
+        }
+
+        @discardableResult
+        private func send(_ method: String, _ params: [String: Any] = [:], session: String? = nil) -> Int {
+            let id = nextID; nextID += 1
+            var msg: [String: Any] = ["id": id, "method": method, "params": params]
+            if let session { msg["sessionId"] = session }
+            if let data = try? JSONSerialization.data(withJSONObject: msg),
+               let text = String(data: data, encoding: .utf8) {
+                task?.send(.string(text)) { _ in }
+            }
+            return id
+        }
+
+        private func receive() {
+            task?.receive { [weak self] result in
+                guard let self, !self.finished else { return }
+                if case .success(let message) = result {
+                    if case .string(let text) = message,
+                       let data = text.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        self.handle(json)
+                    }
+                    self.receive()
+                } else {
+                    self.finish(nil)
+                }
+            }
+        }
+
+        private func handle(_ json: [String: Any]) {
+            let id = json["id"] as? Int
+            // 1. targets → attach to the page
+            if id == getTargetsID,
+               let infos = (json["result"] as? [String: Any])?["targetInfos"] as? [[String: Any]] {
+                if let page = infos.last(where: { ($0["type"] as? String) == "page" }),
+                   let targetID = page["targetId"] as? String {
+                    attachID = send("Target.attachToTarget", ["targetId": targetID, "flatten": true])
+                } else { finish(nil) }
+                return
+            }
+            // 2. attached → seed cookies/storage, then navigate
+            if id == attachID,
+               let s = (json["result"] as? [String: Any])?["sessionId"] as? String {
+                sessionID = s
+                if !cookies.isEmpty { send("Storage.setCookies", ["cookies": cookies], session: s) }
+                if let script = storageSeedScript {
+                    send("Page.addScriptToEvaluateOnNewDocument", ["source": script], session: s)
+                }
+                send("Page.enable", session: s)
+                navID = send("Page.navigate", ["url": targetURL], session: s)
+                return
+            }
+            // 3. navigated → let the SPA render, then read the text
+            if id == navID {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                    guard let self, let s = self.sessionID, !self.finished else { return }
+                    self.evalID = self.send("Runtime.evaluate", [
+                        "expression": "(document.body&&document.body.innerText||'').slice(0,20000)",
+                        "returnByValue": true,
+                    ], session: s)
+                }
+                return
+            }
+            // 4. text back → done
+            if id == evalID {
+                let value = ((json["result"] as? [String: Any])?["result"] as? [String: Any])?["value"] as? String
+                finish(value)
+                return
             }
         }
     }

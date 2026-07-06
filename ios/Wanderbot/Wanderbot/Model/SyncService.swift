@@ -112,10 +112,11 @@ final class SyncService: ObservableObject {
         let sites = BrowserConnections.shared.connectedSites
         NSLog("[sync] discovery gather: %ld connected accounts, %ldd email window", sites.count, days)
         state = .running(step: sites.isEmpty ? "Searching your inbox…" : "Checking your connected accounts…")
-        async let browse = fanOutBrowse(sites) { _ in
-            "List EVERY trip or reservation in this account. For each give: name/title, "
-                + "destination, start date, end date. Do NOT open individual trips or extract "
-                + "their itineraries — just the list."
+        // Discovery just needs the account's trip LIST — read the logged-in
+        // page text directly (fast), don't drive the slow Skyvern agent.
+        async let browse = fanOut(sites) { url in
+            (await BrowserConnections.shared.fetchLoggedInText(urlString: url))
+                ?? "(couldn't load this account)"
         }
         async let emails = fanOutEmails(Self.discoveryEmailQueries(days: days))
         let (b, e) = await (browse, emails)
@@ -126,11 +127,14 @@ final class SyncService: ObservableObject {
         let sites = BrowserConnections.shared.connectedSites
         NSLog("[sync] detail gather: %ld accounts for %@ (%@)", sites.count, destination, dates)
         state = .running(step: sites.isEmpty ? "Searching your inbox…" : "Checking your connected accounts…")
-        async let browse = fanOutBrowse(sites) { _ in
-            "Find the trip or reservation matching \"\(destination)\" around \(dates). Open it and "
-                + "extract its FULL day-by-day itinerary — every hotel, flight, activity and "
-                + "restaurant with its date (YYYY-MM-DD), time and place. If this account has no "
-                + "matching trip, say so briefly."
+        let tools = self.tools
+        let instr = "Find the trip or reservation matching \"\(destination)\" around \(dates). Open it "
+            + "and extract its FULL day-by-day itinerary — every hotel, flight, activity and "
+            + "restaurant with its date (YYYY-MM-DD), time and place. If this account has no "
+            + "matching trip, say so briefly."
+        // Detail needs to navigate INTO a specific trip → the agentic browser.
+        async let browse = fanOut(sites) { url in
+            await tools.browseExtract(url: url, instruction: instr)
         }
         async let emails = fanOutEmails([
             "\(destination) subject:(confirmation OR reservation OR itinerary) newer_than:365d",
@@ -140,22 +144,19 @@ final class SyncService: ObservableObject {
         return "=== \(destination) FROM CONNECTED ACCOUNTS ===\n\(b)\n\n=== EMAILS ===\n\(e)"
     }
 
-    /// Run one browser per connected account, concurrently. Each gets its
-    /// own fresh Skyvern session (cookies injected from the shared jar).
-    private func fanOutBrowse(
+    /// Run `fetch` against every connected account concurrently, labelling
+    /// each result with its account name.
+    private func fanOut(
         _ sites: [BrowserConnections.Site],
-        instruction: (BrowserConnections.Site) -> String
+        _ fetch: @escaping @Sendable (String) async -> String
     ) async -> String {
         guard !sites.isEmpty else { return "(no connected accounts)" }
-        let tools = self.tools
-        // Precompute Sendable job tuples so the task group captures only strings.
-        let jobs: [(title: String, url: String, instr: String)] =
-            sites.map { ($0.title, $0.syncURL, instruction($0)) }
+        let jobs: [(title: String, url: String)] = sites.map { ($0.title, $0.syncURL) }
         return await withTaskGroup(of: String.self) { group in
             for job in jobs {
                 group.addTask {
                     NSLog("[sync] browse %@ (%@)", job.title, job.url)
-                    let r = await tools.browseExtract(url: job.url, instruction: job.instr)
+                    let r = await fetch(job.url)
                     return "── \(job.title) ──\n\(r)"
                 }
             }
@@ -269,10 +270,14 @@ final class SyncService: ObservableObject {
         for one city/week = one trip, not many).
         3. For each trip NOT already present (no existing trip with overlapping dates AND \
         same region), create_trip — name it by the primary destination (e.g. "Switzerland", \
-        "Maui"), set start_date/end_date to span its items (YYYY-MM-DD, pad ±1 day for travel).
+        "Maui"), set start_date/end_date to span its items (YYYY-MM-DD, pad ±1 day for travel). \
+        If a listing shows a date with NO year (e.g. "Jun 19 – 28"), infer the most likely \
+        year from today's date (an upcoming month → this year or next) and use it — do not \
+        skip a trip just because the year was implicit.
 
         Only create trips that actually appear in the data below — never invent one. Don't \
-        duplicate trips that already exist. End with one line: N trips created (their names).
+        duplicate trips that already exist. Create every distinct trip you see. End with one \
+        line: N trips created (their names).
 
         \(gathered.isEmpty ? "(no data gathered)" : gathered)
         """
