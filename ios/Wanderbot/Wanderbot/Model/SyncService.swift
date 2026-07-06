@@ -132,14 +132,13 @@ final class SyncService: ObservableObject {
         let sites = BrowserConnections.shared.connectedSites
         NSLog("[sync] detail gather: %ld accounts for %@ (%@)", sites.count, destination, dates)
         state = .running(step: sites.isEmpty ? "Searching your inbox…" : "Checking your connected accounts…")
-        let tools = self.tools
-        let instr = "Find the trip or reservation matching \"\(destination)\" around \(dates). Open it "
-            + "and extract its FULL day-by-day itinerary — every hotel, flight, activity and "
-            + "restaurant with its date (YYYY-MM-DD), time and place. If this account has no "
-            + "matching trip, say so briefly."
-        // Detail needs to navigate INTO a specific trip → the agentic browser.
+        // Read the matching trip's page directly (find its link on the account
+        // page, open it, read the text). No agentic browser — that reliably
+        // died at Skyvern's 50-planning-step cap on rich trips like Wanderlog.
+        let dest = destination
         async let browse = fanOut(sites) { url in
-            await tools.browseExtract(url: url, instruction: instr)
+            (await BrowserConnections.shared.fetchTripDetail(homeURL: url, destination: dest))
+                ?? "(couldn't load this account)"
         }
         async let emails = fanOutEmails([
             "\(destination) subject:(confirmation OR reservation OR itinerary) newer_than:365d",

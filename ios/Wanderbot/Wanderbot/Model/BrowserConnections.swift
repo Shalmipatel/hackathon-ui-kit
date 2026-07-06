@@ -358,12 +358,14 @@ final class BrowserConnections: ObservableObject {
         return sessionID
     }
 
-    /// FAST path for discovery: open a logged-in cloud browser, navigate to
-    /// `urlString`, and return the rendered page's visible text (~15s) — no
-    /// Skyvern agent. The agentic engine takes 10+ minutes to "list a page";
-    /// for discovery we just need the text and let the model pull the trips
-    /// out of it. Returns nil if there's no saved login for the URL.
-    func fetchLoggedInText(urlString: String) async -> String? {
+    /// One logged-in page: its visible text plus the trip-ish links on it.
+    struct LoggedInPage { let text: String; let links: [(text: String, href: String)] }
+
+    /// FAST path: open a logged-in cloud browser, navigate to `urlString`, and
+    /// return the rendered page (~15s) — no Skyvern agent. The agentic engine
+    /// takes 10+ min and often dies at its 50-planning-step cap; we just read
+    /// the page and let the model pull data out of the text.
+    func fetchLoggedInPage(urlString: String) async -> LoggedInPage? {
         guard hasCookies(forURL: urlString) else { return nil }
         guard let session = try? await Self.post(
             path: "/v1/browser_sessions", body: ["timeout": 15], requestTimeout: 180
@@ -375,6 +377,35 @@ final class BrowserConnections: ObservableObject {
         return await PageText.fetch(
             cdpURL: cdpURL, url: urlString, cookies: cookieJar(), storage: storageSeed()
         )
+    }
+
+    /// Discovery convenience — just the text of the account page.
+    func fetchLoggedInText(urlString: String) async -> String? {
+        (await fetchLoggedInPage(urlString: urlString))?.text
+    }
+
+    /// DETAIL path: read the account page, find the link that best matches the
+    /// trip's `destination`, open THAT page, and return its text — the trip's
+    /// actual itinerary. Falls back to the account page's own text when no
+    /// trip link matches (e.g. Airbnb, where the reservation is on the main
+    /// page). No agentic browsing, so it doesn't hit the 50-step failure.
+    func fetchTripDetail(homeURL: String, destination: String) async -> String? {
+        guard let home = await fetchLoggedInPage(urlString: homeURL) else { return nil }
+        let keywords = destination.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count > 3 }
+        let scored = home.links
+            .map { link -> (score: Int, href: String) in
+                let t = link.text.lowercased()
+                return (keywords.filter { t.contains($0) }.count, link.href)
+            }
+            .filter { $0.score > 0 }
+            .sorted { $0.score > $1.score }
+        if let best = scored.first,
+           let trip = await fetchLoggedInPage(urlString: best.href) {
+            return "Matched trip page (\(best.href)):\n\(trip.text)"
+        }
+        return home.text
     }
 
     func closeSession(_ sessionID: String) async { await close(sessionID) }
@@ -567,8 +598,8 @@ private enum PageText {
     static func fetch(
         cdpURL: URL, url: String,
         cookies: [[String: Any]], storage: [String: [String: String]]
-    ) async -> String? {
-        await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+    ) async -> BrowserConnections.LoggedInPage? {
+        await withCheckedContinuation { (cont: CheckedContinuation<BrowserConnections.LoggedInPage?, Never>) in
             let worker = Worker(url: url, cookies: cookies, storage: storage) { cont.resume(returning: $0) }
             worker.start(cdpURL: cdpURL)
         }
@@ -578,7 +609,7 @@ private enum PageText {
         private let targetURL: String
         private let cookies: [[String: Any]]
         private let storage: [String: [String: String]]
-        private let done: (String?) -> Void
+        private let done: (BrowserConnections.LoggedInPage?) -> Void
         private var task: URLSessionWebSocketTask?
         private var nextID = 1
         private var getTargetsID = -1
@@ -590,7 +621,7 @@ private enum PageText {
         private var keepAlive: Worker?   // see CredentialInjector.Worker
 
         init(url: String, cookies: [[String: Any]], storage: [String: [String: String]],
-             done: @escaping (String?) -> Void) {
+             done: @escaping (BrowserConnections.LoggedInPage?) -> Void) {
             self.targetURL = url; self.cookies = cookies; self.storage = storage; self.done = done
         }
 
@@ -614,11 +645,11 @@ private enum PageText {
             getTargetsID = send("Target.getTargets")
         }
 
-        private func finish(_ text: String?) {
+        private func finish(_ page: BrowserConnections.LoggedInPage?) {
             if finished { return }
             finished = true
             task?.cancel(with: .normalClosure, reason: nil)
-            done(text)
+            done(page)
             keepAlive = nil
         }
 
@@ -673,21 +704,39 @@ private enum PageText {
                 navID = send("Page.navigate", ["url": targetURL], session: s)
                 return
             }
-            // 3. navigated → let the SPA render, then read the text
+            // 3. navigated → let the SPA render, then read text + trip links
             if id == navID {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
                     guard let self, let s = self.sessionID, !self.finished else { return }
+                    let js = """
+                    JSON.stringify({
+                      text:(document.body&&document.body.innerText||'').slice(0,20000),
+                      links:Array.from(document.querySelectorAll('a[href]'))
+                        .map(function(a){return {t:(a.innerText||'').trim().replace(/\\s+/g,' ').slice(0,80),h:a.href};})
+                        .filter(function(x){return x.t && /\\/(plan|trip|trips|view|rooms|reservation)/i.test(x.h);})
+                        .slice(0,60)
+                    })
+                    """
                     self.evalID = self.send("Runtime.evaluate", [
-                        "expression": "(document.body&&document.body.innerText||'').slice(0,20000)",
-                        "returnByValue": true,
+                        "expression": js, "returnByValue": true,
                     ], session: s)
                 }
                 return
             }
-            // 4. text back → done
+            // 4. result back → parse text + links → done
             if id == evalID {
-                let value = ((json["result"] as? [String: Any])?["result"] as? [String: Any])?["value"] as? String
-                finish(value)
+                let raw = ((json["result"] as? [String: Any])?["result"] as? [String: Any])?["value"] as? String
+                guard let raw, let data = raw.data(using: .utf8),
+                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    finish(raw.map { BrowserConnections.LoggedInPage(text: $0, links: []) })
+                    return
+                }
+                let text = obj["text"] as? String ?? ""
+                let links = (obj["links"] as? [[String: Any]] ?? []).compactMap { l -> (text: String, href: String)? in
+                    guard let t = l["t"] as? String, let h = l["h"] as? String else { return nil }
+                    return (t, h)
+                }
+                finish(BrowserConnections.LoggedInPage(text: text, links: links))
                 return
             }
         }
