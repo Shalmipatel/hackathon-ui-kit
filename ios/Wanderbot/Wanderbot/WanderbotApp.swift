@@ -50,6 +50,7 @@ struct WanderbotApp: App {
                     try? JSONSerialization.data(withJSONObject: ["uid": uid]),
                     forKey: "wanderbot.auth.user.v2")
                 BrowserConnections.shared.debugSeed(slug: "wanderlog")
+                BrowserConnections.shared.debugSeed(slug: "airbnb")
                 store.bootstrap()
                 connections.bootstrap()
                 sync.configure(travel: store)

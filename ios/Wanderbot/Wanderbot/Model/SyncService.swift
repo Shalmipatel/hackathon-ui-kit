@@ -1,14 +1,23 @@
 import Foundation
 import UIKit
 
-/// Background trip-discovery sync. Runs the xAI agent loop **itself** —
-/// independent of the chat UI — sweeping every connected source (Gmail via
-/// `search_email`, connected web accounts via `browse_and_extract`, and any
-/// tool we add later) and writing findings to RTDB through the trip tools.
+/// Background trip sync, split into two tiers that match how the data
+/// actually lives:
 ///
-/// The user never waits in the chat: they kick off a scan and walk away.
-/// Live progress + the last result (success/failure) surface in Settings →
-/// Sync, and persist across launches.
+///  • **Discovery** (`scanForTrips`) fans a browser out across EVERY
+///    connected account in parallel — plus a parallel inbox sweep — to
+///    LIST the traveler's trips, then has the agent create the trip
+///    shells. It does not extract itineraries.
+///  • **Detail** (`rescanTrip`) is scoped to one trip: it fans out across
+///    the same accounts to pull that trip's full day-by-day itinerary,
+///    then the agent fills in the bookings.
+///
+/// The per-connection fan-out is driven HERE, in code — not left to the
+/// model to remember. That guarantees every connected app gets its own
+/// browser every run, and they run concurrently.
+///
+/// Live progress + the last result surface in Settings → Sync and persist
+/// across launches; the user never waits in the chat.
 @MainActor
 final class SyncService: ObservableObject {
 
@@ -31,6 +40,7 @@ final class SyncService: ObservableObject {
     private let tools = TripAgentTools(travelStore: nil)
     private var travel: TravelStore?
     private let maxRounds = 20
+    private var bgTask: UIBackgroundTaskIdentifier = .invalid
 
     private static let lastResultKey = "wanderbot.sync.lastResult"
 
@@ -43,116 +53,137 @@ final class SyncService: ObservableObject {
 
     // MARK: - Public triggers
 
-    /// DISCOVERY scan — its ONLY job is to find which trips exist across
-    /// every connected source and create the trip shells. It deliberately
-    /// does NOT extract full itineraries; a per-trip scan (`rescanTrip`)
-    /// fills each one in. Keeping discovery lightweight means each browser
-    /// run only has to LIST trips (fast) rather than extract hundreds of
-    /// places in one go — which is what used to blow the timeout.
-    ///
-    /// `deep` widens the email lookback to a full year (trips are often
-    /// booked many months ahead — a short window finds nothing). The
-    /// quick scan still looks back 90 days, not 7, for the same reason.
+    /// DISCOVERY — list trips across every connected account + inbox, then
+    /// create the trip shells. Details are filled in per-trip by rescan.
     func scanForTrips(deep: Bool) {
-        let days = deep ? 365 : 90
-        let prompt = """
-        \(deep ? "DEEP " : "")DISCOVERY SCAN. Your ONLY job is to discover which TRIPS the \
-        traveler has and create them. Do NOT extract or add individual bookings — a \
-        separate per-trip scan fills in each itinerary later. Bookings are often made \
-        MONTHS ahead, so don't judge by recency.
-
-        STEP 1 — find trips across EVERY source (fire in parallel):\(discoveryAccountsClause)
-        • search_email over a WIDE window (newer_than:\(days)d): from:airbnb.com; \
-        from:booking.com; from:(marriott.com OR hilton.com OR hyatt.com OR ihg.com); \
-        from:(united.com OR delta.com OR aa.com OR swiss.com OR lufthansa.com OR \
-        klm.com); subject:(confirmation OR reservation OR itinerary OR "e-ticket" OR \
-        "booking confirmed" OR "your trip"). From each hit, note only the trip's \
-        DESTINATION and DATES — not every line item.
-        STEP 2 — get_trips to see what already exists.
-        STEP 3 — For each distinct trip you found, decide if it's new: a trip is the \
-        same when destination + dates overlap. Group items in the same place within \
-        ~3 days into ONE trip.
-        STEP 4 — For each NEW trip only, create_trip: name it by the primary \
-        destination (e.g. "Switzerland", "Maui"), set start_date/end_date to its \
-        span. Do NOT recreate trips that already exist, and do NOT add bookings.
-
-        Creating the trip shells is the entire job. Never invent trips. Don't create \
-        one from a single ambiguous item unless it clearly implies travel.
-        End with one line: N trips created (and their names).
-        """
-        run(prompt: prompt, tripID: nil)
+        guard !isScanning else { return }
+        beginRun(tripID: nil)
+        Task { [weak self] in
+            await self?.finishRun { try await self!.discoveryScan(deep: deep) }
+        }
     }
 
-    /// DETAIL scan — scoped to ONE existing trip. Goes deep across every
-    /// connected account + email to pull this trip's FULL itinerary, then
-    /// fills in what's missing. Never creates new trips. Because it targets
-    /// a single trip, each browser run stays within the timeout.
+    /// DETAIL — pull ONE trip's full itinerary from every connected
+    /// account + inbox and fill in the bookings. Never creates trips.
     func rescanTrip(id: String) {
+        guard !isScanning else { return }
+        beginRun(tripID: id)
+        Task { [weak self] in
+            await self?.finishRun { try await self!.detailScan(id: id) }
+        }
+    }
+
+    // MARK: - Scans
+
+    private func discoveryScan(deep: Bool) async throws -> (summary: String, added: Int) {
+        let days = deep ? 365 : 90
+        let gathered = await gatherDiscovery(days: days)
+        state = .running(step: "Organizing your trips…")
+        return try await agentAct(
+            prompt: Self.discoveryActPrompt(gathered: gathered),
+            tools: Self.actTools(["get_trips", "create_trip", "update_trip"]),
+            countTools: ["create_trip"]
+        )
+    }
+
+    private func detailScan(id: String) async throws -> (summary: String, added: Int) {
         let trip = travel?.trips.first(where: { $0.id == id })
-        let context = trip.map { "\"\($0.title)\" — \($0.destination), \($0.startDate) to \($0.endDate) (trip_id: \($0.id))" } ?? id
         let dest = trip?.destination ?? trip?.title ?? ""
         let dates = trip.map { "\($0.startDate) to \($0.endDate)" } ?? ""
-        let prompt = """
-        DETAIL SCAN for ONE trip: \(context). Pull this trip's FULL itinerary and \
-        fill in everything that's missing. Do NOT create new trips or touch other trips.
-
-        1. get_itinerary(\(trip?.id ?? id)) to see what's already there.
-        2. Go deep on THIS trip across every source:\(detailAccountsClause(destination: dest, dates: dates))
-        • search_email scoped to the destination, hotel/airline names, from:airbnb.com, \
-        subject:(confirmation OR reservation OR itinerary), newer_than:365d.
-        3. A booking belongs here only if its dates fall within the trip window AND its \
-        location matches the destination. Ignore everything else.
-        4. add_booking for every genuinely missing item (hotels, flights, activities, \
-        restaurants — with date, time, place). If a matching booking exists but you \
-        now have MORE detail (confirmation number, exact time, address), update_booking \
-        instead of adding a copy. NEVER duplicate (same venue + dates = already there).
-
-        Dates as YYYY-MM-DD; pick the right type. Finish with one line: what you added or updated.
-        """
-        run(prompt: prompt, tripID: id)
+        let gathered = await gatherTripDetail(destination: dest, dates: dates)
+        state = .running(step: "Updating your itinerary…")
+        let context = trip.map {
+            "\"\($0.title)\" — \($0.destination), \($0.startDate) to \($0.endDate) (trip_id: \($0.id))"
+        } ?? id
+        var sessionTools = Self.actTools([
+            "get_itinerary", "get_trips", "add_booking", "update_booking", "delete_booking",
+        ])
+        sessionTools.insert(["type": "web_search"], at: 0)   // for coordinates
+        return try await agentAct(
+            prompt: Self.detailActPrompt(context: context, tripID: trip?.id ?? id, gathered: gathered),
+            tools: sessionTools,
+            countTools: ["add_booking"]
+        )
     }
 
-    // MARK: - Runner
+    // MARK: - Gather (deterministic, parallel)
 
-    private func run(prompt: String, tripID: String?) {
-        guard !isScanning else { return }
-        state = .running(step: "Starting sync…")
-        rescanningTripID = tripID
-
-        // Keep running briefly if the app gets backgrounded mid-sync.
-        var bgTask: UIBackgroundTaskIdentifier = .invalid
-        bgTask = UIApplication.shared.beginBackgroundTask(withName: "wanderbot.sync") {
-            if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask); bgTask = .invalid }
+    private func gatherDiscovery(days: Int) async -> String {
+        let sites = BrowserConnections.shared.connectedSites
+        NSLog("[sync] discovery gather: %ld connected accounts, %ldd email window", sites.count, days)
+        state = .running(step: sites.isEmpty ? "Searching your inbox…" : "Checking your connected accounts…")
+        async let browse = fanOutBrowse(sites) { _ in
+            "List EVERY trip or reservation in this account. For each give: name/title, "
+                + "destination, start date, end date. Do NOT open individual trips or extract "
+                + "their itineraries — just the list."
         }
+        async let emails = fanOutEmails(Self.discoveryEmailQueries(days: days))
+        let (b, e) = await (browse, emails)
+        return "=== TRIPS FROM CONNECTED ACCOUNTS ===\n\(b)\n\n=== BOOKING EMAILS ===\n\(e)"
+    }
 
-        Task { [weak self] in
-            guard let self else { return }
-            defer {
-                self.rescanningTripID = nil
-                if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask); bgTask = .invalid }
+    private func gatherTripDetail(destination: String, dates: String) async -> String {
+        let sites = BrowserConnections.shared.connectedSites
+        NSLog("[sync] detail gather: %ld accounts for %@ (%@)", sites.count, destination, dates)
+        state = .running(step: sites.isEmpty ? "Searching your inbox…" : "Checking your connected accounts…")
+        async let browse = fanOutBrowse(sites) { _ in
+            "Find the trip or reservation matching \"\(destination)\" around \(dates). Open it and "
+                + "extract its FULL day-by-day itinerary — every hotel, flight, activity and "
+                + "restaurant with its date (YYYY-MM-DD), time and place. If this account has no "
+                + "matching trip, say so briefly."
+        }
+        async let emails = fanOutEmails([
+            "\(destination) subject:(confirmation OR reservation OR itinerary) newer_than:365d",
+            "from:airbnb.com newer_than:365d",
+        ])
+        let (b, e) = await (browse, emails)
+        return "=== \(destination) FROM CONNECTED ACCOUNTS ===\n\(b)\n\n=== EMAILS ===\n\(e)"
+    }
+
+    /// Run one browser per connected account, concurrently. Each gets its
+    /// own fresh Skyvern session (cookies injected from the shared jar).
+    private func fanOutBrowse(
+        _ sites: [BrowserConnections.Site],
+        instruction: (BrowserConnections.Site) -> String
+    ) async -> String {
+        guard !sites.isEmpty else { return "(no connected accounts)" }
+        let tools = self.tools
+        // Precompute Sendable job tuples so the task group captures only strings.
+        let jobs: [(title: String, url: String, instr: String)] =
+            sites.map { ($0.title, $0.syncURL, instruction($0)) }
+        return await withTaskGroup(of: String.self) { group in
+            for job in jobs {
+                group.addTask {
+                    NSLog("[sync] browse %@ (%@)", job.title, job.url)
+                    let r = await tools.browseExtract(url: job.url, instruction: job.instr)
+                    return "── \(job.title) ──\n\(r)"
+                }
             }
-            do {
-                let (summary, added) = try await self.agentLoop(prompt: prompt)
-                let text = summary.isEmpty
-                    ? (added > 0 ? "Added \(added) item\(added == 1 ? "" : "s")." : "No new bookings found.")
-                    : summary
-                self.state = .done(summary: text, at: Self.now())
-            } catch {
-                let reason = (error as? XAIChatClient.ClientError)?.errorDescription
-                    ?? error.localizedDescription
-                self.state = .failed(reason: reason, at: Self.now())
-                NSLog("[sync] failed: %@", reason)
-            }
-            self.persistLastResult()
+            var parts: [String] = []
+            for await p in group { parts.append(p) }
+            return parts.joined(separator: "\n\n")
         }
     }
 
-    /// The agent loop, run headlessly (no chat transcript). Reports a
-    /// human step per round and counts what got written.
-    private func agentLoop(prompt: String) async throws -> (summary: String, added: Int) {
-        var sessionTools: [[String: Any]] = [["type": "web_search"], ["type": "x_search"]]
-        sessionTools.append(contentsOf: TripAgentTools.realtimeTools)
+    /// Run several Gmail queries concurrently.
+    private func fanOutEmails(_ queries: [String]) async -> String {
+        guard GmailConnector.shared.isConnected else { return "(Gmail not connected)" }
+        let tools = self.tools
+        return await withTaskGroup(of: String.self) { group in
+            for q in queries {
+                group.addTask { await tools.emailSearch(query: q, maxResults: 10) }
+            }
+            var parts: [String] = []
+            for await p in group { parts.append(p) }
+            return parts.joined(separator: "\n")
+        }
+    }
 
+    // MARK: - Act (the agent turns gathered data into trips/bookings)
+
+    private func agentAct(
+        prompt: String, tools sessionTools: [[String: Any]], countTools: Set<String>
+    ) async throws -> (summary: String, added: Int) {
         var input: [[String: Any]] = [
             ["role": "system", "content": Self.systemPrompt()],
             ["role": "user", "content": prompt],
@@ -170,7 +201,7 @@ final class SyncService: ObservableObject {
             if result.toolCalls.isEmpty { break }
 
             state = .running(step: Self.step(for: result.toolCalls))
-            added += result.toolCalls.filter { $0.name == "add_booking" || $0.name == "create_trip" }.count
+            added += result.toolCalls.filter { countTools.contains($0.name) }.count
 
             var outputs: [[String: Any]] = []
             for call in result.toolCalls {
@@ -183,68 +214,117 @@ final class SyncService: ObservableObject {
         return (finalText, added)
     }
 
-    // MARK: - Prompt bits
+    // MARK: - Run lifecycle
 
-    private var connectedSitesList: String {
-        BrowserConnections.shared.connectedSites
-            .map { "\($0.title) — \($0.syncURL)" }.joined(separator: "; ")
+    private func beginRun(tripID: String?) {
+        state = .running(step: "Starting sync…")
+        rescanningTripID = tripID
+        bgTask = UIApplication.shared.beginBackgroundTask(withName: "wanderbot.sync") { [weak self] in
+            self?.endBg()
+        }
     }
 
-    /// Discovery: just LIST the trips in each account (fast — one page).
-    private var discoveryAccountsClause: String {
-        let sites = BrowserConnections.shared.connectedSites
-        guard !sites.isEmpty else { return "" }
-        return """
+    private func endBg() {
+        if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask); bgTask = .invalid }
+    }
 
-        • browse_and_extract on each connected travel account (you arrive already \
-        signed in): \(connectedSitesList). Ask ONLY for the LIST of trips/reservations \
-        — each one's name, destination, and dates. Do NOT open individual trips or \
-        extract their itineraries; that's a separate per-trip step.
+    private func finishRun(_ work: () async throws -> (summary: String, added: Int)) async {
+        defer { rescanningTripID = nil; endBg() }
+        do {
+            let (summary, added) = try await work()
+            let text = summary.isEmpty
+                ? (added > 0 ? "Added \(added) item\(added == 1 ? "" : "s")." : "Nothing new found.")
+                : summary
+            state = .done(summary: text, at: Self.now())
+        } catch {
+            let reason = (error as? XAIChatClient.ClientError)?.errorDescription
+                ?? error.localizedDescription
+            state = .failed(reason: reason, at: Self.now())
+            NSLog("[sync] failed: %@", reason)
+        }
+        persistLastResult()
+    }
+
+    // MARK: - Prompts
+
+    private static func discoveryEmailQueries(days: Int) -> [String] {
+        [
+            "from:airbnb.com newer_than:\(days)d",
+            "from:booking.com newer_than:\(days)d",
+            "from:(marriott.com OR hilton.com OR hyatt.com OR ihg.com) newer_than:\(days)d",
+            "from:(united.com OR delta.com OR aa.com OR swiss.com OR lufthansa.com OR klm.com) newer_than:\(days)d",
+            "subject:(confirmation OR reservation OR itinerary OR \"e-ticket\" OR \"booking confirmed\") newer_than:\(days)d",
+        ]
+    }
+
+    private static func discoveryActPrompt(gathered: String) -> String {
+        """
+        DISCOVERY. Below is everything gathered from the traveler's connected accounts \
+        and inbox. Decide which distinct TRIPS these represent and create any that don't \
+        already exist. Do NOT add individual bookings — a separate per-trip scan does that.
+
+        1. get_trips to see what already exists.
+        2. Group the gathered items by destination + dates: items in the same place whose \
+        dates overlap or fall within ~3 days are ONE trip (a flight + hotel + activities \
+        for one city/week = one trip, not many).
+        3. For each trip NOT already present (no existing trip with overlapping dates AND \
+        same region), create_trip — name it by the primary destination (e.g. "Switzerland", \
+        "Maui"), set start_date/end_date to span its items (YYYY-MM-DD, pad ±1 day for travel).
+
+        Only create trips that actually appear in the data below — never invent one. Don't \
+        duplicate trips that already exist. End with one line: N trips created (their names).
+
+        \(gathered.isEmpty ? "(no data gathered)" : gathered)
         """
     }
 
-    /// Detail: for ONE trip, open the matching trip in each account and
-    /// extract its full day-by-day itinerary.
-    private func detailAccountsClause(destination: String, dates: String) -> String {
-        let sites = BrowserConnections.shared.connectedSites
-        guard !sites.isEmpty else { return "" }
-        return """
+    private static func detailActPrompt(context: String, tripID: String, gathered: String) -> String {
+        """
+        DETAIL for trip: \(context). Below is everything gathered from the traveler's \
+        connected accounts + inbox for this trip. Fill in its full itinerary from that \
+        data. Do NOT create new trips or touch other trips.
 
-        • browse_and_extract on each connected travel account (already signed in): \
-        \(connectedSitesList). Find the trip/reservation matching "\(destination)" \
-        around \(dates), open it, and extract its FULL day-by-day itinerary — every \
-        hotel, flight, activity, and restaurant with date (YYYY-MM-DD), time, and \
-        place. Return structured items. This is slow (minutes) — that's expected.
+        1. get_itinerary(\(tripID)) to see what's already there.
+        2. For each real booking in the data that belongs to THIS trip (dates within the \
+        trip window AND location matches the destination), add_booking — hotels, flights, \
+        activities, restaurants, with date (YYYY-MM-DD), time and place (include coordinates \
+        when you know them; search the web if needed). If a matching booking already exists \
+        but you now have more detail, update_booking instead of adding a copy. NEVER \
+        duplicate (same venue + dates = already there).
+
+        Pick the correct type; only record what's in the data below. Finish with one line: \
+        what you added or updated.
+
+        \(gathered.isEmpty ? "(no data gathered)" : gathered)
         """
     }
 
     private static func systemPrompt() -> String {
         """
-        You are Wanderbot's background sync agent. Find the traveler's REAL bookings \
-        across their connected sources and record them with the trip tools.
-
-        Sources: search_email (their Gmail); browse_and_extract (a logged-in cloud \
-        browser for connected accounts like Airbnb — slow, that's fine, use it for \
-        connected accounts). Run several targeted searches, not one broad one.
+        You are Wanderbot's background sync agent. You are given data that was already \
+        gathered from the traveler's connected sources; your job is to record it accurately \
+        with the trip tools.
 
         Core rules, always:
-        • NEVER invent a booking. Only record things you actually found.
-        • ALWAYS get_itinerary for a trip before adding to it, and never duplicate: \
-        the same venue on the same dates is already there even if worded differently.
+        • NEVER invent a trip or booking. Only record things that appear in the gathered data.
+        • ALWAYS call get_itinerary for a trip before adding to it, and never duplicate: the \
+        same venue on the same dates is already there even if worded differently.
         • Dates as YYYY-MM-DD. Convert human dates ("February 5, 2027" → "2027-02-05").
         • Pick the correct type: hotel for lodging/Airbnb/hostel, flight, restaurant, \
         attraction, experience, event, activity, transport.
-        • Include place_name and coordinates when you know them so items map.
         • Prefer improving an existing booking (update_booking) over adding a near-duplicate.
 
         Today's date: \(ISO8601.dayKey(from: Date())).
         """
     }
 
+    /// Build a flat-format tool subset by name (for the act phase).
+    private static func actTools(_ names: Set<String>) -> [[String: Any]] {
+        TripAgentTools.realtimeTools.filter { names.contains(($0["name"] as? String) ?? "") }
+    }
+
     private static func step(for calls: [XAIChatClient.ToolCall]) -> String {
         let names = Set(calls.map(\.name))
-        if names.contains("browse_and_extract") { return "Checking your connected accounts…" }
-        if names.contains("search_email") { return "Searching your inbox…" }
         if names.contains("add_booking") || names.contains("create_trip") { return "Adding what I found…" }
         if names.contains("update_booking") || names.contains("delete_booking") { return "Updating your itinerary…" }
         if names.contains("get_itinerary") || names.contains("get_trips") { return "Reviewing your trips…" }

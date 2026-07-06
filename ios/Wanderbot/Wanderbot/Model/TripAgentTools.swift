@@ -19,6 +19,17 @@ final class TripAgentTools {
     private let rtdb = FirebaseRTDB(databaseURLString: WanderbotConfig.firebaseDatabaseURL)
     private let location = LocationProvider()
 
+    /// Dedicated session for Skyvern. Ephemeral so it doesn't share the
+    /// process-wide HTTP/3 Alt-Svc cache — api.skyvern.com advertises h3,
+    /// and opportunistic QUIC to it is reset on some networks, which was
+    /// silently killing every browse (session POST failed → no run created).
+    static let skyvernSession: URLSession = {
+        let c = URLSessionConfiguration.ephemeral
+        c.waitsForConnectivity = true
+        c.timeoutIntervalForRequest = 120
+        return URLSession(configuration: c)
+    }()
+
     init(travelStore: TravelStore?) {
         self.travelStore = travelStore
     }
@@ -203,6 +214,20 @@ final class TripAgentTools {
         all.map { ["type": "function",
                    "function": ["name": $0.name, "description": $0.description,
                                 "parameters": $0.parameters] as [String: Any]] }
+    }
+
+    // MARK: - Direct entry points (deterministic fan-out from SyncService)
+
+    /// Drive the cloud browser directly (bypasses the model). Used by the
+    /// background sync to fan a browse out across every connected account
+    /// in parallel, rather than hoping the model calls it for each one.
+    func browseExtract(url: String, instruction: String) async -> String {
+        await browseAndExtract(["url": url, "instruction": instruction])
+    }
+
+    /// Search Gmail directly (bypasses the model).
+    func emailSearch(query: String, maxResults: Int = 10) async -> String {
+        await searchEmail(["query": query, "max_results": Double(maxResults)])
     }
 
     // MARK: - Execution
@@ -569,7 +594,7 @@ final class TripAgentTools {
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await Self.skyvernSession.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let runID = (json["run_id"] as? String) ?? (json["task_id"] as? String)
@@ -589,7 +614,7 @@ final class TripAgentTools {
                 var poll = URLRequest(url: statusURL)
                 poll.assumesHTTP3Capable = false
                 poll.setValue(WanderbotConfig.skyvernAPIKey, forHTTPHeaderField: "x-api-key")
-                guard let (pdata, presp) = try? await URLSession.shared.data(for: poll),
+                guard let (pdata, presp) = try? await Self.skyvernSession.data(for: poll),
                       (presp as? HTTPURLResponse)?.statusCode == 200,
                       let pjson = try? JSONSerialization.jsonObject(with: pdata) as? [String: Any]
                 else { continue }

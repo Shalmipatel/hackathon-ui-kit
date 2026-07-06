@@ -402,7 +402,7 @@ final class BrowserConnections: ObservableObject {
         request.setValue(WanderbotConfig.skyvernAPIKey, forHTTPHeaderField: "x-api-key")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await TripAgentTools.skyvernSession.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let text = String(data: data, encoding: .utf8) ?? ""
             throw Err("Skyvern HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1): \(text.prefix(160))")
@@ -416,7 +416,7 @@ final class BrowserConnections: ObservableObject {
         request.timeoutInterval = 30
         request.assumesHTTP3Capable = false
         request.setValue(WanderbotConfig.skyvernAPIKey, forHTTPHeaderField: "x-api-key")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await TripAgentTools.skyvernSession.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Err("HTTP error") }
         return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
@@ -444,6 +444,12 @@ private enum CredentialInjector {
         private var attachPurpose = -1
         private var cdpSession: String?
         private var finished = false
+        /// Strong self-reference held for the worker's lifetime. Without it
+        /// nothing retains the worker once `inject` returns (all handlers are
+        /// [weak self]), so ARC can free it mid-flight — its safety timeout
+        /// then no-ops and the continuation never resumes (hangs the sync).
+        /// Concurrent injections during a fan-out made this reliably happen.
+        private var keepAlive: Worker?
 
         init(cookies: [[String: Any]], storage: [String: [String: String]], done: @escaping () -> Void) {
             self.cookies = cookies; self.storage = storage; self.done = done
@@ -460,6 +466,7 @@ private enum CredentialInjector {
         }
 
         func start(cdpURL: URL) {
+            keepAlive = self
             var request = URLRequest(url: cdpURL)
             request.setValue(WanderbotConfig.skyvernAPIKey, forHTTPHeaderField: "x-api-key")
             let session = URLSession(configuration: .default)
@@ -476,6 +483,7 @@ private enum CredentialInjector {
             finished = true
             task?.cancel(with: .normalClosure, reason: nil)
             done()
+            keepAlive = nil   // release now that the continuation has resumed
         }
 
         @discardableResult
