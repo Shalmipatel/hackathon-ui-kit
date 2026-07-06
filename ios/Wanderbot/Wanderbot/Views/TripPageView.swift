@@ -104,7 +104,7 @@ private struct TripIntro: View {
     let trip: Trip
     @EnvironmentObject private var sync: SyncService
 
-    private var rescanning: Bool { sync.rescanningTripID == trip.id }
+    private var rescanning: Bool { sync.isRescanning(trip.id) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {

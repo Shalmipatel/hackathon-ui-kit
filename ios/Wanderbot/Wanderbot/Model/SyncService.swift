@@ -28,19 +28,23 @@ final class SyncService: ObservableObject {
         case failed(reason: String, at: Double)
     }
 
+    /// Overall status shown in Settings → Sync (last result / latest activity).
     @Published private(set) var state: SyncState = .idle
-    /// Which trip a per-trip rescan is running for (drives that trip's
-    /// button spinner); nil for a full/general sync.
-    @Published private(set) var rescanningTripID: String?
+    /// True while a discovery scan is running (gates the discovery buttons).
+    @Published private(set) var discoveryRunning = false
+    /// Trips with a rescan in flight — drives each trip's button spinner.
+    /// Multiple trips can rescan at once, and alongside a discovery scan.
+    @Published private(set) var runningTripIDs: Set<String> = []
 
-    /// Back-compat for existing call sites.
-    var isScanning: Bool { if case .running = state { return true }; return false }
+    /// Back-compat: "a discovery scan is running" (the discovery buttons).
+    var isScanning: Bool { discoveryRunning }
+    /// Is a rescan in flight for this trip?
+    func isRescanning(_ id: String) -> Bool { runningTripIDs.contains(id) }
 
     private let client = XAIChatClient()
     private let tools = TripAgentTools(travelStore: nil)
     private var travel: TravelStore?
     private let maxRounds = 20
-    private var bgTask: UIBackgroundTaskIdentifier = .invalid
 
     private static let lastResultKey = "wanderbot.sync.lastResult"
 
@@ -56,20 +60,21 @@ final class SyncService: ObservableObject {
     /// DISCOVERY — list trips across every connected account + inbox, then
     /// create the trip shells. Details are filled in per-trip by rescan.
     func scanForTrips(deep: Bool) {
-        guard !isScanning else { return }
-        beginRun(tripID: nil)
-        Task { [weak self] in
-            await self?.finishRun { try await self!.discoveryScan(deep: deep) }
+        guard !discoveryRunning else { return }
+        discoveryRunning = true
+        launch(cleanup: { [weak self] in self?.discoveryRunning = false }) { [weak self] in
+            try await self!.discoveryScan(deep: deep)
         }
     }
 
     /// DETAIL — pull ONE trip's full itinerary from every connected
     /// account + inbox and fill in the bookings. Never creates trips.
+    /// Multiple trips can rescan concurrently.
     func rescanTrip(id: String) {
-        guard !isScanning else { return }
-        beginRun(tripID: id)
-        Task { [weak self] in
-            await self?.finishRun { try await self!.detailScan(id: id) }
+        guard !runningTripIDs.contains(id) else { return }
+        runningTripIDs.insert(id)
+        launch(cleanup: { [weak self] in self?.runningTripIDs.remove(id) }) { [weak self] in
+            try await self!.detailScan(id: id)
         }
     }
 
@@ -217,33 +222,35 @@ final class SyncService: ObservableObject {
 
     // MARK: - Run lifecycle
 
-    private func beginRun(tripID: String?) {
+    /// Run one scan concurrently: its own background-task assertion, its own
+    /// cleanup, and it updates the shared status surface. Multiple of these
+    /// can be in flight at once (several rescans, plus a discovery scan).
+    private func launch(
+        cleanup: @escaping () -> Void,
+        _ work: @escaping () async throws -> (summary: String, added: Int)
+    ) {
         state = .running(step: "Starting sync…")
-        rescanningTripID = tripID
-        bgTask = UIApplication.shared.beginBackgroundTask(withName: "wanderbot.sync") { [weak self] in
-            self?.endBg()
+        Task { [weak self] in
+            guard let self else { return }
+            var bg = UIApplication.shared.beginBackgroundTask(withName: "wanderbot.sync")
+            defer {
+                cleanup()
+                if bg != .invalid { UIApplication.shared.endBackgroundTask(bg); bg = .invalid }
+            }
+            do {
+                let (summary, added) = try await work()
+                let text = summary.isEmpty
+                    ? (added > 0 ? "Added \(added) item\(added == 1 ? "" : "s")." : "Nothing new found.")
+                    : summary
+                self.state = .done(summary: text, at: Self.now())
+            } catch {
+                let reason = (error as? XAIChatClient.ClientError)?.errorDescription
+                    ?? error.localizedDescription
+                self.state = .failed(reason: reason, at: Self.now())
+                NSLog("[sync] failed: %@", reason)
+            }
+            self.persistLastResult()
         }
-    }
-
-    private func endBg() {
-        if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask); bgTask = .invalid }
-    }
-
-    private func finishRun(_ work: () async throws -> (summary: String, added: Int)) async {
-        defer { rescanningTripID = nil; endBg() }
-        do {
-            let (summary, added) = try await work()
-            let text = summary.isEmpty
-                ? (added > 0 ? "Added \(added) item\(added == 1 ? "" : "s")." : "Nothing new found.")
-                : summary
-            state = .done(summary: text, at: Self.now())
-        } catch {
-            let reason = (error as? XAIChatClient.ClientError)?.errorDescription
-                ?? error.localizedDescription
-            state = .failed(reason: reason, at: Self.now())
-            NSLog("[sync] failed: %@", reason)
-        }
-        persistLastResult()
     }
 
     // MARK: - Prompts
