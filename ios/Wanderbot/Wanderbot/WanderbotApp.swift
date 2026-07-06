@@ -57,13 +57,23 @@ struct WanderbotApp: App {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 NSLog("[scantest] connectedSites=%@",
                       BrowserConnections.shared.connectedSites.map(\.slug).description)
-                if ProcessInfo.processInfo.environment["WB_TEST_MODE"] == "concurrent_rescan" {
+                let mode = ProcessInfo.processInfo.environment["WB_TEST_MODE"]
+                if mode == "concurrent_rescan" {
                     // Wait for trips to load, then kick off two rescans at once.
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
                     let ids = Array(store.trips.prefix(2).map(\.id))
                     NSLog("[scantest] concurrent rescan of %@", ids.description)
                     for id in ids { sync.rescanTrip(id: id) }
                     NSLog("[scantest] runningTripIDs=%@", sync.runningTripIDs.description)
+                } else if let dest = mode, dest.hasPrefix("rescan:") {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    let needle = String(dest.dropFirst("rescan:".count)).lowercased()
+                    if let trip = store.trips.first(where: {
+                        ($0.title + $0.destination).lowercased().contains(needle)
+                    }) {
+                        NSLog("[scantest] rescan trip %@ (%@)", trip.id, trip.title)
+                        sync.rescanTrip(id: trip.id)
+                    } else { NSLog("[scantest] no trip matching %@", needle) }
                 } else {
                     NSLog("[scantest] starting deep scan")
                     sync.scanForTrips(deep: true)

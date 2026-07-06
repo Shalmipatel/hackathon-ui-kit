@@ -298,9 +298,13 @@ final class SyncService: ObservableObject {
         data. Do NOT create new trips or touch other trips.
 
         1. get_itinerary(\(tripID)) to see what's already there.
-        2. For each real booking in the data that belongs to THIS trip (dates within the \
-        trip window AND location matches the destination), add_booking (or update_booking if \
-        a matching one exists with less detail — NEVER duplicate). Fill it in properly:
+        2. Add EVERYTHING in this trip's plan that isn't already there. A connected-account \
+        itinerary lists the trip DAY BY DAY (e.g. "Mon 6/22: Lauterbrunnen • Mürren • Wengen") \
+        — treat each of those places as its own item (type activity or attraction) on that \
+        day, not just flights and hotels. Capture the WHOLE plan: hikes, viewpoints, towns, \
+        sights, restaurants, plus flights and lodging. You don't need a confirmation number — \
+        if it's in the plan, add it. For each item add_booking (or update_booking if a \
+        matching one exists with less detail — NEVER duplicate). Fill it in properly:
         • HOTELS / AIRBNB (always use type "hotel"): a multi-night stay, not a single day. \
         Set day = check-in date and start_time = check-in time; set end_day = check-out date \
         so it spans every night; set nights. (If check-out isn't stated, use the trip's end \
