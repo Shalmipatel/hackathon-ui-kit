@@ -271,9 +271,11 @@ final class SyncService: ObservableObject {
         3. For each trip NOT already present (no existing trip with overlapping dates AND \
         same region), create_trip — name it by the primary destination (e.g. "Switzerland", \
         "Maui"), set start_date/end_date to span its items (YYYY-MM-DD, pad ±1 day for travel). \
-        If a listing shows a date with NO year (e.g. "Jun 19 – 28"), infer the most likely \
-        year from today's date (an upcoming month → this year or next) and use it — do not \
-        skip a trip just because the year was implicit.
+        If a listing shows a date with NO year (e.g. "Jun 19 – 28"), it means the CURRENT \
+        calendar year — these lists print the year ONLY when it differs from this year (that's \
+        why past/other-year trips show "2025"). So use the current year from today's date for \
+        any year-less listing; do NOT assume it's in the future (a month earlier this year is a \
+        PAST trip, and that's fine). Never skip a trip just because its year was implicit.
 
         Only create trips that actually appear in the data below — never invent one. Don't \
         duplicate trips that already exist. Create every distinct trip you see. End with one \
