@@ -544,6 +544,7 @@ final class TripAgentTools {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 60
+        request.assumesHTTP3Capable = false   // QUIC to api.skyvern.com is reset on some networks
         request.setValue(WanderbotConfig.skyvernAPIKey, forHTTPHeaderField: "x-api-key")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // skyvern-2.0 = the agentic engine; the default 1.0 engine treats
@@ -586,6 +587,7 @@ final class TripAgentTools {
             for _ in 0..<90 {
                 try await Task.sleep(nanoseconds: 10_000_000_000)
                 var poll = URLRequest(url: statusURL)
+                poll.assumesHTTP3Capable = false
                 poll.setValue(WanderbotConfig.skyvernAPIKey, forHTTPHeaderField: "x-api-key")
                 guard let (pdata, presp) = try? await URLSession.shared.data(for: poll),
                       (presp as? HTTPURLResponse)?.statusCode == 200,

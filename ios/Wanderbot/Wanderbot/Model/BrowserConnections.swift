@@ -195,6 +195,15 @@ final class BrowserConnections: ObservableObject {
     func isConnected(_ slug: String) -> Bool { connections[slug] != nil }
     func connection(_ slug: String) -> Connection? { connections[slug] }
 
+    #if DEBUG
+    /// Test-only: seed a connection so `connectedSites` includes it, without
+    /// going through the interactive login (cookies come from RTDB by uid).
+    func debugSeed(slug: String) {
+        connections[slug] = Connection(connectedAt: 1, viaProviders: nil)
+        persist()
+    }
+    #endif
+
     /// Travel sites with a saved login — used to extend inbox scans.
     var connectedSites: [Site] {
         allSites.filter { connections[$0.slug] != nil && !$0.host.isEmpty }
@@ -389,6 +398,7 @@ final class BrowserConnections: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = requestTimeout
+        request.assumesHTTP3Capable = false   // QUIC to api.skyvern.com is reset on some networks
         request.setValue(WanderbotConfig.skyvernAPIKey, forHTTPHeaderField: "x-api-key")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -404,6 +414,7 @@ final class BrowserConnections: ObservableObject {
         guard let url = URL(string: WanderbotConfig.skyvernAPIURL + path) else { throw Err("Bad URL") }
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
+        request.assumesHTTP3Capable = false
         request.setValue(WanderbotConfig.skyvernAPIKey, forHTTPHeaderField: "x-api-key")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Err("HTTP error") }
