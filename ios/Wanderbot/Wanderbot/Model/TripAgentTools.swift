@@ -401,6 +401,29 @@ final class TripAgentTools {
         let start = startTime.flatMap { Self.wallClock(day: day, time: $0) }
         let end = endTime.flatMap { Self.wallClock(day: endDay, time: $0) }
 
+        // Coordinates make it render on the map. Prefer coords the model gave;
+        // otherwise geocode the place name (the model rarely supplies lat/lng
+        // for every activity, which left items pinless). For place-like types
+        // the title itself is the venue.
+        var place = Self.place(args, "place_name", "place_address", "place_lat", "place_lng")
+        if place == nil {
+            let name = (args["place_name"] as? String)
+                ?? (Self.placeLikeTypes.contains(type) ? title : nil)
+            if let name {
+                let dest = store.trips.first(where: { $0.id == tripID })?.destination
+                place = await Self.geocode(name: name, near: dest, address: args["place_address"] as? String)
+            }
+        }
+        // Flight/transport endpoints too, so the route line draws.
+        var fromPlace = Self.place(args, "from_name", nil, "from_lat", "from_lng")
+        if fromPlace == nil, let n = args["from_name"] as? String {
+            fromPlace = await Self.geocode(name: n, near: nil, address: nil)
+        }
+        var toPlace = Self.place(args, "to_name", nil, "to_lat", "to_lng")
+        if toPlace == nil, let n = args["to_name"] as? String {
+            toPlace = await Self.geocode(name: n, near: nil, address: nil)
+        }
+
         let booking = Booking(
             id: id, tripId: tripID, type: type, title: title,
             dayKey: day,
@@ -413,9 +436,9 @@ final class TripAgentTools {
             cost: (args["cost_amount"] as? Double).map { amount in
                 Cost(amount: amount, currency: (args["cost_currency"] as? String) ?? "USD")
             },
-            place: Self.place(args, "place_name", "place_address", "place_lat", "place_lng"),
-            from: Self.place(args, "from_name", nil, "from_lat", "from_lng"),
-            to: Self.place(args, "to_name", nil, "to_lat", "to_lng"),
+            place: place,
+            from: fromPlace,
+            to: toPlace,
             flightNumber: args["flight_number"] as? String,
             mode: args["mode"] as? String,
             partySize: (args["party_size"] as? Double).map(Int.init),
@@ -680,6 +703,22 @@ final class TripAgentTools {
         return Place(name: name,
                      address: addressKey.flatMap { args[$0] as? String },
                      lat: lat, lng: lng)
+    }
+
+    /// Types whose title IS a venue/place we can put on the map.
+    private static let placeLikeTypes: Set<BookingType> =
+        [.attraction, .activity, .restaurant, .experience, .event, .hotel]
+
+    /// Look up coordinates for a venue name so a coordinate-less item still
+    /// maps. Biased by the trip's destination ("Zermatt" → "Zermatt,
+    /// Switzerland"). Returns nil if it can't be resolved (Apple throttles
+    /// bulk geocoding — a few misses are fine).
+    private static func geocode(name: String, near destination: String?, address: String?) async -> Place? {
+        let base = address ?? name
+        let query = destination.map { "\(base), \($0)" } ?? base
+        guard let placemark = try? await CLGeocoder().geocodeAddressString(query).first,
+              let loc = placemark.location else { return nil }
+        return Place(name: name, address: address, lat: loc.coordinate.latitude, lng: loc.coordinate.longitude)
     }
 
     private static let utcCalendar: Calendar = {
