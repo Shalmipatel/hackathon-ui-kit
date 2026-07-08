@@ -62,7 +62,9 @@ struct WanderbotApp: App {
                       BrowserConnections.shared.connectedSites.map(\.slug).description)
                 let mode = ProcessInfo.processInfo.environment["WB_TEST_MODE"]
                 if mode == "webcap" {
-                    await Self.debugWebCapture(urlString: "https://wanderlog.com/signin")
+                    let url = ProcessInfo.processInfo.environment["WB_CAP_URL"]
+                        ?? "https://wanderlog.com/signin"
+                    await Self.debugWebCapture(urlString: url)
                 } else if mode == "concurrent_rescan" {
                     // Wait for trips to load, then kick off two rescans at once.
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -99,11 +101,20 @@ struct WanderbotApp: App {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         let wv = WKWebView(frame: .init(x: 0, y: 0, width: 390, height: 700), configuration: config)
+        wv.customUserAgent = WebLoginModel.safariUA   // same UA the real login uses
         probeWebView = wv
         guard let url = URL(string: urlString) else { return }
         wv.load(URLRequest(url: url))
         NSLog("[webcap] loading %@", urlString)
         try? await Task.sleep(nanoseconds: 8_000_000_000)
+        // Surface any "browser may not be secure" block from the page text.
+        if let body = (try? await wv.evaluateJavaScript(
+            "document.body ? document.body.innerText.slice(0,500) : ''")) as? String {
+            let blocked = body.lowercased().contains("not be secure")
+                || body.lowercased().contains("couldn't sign you in")
+            NSLog("[webcap] page blocked=%d; text: %@", blocked ? 1 : 0,
+                  body.replacingOccurrences(of: "\n", with: " ").prefix(200).description)
+        }
         let cookies: [HTTPCookie] = await withCheckedContinuation { c in
             wv.configuration.websiteDataStore.httpCookieStore.getAllCookies { c.resume(returning: $0) }
         }

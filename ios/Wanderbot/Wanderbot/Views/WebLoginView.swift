@@ -8,8 +8,14 @@ import WebKit
 /// plus localStorage, store them in RTDB, and the scans inject them into
 /// Skyvern exactly as before.
 ///
-/// Uses a non-persistent data store so each connect is a clean sign-in and
-/// we only capture what happened in this session.
+/// SSO ("Sign in with Google/Apple") needs two things a bare WKWebView
+/// lacks, both handled here:
+///  • a real mobile-Safari user-agent — WKWebView's default UA omits the
+///    `Version/… Safari/…` tokens, which is how Google flags "embedded
+///    browser, may not be secure" and blocks the flow.
+///  • popup handling — the SSO button calls `window.open(...)`; we open that
+///    in a child webview sharing the same cookie store so the OAuth redirect
+///    and postMessage-back-to-opener complete.
 struct WebLoginView: View {
     let site: BrowserConnections.Site
     @Environment(\.dismiss) private var dismiss
@@ -24,6 +30,13 @@ struct WebLoginView: View {
                     .ignoresSafeArea(edges: .bottom)
                 if model.isLoading {
                     ProgressView().padding(.top, 6)
+                }
+
+                // OAuth popup (Sign in with Google/Apple) — overlays the sheet
+                // and auto-dismisses when the provider closes the window.
+                if let popup = model.popup {
+                    PopupOverlay(popup: popup) { model.closePopup() }
+                        .transition(.opacity)
                 }
             }
             .navigationTitle("Sign in to \(site.title)")
@@ -66,7 +79,14 @@ struct WebLoginView: View {
 @MainActor
 final class WebLoginModel: ObservableObject {
     @Published var isLoading = true
+    /// Non-nil while an SSO popup (Google/Apple) is open.
+    @Published var popup: WKWebView?
     weak var webView: WKWebView?
+
+    /// Real mobile-Safari UA so Google/Apple don't flag the embedded browser.
+    static let safariUA =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
+        + "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
 
     struct Capture {
         var cookies: [[String: Any]]
@@ -75,17 +95,19 @@ final class WebLoginModel: ObservableObject {
         var origin: String
     }
 
+    func closePopup() { popup = nil }
+
     func capture() async -> Capture {
         guard let webView else { return Capture(cookies: [], storage: [:], finalURL: nil, origin: "") }
 
         // Cookies — WKHTTPCookieStore returns httpOnly cookies too (unlike
         // document.cookie), which is exactly what the session cookie is.
+        // The popup shares this store, so SSO cookies are included.
         let httpCookies: [HTTPCookie] = await withCheckedContinuation { cont in
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cont.resume(returning: $0) }
         }
         let cookies = httpCookies.map(Self.cdpCookie)
 
-        // localStorage for the current origin.
         var storage: [String: String] = [:]
         if let json = try? await webView.evaluateJavaScript("JSON.stringify(localStorage)") as? String,
            let data = json.data(using: .utf8),
@@ -124,11 +146,10 @@ private struct WebViewContainer: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
     func makeUIView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        // Clean, isolated sign-in — capture only this session's cookies.
-        config.websiteDataStore = .nonPersistent()
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = WKWebView(frame: .zero, configuration: Self.freshConfig())
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        webView.customUserAgent = WebLoginModel.safariUA
         webView.allowsBackForwardNavigationGestures = true
         model.webView = webView
         if let url { webView.load(URLRequest(url: url)) }
@@ -137,7 +158,16 @@ private struct WebViewContainer: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    /// Non-persistent store so each connect is a clean sign-in and we capture
+    /// only this session. Popups reuse the passed configuration → same store.
+    static func freshConfig() -> WKWebViewConfiguration {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .nonPersistent()
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        return config
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let model: WebLoginModel
         init(model: WebLoginModel) { self.model = model }
 
@@ -150,5 +180,54 @@ private struct WebViewContainer: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             Task { @MainActor in model.isLoading = false }
         }
+
+        // SSO popup: open window.open(...) in a child webview that SHARES the
+        // opener's configuration (same cookie store + opener relationship), so
+        // Google/Apple OAuth redirects and postMessage back to the opener work.
+        func webView(_ webView: WKWebView,
+                     createWebViewWith configuration: WKWebViewConfiguration,
+                     for navigationAction: WKNavigationAction,
+                     windowFeatures: WKWindowFeatures) -> WKWebView? {
+            let popup = WKWebView(frame: webView.bounds, configuration: configuration)
+            popup.navigationDelegate = self
+            popup.uiDelegate = self
+            popup.customUserAgent = WebLoginModel.safariUA
+            Task { @MainActor in model.popup = popup }
+            return popup
+        }
+
+        // Provider closed the OAuth window → tear down the popup.
+        func webViewDidClose(_ webView: WKWebView) {
+            Task { @MainActor in if model.popup === webView { model.popup = nil } }
+        }
     }
+}
+
+/// Full-bleed host for an SSO popup webview, with a Close affordance.
+private struct PopupOverlay: View {
+    let popup: WKWebView
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(Theme.inkMuted)
+                        .padding(10)
+                }
+            }
+            .background(.ultraThinMaterial)
+            PopupWebView(webView: popup)
+        }
+        .background(Theme.background)
+    }
+}
+
+private struct PopupWebView: UIViewRepresentable {
+    let webView: WKWebView
+    func makeUIView(context: Context) -> WKWebView { webView }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
