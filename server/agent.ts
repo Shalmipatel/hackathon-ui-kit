@@ -3,7 +3,7 @@
 // over tool rounds. Returns the prose reply and the Tools instance so the
 // caller can attach a rich card for a single-subject answer.
 
-import { Tools, toolSchemas } from './tools';
+import { Tools, toolSchemas } from './tools.js';
 
 const XAI_URL = 'https://api.x.ai/v1/responses';
 const MODEL = process.env.XAI_CHAT_MODEL ?? 'grok-4.5';

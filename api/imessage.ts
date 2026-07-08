@@ -11,8 +11,8 @@
 
 import { Spectrum } from 'spectrum-ts';
 import { imessage, customizedMiniApp } from 'spectrum-ts/providers/imessage';
-import { runAgent } from '../server/agent';
-import { pickSubject, cardFor } from '../server/card';
+import { runAgent } from '../server/agent.js';
+import { pickSubject, cardFor } from '../server/card.js';
 
 export const config = { runtime: 'nodejs' };
 
@@ -32,11 +32,16 @@ function getApp() {
   return appPromise;
 }
 
-export default async function handler(req: Request): Promise<Response> {
-  if (req.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 });
-  }
+// Vercel's Node runtime uses the Web fetch-style API when you export named
+// HTTP-method functions (GET/POST). A default export is treated as the legacy
+// (req, res) => void handler and any returned Response is ignored — which hangs
+// the request. Spectrum's app.webhook() speaks Web Request/Response, so we use
+// the named-export form.
+export function GET(): Response {
+  return new Response('Method Not Allowed', { status: 405 });
+}
 
+export async function POST(req: Request): Promise<Response> {
   const app = await getApp();
 
   const result = await app.webhook(req, async (space, message) => {

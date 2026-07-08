@@ -3,7 +3,7 @@
 // schema the apps read. Returns short, model-friendly strings.
 
 import type { Trip, Booking, BookingType, Place } from '../src/features/travel/types';
-import * as db from './rtdb';
+import * as db from './rtdb.js';
 
 const PALETTE = ['#FEEB29', '#F39C6B', '#7CC4A0', '#8FB7E8', '#C7A8E8'];
 const TYPES: BookingType[] = [
