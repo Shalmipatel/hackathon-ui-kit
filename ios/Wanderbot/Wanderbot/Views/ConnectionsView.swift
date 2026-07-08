@@ -60,7 +60,7 @@ struct ConnectionsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .fullScreenCover(item: $credentialSite) { site in
-            RemoteBrowserView(site: site)
+            WebLoginView(site: site)
         }
         .confirmationDialog(
             disconnectSlug.map { BrowserConnections.shared.isCustom($0) ? "Remove this app?" : "Disconnect this account?" }

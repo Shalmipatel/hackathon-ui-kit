@@ -1,4 +1,7 @@
 import SwiftUI
+#if DEBUG
+import WebKit
+#endif
 
 @main
 struct WanderbotApp: App {
@@ -58,7 +61,9 @@ struct WanderbotApp: App {
                 NSLog("[scantest] connectedSites=%@",
                       BrowserConnections.shared.connectedSites.map(\.slug).description)
                 let mode = ProcessInfo.processInfo.environment["WB_TEST_MODE"]
-                if mode == "concurrent_rescan" {
+                if mode == "webcap" {
+                    await Self.debugWebCapture(urlString: "https://wanderlog.com/signin")
+                } else if mode == "concurrent_rescan" {
                     // Wait for trips to load, then kick off two rescans at once.
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
                     let ids = Array(store.trips.prefix(2).map(\.id))
@@ -82,4 +87,33 @@ struct WanderbotApp: App {
             #endif
         }
     }
+
+    #if DEBUG
+    /// Loads a URL in an offscreen WKWebView and logs the cookies WKHTTPCookieStore
+    /// captures — verifying httpOnly session cookies (e.g. Wanderlog connect.sid)
+    /// are visible to the native capture path.
+    @MainActor
+    private static var probeWebView: WKWebView?
+    @MainActor
+    static func debugWebCapture(urlString: String) async {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .nonPersistent()
+        let wv = WKWebView(frame: .init(x: 0, y: 0, width: 390, height: 700), configuration: config)
+        probeWebView = wv
+        guard let url = URL(string: urlString) else { return }
+        wv.load(URLRequest(url: url))
+        NSLog("[webcap] loading %@", urlString)
+        try? await Task.sleep(nanoseconds: 8_000_000_000)
+        let cookies: [HTTPCookie] = await withCheckedContinuation { c in
+            wv.configuration.websiteDataStore.httpCookieStore.getAllCookies { c.resume(returning: $0) }
+        }
+        NSLog("[webcap] captured %ld cookies:", cookies.count)
+        for c in cookies {
+            NSLog("[webcap]   %@ = %@… (domain %@, secure %d)",
+                  c.name, String(c.value.prefix(10)), c.domain, c.isSecure ? 1 : 0)
+        }
+        let ls = (try? await wv.evaluateJavaScript("JSON.stringify(localStorage)")) as? String
+        NSLog("[webcap] localStorage: %@", (ls ?? "nil").prefix(120).description)
+    }
+    #endif
 }

@@ -46,6 +46,7 @@
 		A1000010000000000000029 /* GmailConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000029 /* GmailConnector.swift */; };
 		A1000010000000000000030 /* BrowserConnections.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000030 /* BrowserConnections.swift */; };
 		A1000010000000000000031 /* RemoteBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000031 /* RemoteBrowserView.swift */; };
+		A1000010000000000000041 /* WebLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000041 /* WebLoginView.swift */; };
 		A1000010000000000000024 /* VoiceAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000024 /* VoiceAudioEngine.swift */; };
 		A1000010000000000000025 /* VoiceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000025 /* VoiceStore.swift */; };
 		A1000010000000000000026 /* VoiceCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000026 /* VoiceCallView.swift */; };
@@ -94,6 +95,7 @@
 		A1000000000000000000029 /* GmailConnector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GmailConnector.swift; sourceTree = "<group>"; };
 		A1000000000000000000030 /* BrowserConnections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConnections.swift; sourceTree = "<group>"; };
 		A1000000000000000000031 /* RemoteBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteBrowserView.swift; sourceTree = "<group>"; };
+		A1000000000000000000041 /* WebLoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebLoginView.swift; sourceTree = "<group>"; };
 		A1000000000000000000024 /* VoiceAudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAudioEngine.swift; sourceTree = "<group>"; };
 		A1000000000000000000025 /* VoiceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceStore.swift; sourceTree = "<group>"; };
 		A1000000000000000000026 /* VoiceCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCallView.swift; sourceTree = "<group>"; };
@@ -191,6 +193,7 @@
 				A100000000000000000001F /* SignInGateView.swift */,
 				A1000000000000000000026 /* VoiceCallView.swift */,
 				A1000000000000000000031 /* RemoteBrowserView.swift */,
+				A1000000000000000000041 /* WebLoginView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -312,6 +315,7 @@
 				A1000010000000000000029 /* GmailConnector.swift in Sources */,
 				A1000010000000000000030 /* BrowserConnections.swift in Sources */,
 				A1000010000000000000031 /* RemoteBrowserView.swift in Sources */,
+				A1000010000000000000041 /* WebLoginView.swift in Sources */,
 				A1000010000000000000024 /* VoiceAudioEngine.swift in Sources */,
 				A1000010000000000000025 /* VoiceStore.swift in Sources */,
 				A1000010000000000000026 /* VoiceCallView.swift in Sources */,

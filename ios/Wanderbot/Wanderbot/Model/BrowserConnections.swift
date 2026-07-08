@@ -305,6 +305,28 @@ final class BrowserConnections: ObservableObject {
         Task { await self.close(session.sessionID) }
     }
 
+    /// Native-webview login: the user signed in inside an on-device WKWebView
+    /// and we captured its cookies (incl. httpOnly) + localStorage directly —
+    /// no Skyvern session involved. Merge the jar, mark connected, persist.
+    /// The scan side injects these into Skyvern exactly as before.
+    func completeWebLogin(site: Site, finalURL: String?,
+                          cookies: [[String: Any]], origin: String,
+                          storageItems: [String: String]) {
+        savingSlugs.insert(site.slug); saveErrors[site.slug] = nil
+        guard !(cookies.isEmpty && storageItems.isEmpty) else {
+            savingSlugs.remove(site.slug)
+            saveErrors[site.slug] = "Couldn't read the login — sign in and tap Done again."
+            return
+        }
+        mergeCredentials(cookies: cookies, origin: origin, items: storageItems)
+        learnHost(slug: site.slug, fromFinalURL: finalURL)
+        connections[site.slug] = Connection(
+            connectedAt: Date().timeIntervalSince1970 * 1000, viaProviders: nil
+        )
+        persist()
+        savingSlugs.remove(site.slug)
+    }
+
     func cancelLogin(session: LiveSession) async {
         UserDefaults.standard.removeObject(forKey: Self.pendingSessionKey)
         await close(session.sessionID)
