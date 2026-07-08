@@ -37,6 +37,10 @@
       "destination": "/api/og"
     },
     {
+      "source": "/imessage",
+      "destination": "/api/imessage"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

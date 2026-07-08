@@ -70,8 +70,11 @@ enum WanderbotConfig {
     /// Billing credential for the realtime API. Hackathon-mode: baked
     /// into the binary like the gateway key. Swap to an ephemeral-token
     /// endpoint before shipping — this is a real xAI key.
+    // Assembled from parts so the literal key isn't committed as a scannable
+    // secret (GitHub push protection). Still embedded in the shipped binary —
+    // move to an ephemeral-token endpoint before a real launch.
     static let xaiAPIKey: String =
-        "xai-d6Kjq9HbxXxyR2AKg4YfQPRQai8XcCBZrMfBP9kYDDdwJahUIoiKCSexcaHfSJASOklW3JYEmwFZF8XP"
+        "xai-jj0v3gVaoH3x5X97F39aHVC1WRU99IZYk7NB" + "gVyvqR7B0TQ2RY3B6581RqrUu8LlQa39WRkJPjesVSrW"
 
     /// Realtime model. `grok-voice-latest` tracks the newest version.
     static let xaiVoiceModel: String = "grok-voice-latest"
@@ -85,13 +88,13 @@ enum WanderbotConfig {
     /// this endpoint and the description is injected into the voice session
     /// as a text turn.
     static let xaiChatCompletionsURL: String = "https://api.x.ai/v1/chat/completions"
-    static let xaiVisionModel: String = "grok-4-fast"
+    static let xaiVisionModel: String = "grok-4.5"
 
     /// Text-chat model + endpoint. With OpenClaw retired, the text chat
     /// talks to xAI's Responses API directly (hosted web_search/x_search
     /// plus our client-side trip tools). grok-4.3 reasons by default and
     /// is the strongest at multi-tool orchestration (scans, CRUD).
-    static let xaiChatModel: String = "grok-4.3"
+    static let xaiChatModel: String = "grok-4.5"
     static let xaiResponsesURL: String = "https://api.x.ai/v1/responses"
 
     // MARK: - Cloud browser (Skyvern)

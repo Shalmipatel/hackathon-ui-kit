@@ -28,6 +28,7 @@
     "react-markdown": "^10.1.0",
     "remark-definition-list": "^2.0.0",
     "remark-gfm": "^4.0.1",
+    "spectrum-ts": "^9.1.0",
     "styled-components": "^6.1.13",
     "tweetnacl": "^1.0.3",
     "tweetnacl-util": "^0.15.1",
