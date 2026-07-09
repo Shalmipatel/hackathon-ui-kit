@@ -65,6 +65,22 @@ final class TripStore: ObservableObject {
         return trips.first { $0.id == id }
     }
 
+    /// The trip to default to when no specific one is named: an ongoing trip
+    /// first, else the soonest upcoming one, else the most recently wrapped
+    /// one — always something relevant, never just "whatever sorts first".
+    var mostRelevantTrip: Trip? {
+        let today = Calendar.current.startOfDay(for: Date())
+        if let ongoing = trips.first(where: { t in
+            guard let s = t.startDateValue, let e = t.endDateValue else { return false }
+            return s <= today && today <= e
+        }) { return ongoing }
+        if let upcoming = trips
+            .filter({ ($0.startDateValue ?? .distantPast) > today })
+            .min(by: { ($0.startDateValue ?? .distantFuture) < ($1.startDateValue ?? .distantFuture) })
+        { return upcoming }
+        return trips.max(by: { ($0.endDateValue ?? .distantPast) < ($1.endDateValue ?? .distantPast) })
+    }
+
     /// Bookings that belong to a trip.
     func bookings(for tripID: String) -> [Booking] {
         bookings.filter { $0.tripId == tripID }
@@ -87,7 +103,7 @@ final class TripStore: ObservableObject {
 }
 
 /// Booking rows for one calendar day of a trip, already sorted for display.
-struct DaySection: Identifiable {
+struct WBDaySection: Identifiable {
     let dayKey: String
     let date: Date?
     let items: [Booking]
@@ -98,7 +114,7 @@ extension TripStore {
     /// Group a trip's bookings into ordered day sections, mirroring the app's
     /// itinerary: a booking appears on every day it spans, sorted by its
     /// effective time within each day.
-    func itinerary(for trip: Trip) -> [DaySection] {
+    func itinerary(for trip: Trip) -> [WBDaySection] {
         let tripBookings = bookings(for: trip.id)
         // Union of the trip's own day span and any booking day (so an item
         // dated just outside the trip window still shows).
@@ -110,7 +126,7 @@ extension TripStore {
                 .filter { $0.dayKeys.contains(key) }
                 .sorted { $0.effectivePosition(on: key) < $1.effectivePosition(on: key) }
             guard !items.isEmpty else { return nil }
-            return DaySection(dayKey: key, date: ISO8601.day(from: key), items: items)
+            return WBDaySection(dayKey: key, date: ISO8601.day(from: key), items: items)
         }
     }
 }

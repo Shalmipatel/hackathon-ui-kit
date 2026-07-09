@@ -75,37 +75,87 @@ final class MessagesViewController: MSMessagesAppViewController {
 
 /// Root switch between the compact bubble and the expanded viewer. Observes the
 /// store so the compact card enriches (countdown, plan count) once data loads.
+///
+/// Always resolves to a live trip view — never a static "nothing here" state.
+/// If the tapped message's payload doesn't decode (a bad/legacy URL, or the
+/// card's `p=` param not surviving delivery), we fall back to the traveler's
+/// current/next trip pulled live from TripStore, so the extension is a real
+/// trip browser on every open rather than depending on one message's payload.
 private struct ExtensionRootView: View {
     @ObservedObject var store: TripStore
     let card: WanderbotCard?
     let compact: Bool
     let onOpen: (String?) -> Void
 
+    /// The card to render — the decoded one if present, else a synthetic
+    /// pointer at nothing in particular (TripViewer/TripCompactCard fall back
+    /// to `store.trips.first` — see TripStore.mostRelevantTrip ordering).
+    private var effectiveCard: WanderbotCard {
+        card ?? WanderbotCard(type: "trip", title: "Your Trips", subtitle: nil,
+                               lines: nil, accent: nil, href: "/", tripId: nil, bookingId: nil)
+    }
+
     var body: some View {
-        if let card {
-            if compact {
-                let trip = store.trip(id: card.resolvedTripID)
-                TripCompactCard(
-                    card: card,
-                    trip: trip,
-                    bookingCount: card.resolvedTripID.map { store.bookings(for: $0).count } ?? 0
-                )
+        switch store.phase {
+        case .idle, .loading:
+            if store.trips.isEmpty {
+                LoadingFallback()
             } else {
-                TripViewer(store: store, card: card, onOpen: onOpen)
+                content
             }
+        case .failed where store.trips.isEmpty:
+            RetryFallback(store: store)
+        case .loaded where store.trips.isEmpty:
+            NoTripsFallback()
+        default:
+            content
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        if compact {
+            let trip = store.trip(id: effectiveCard.resolvedTripID) ?? store.mostRelevantTrip
+            TripCompactCard(
+                card: effectiveCard,
+                trip: trip,
+                bookingCount: trip.map { store.bookings(for: $0.id).count } ?? 0
+            )
         } else {
-            EmptyCardView()
+            TripViewer(store: store, card: effectiveCard, onOpen: onOpen)
         }
     }
 }
 
-struct EmptyCardView: View {
+private struct LoadingFallback: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView().controlSize(.large)
+            Text("Loading your trips…").font(.system(size: 13)).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct RetryFallback: View {
+    @ObservedObject var store: TripStore
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "wifi.exclamationmark").font(.system(size: 26)).foregroundStyle(.secondary)
+            Text("Couldn't load your trips").font(.system(size: 14, weight: .semibold))
+            Button("Retry") { Task { await store.load() } }.buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct NoTripsFallback: View {
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: "suitcase.fill").font(.system(size: 28)).foregroundStyle(.secondary)
-            Text("Wanderbot").font(.system(size: 15, weight: .semibold))
-            Text("Open a trip card to explore it here.")
-                .font(.system(size: 12)).foregroundStyle(.tertiary)
+            Text("No trips yet").font(.system(size: 15, weight: .semibold))
+            Text("Start planning in Wanderbot and it'll show up here.")
+                .font(.system(size: 12)).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -142,7 +142,7 @@ struct TripViewer: View {
     @State private var tab: TripTab = .overview
 
     private var activeTrip: Trip? {
-        store.trip(id: selectedTripID) ?? store.trip(id: card.resolvedTripID) ?? store.trips.first
+        store.trip(id: selectedTripID) ?? store.trip(id: card.resolvedTripID) ?? store.mostRelevantTrip
     }
 
     var body: some View {
@@ -371,7 +371,7 @@ private struct StatPill: View {
 }
 
 private struct DayGlance: View {
-    let section: DaySection; let accent: Color
+    let section: WBDaySection; let accent: Color
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {

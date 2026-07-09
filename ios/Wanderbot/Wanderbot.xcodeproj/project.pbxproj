@@ -9,8 +9,12 @@
 /* Begin PBXBuildFile section */
 		0F9802143AA43DCAE6DD5FBC /* MessagesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 439B5F2C43834DB85C91A1D5 /* MessagesViewController.swift */; };
 		12060C05C11BB15277D002C3 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000004 /* Models.swift */; };
+		1E5EF119D223AE773173E60C /* WanderbotCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD5DA4C4A2CB38BC5257BA69 /* WanderbotCard.swift */; };
 		2D591FFE4A943312E6CBB089 /* RichCardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90D7C4DD6FA5B33837F6623E /* RichCardViews.swift */; };
 		3190F30F97EA5FDA0948D1CD /* WanderbotMessages.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 2FF1B60501B8E121AD6F6BEF /* WanderbotMessages.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		3C82CDC7B9A17FE98F16D3B0 /* TripData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24143884FF3F3F0CEDC15433 /* TripData.swift */; };
+		4C1AB1E94B24F583E968E02A /* DebugExtensionPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C6179737B32F07D1F9B865 /* DebugExtensionPreview.swift */; };
+		58DF6BABC225C2B289C65CDF /* RichCardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90D7C4DD6FA5B33837F6623E /* RichCardViews.swift */; };
 		6C358E06453041227111399E /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7E14B10E91697583F127C47B /* Foundation.framework */; };
 		A1000010000000000000001 /* WanderbotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001 /* WanderbotApp.swift */; };
 		A1000010000000000000002 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000002 /* RootView.swift */; };
@@ -141,6 +145,7 @@
 		A1000000000000000000031 /* RemoteBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteBrowserView.swift; sourceTree = "<group>"; };
 		A1000000000000000000040 /* FirebaseAuthToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseAuthToken.swift; sourceTree = "<group>"; };
 		A1000000000000000000041 /* WebLoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebLoginView.swift; sourceTree = "<group>"; };
+		A5C6179737B32F07D1F9B865 /* DebugExtensionPreview.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DebugExtensionPreview.swift; sourceTree = "<group>"; };
 		BD5DA4C4A2CB38BC5257BA69 /* WanderbotCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WanderbotCard.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -213,6 +218,7 @@
 				A1000030000000000000004 /* Views */,
 				A1000000000000000000014 /* Assets.xcassets */,
 				A1000030000000000000005 /* Preview Content */,
+				A5C6179737B32F07D1F9B865 /* DebugExtensionPreview.swift */,
 			);
 			path = Wanderbot;
 			sourceTree = "<group>";
@@ -442,6 +448,10 @@
 				A1000010000000000000024 /* VoiceAudioEngine.swift in Sources */,
 				A1000010000000000000025 /* VoiceStore.swift in Sources */,
 				A1000010000000000000026 /* VoiceCallView.swift in Sources */,
+				1E5EF119D223AE773173E60C /* WanderbotCard.swift in Sources */,
+				3C82CDC7B9A17FE98F16D3B0 /* TripData.swift in Sources */,
+				58DF6BABC225C2B289C65CDF /* RichCardViews.swift in Sources */,
+				4C1AB1E94B24F583E968E02A /* DebugExtensionPreview.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -463,7 +473,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon";
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 39;
 				DEVELOPMENT_TEAM = QN7REDCUD3;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -491,7 +501,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon";
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 39;
 				DEVELOPMENT_TEAM = QN7REDCUD3;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -639,7 +649,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Wanderbot/Wanderbot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 39;
 				DEVELOPMENT_ASSET_PATHS = "\"Wanderbot/Preview Content\"";
 				DEVELOPMENT_TEAM = QN7REDCUD3;
 				ENABLE_PREVIEWS = YES;
@@ -670,7 +680,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Wanderbot/Wanderbot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 38;
+				CURRENT_PROJECT_VERSION = 39;
 				DEVELOPMENT_ASSET_PATHS = "\"Wanderbot/Preview Content\"";
 				DEVELOPMENT_TEAM = QN7REDCUD3;
 				ENABLE_PREVIEWS = YES;

@@ -19,6 +19,23 @@ struct WanderbotApp: App {
             // out, which keeps the cold-open noise to a minimum and
             // matches the "private until signed in" expectation.
             Group {
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["WB_EXTENSION_PREVIEW"] != nil {
+                    DebugExtensionPreviewView()
+                } else if auth.isSignedIn {
+                    RootView()
+                        .task {
+                            store.bootstrap()
+                            connections.bootstrap()
+                            chat.configure(travelStore: store)
+                            sync.configure(travel: store)
+                        }
+                        .transition(.opacity)
+                } else {
+                    SignInGateView()
+                        .transition(.opacity)
+                }
+                #else
                 if auth.isSignedIn {
                     RootView()
                         .task {
@@ -32,6 +49,7 @@ struct WanderbotApp: App {
                     SignInGateView()
                         .transition(.opacity)
                 }
+                #endif
             }
             .animation(.easeInOut(duration: 0.25), value: auth.isSignedIn)
             .environmentObject(store)

@@ -23,6 +23,8 @@ interface CardPayload {
   type: string;
   title: string;
   subtitle?: string;
+  /** Small top label on the image card (destination / place). */
+  eyebrow?: string;
   lines?: string[];
   accent?: string;
   href?: string;
@@ -40,6 +42,10 @@ export interface CardSpec {
   url: string;
   caption: string;
   subcaption?: string;
+  /** Rendered PNG card (1200x630) for the iMessage bubble — without an image
+   *  the bubble renders blank. The webhook fetches these bytes and passes them
+   *  as the customizedMiniApp layout `image`. */
+  imageUrl: string;
 }
 
 function base64url(s: string): string {
@@ -74,6 +80,7 @@ function payloadFor(subject: Subject): CardPayload | null {
       type: 'trip',
       title: t.title,
       subtitle: `${fmtRange(t.startDate, t.endDate)} · ${t.destination}`,
+      eyebrow: t.destination,
       lines: t.summary ? [t.summary] : undefined,
       accent: t.color || TYPE_ACCENT.trip,
       href: `/trip/${t.id}`,
@@ -93,6 +100,7 @@ function payloadFor(subject: Subject): CardPayload | null {
       type: b.type,
       title: b.title,
       subtitle: [b.dayKey, time].filter(Boolean).join(' · '),
+      eyebrow: p?.name ?? subject.trip?.title,
       lines: lines.length ? lines : undefined,
       accent: TYPE_ACCENT[b.type] ?? '#7CC4A0',
       href: `/trip/${b.tripId}`,
@@ -115,6 +123,15 @@ export function cardFor(subject: Subject): CardSpec | null {
   if (payload.href) q.set('href', payload.href);
   q.set('p', base64url(JSON.stringify(payload)));
 
+  // Same params as /p's og:image, built directly against /og — the rendered
+  // 1200x630 PNG the iMessage bubble shows (a customized-mini-app layout with
+  // no `image` renders as a blank bubble).
+  const og = new URLSearchParams();
+  og.set('title', payload.title);
+  if (payload.subtitle) og.set('subtitle', payload.subtitle);
+  if (payload.eyebrow) og.set('eyebrow', payload.eyebrow);
+  og.set('type', payload.type);
+
   return {
     appName: 'Wanderbot',
     extensionBundleId: EXTENSION_BUNDLE_ID,
@@ -122,5 +139,6 @@ export function cardFor(subject: Subject): CardSpec | null {
     url: `${SITE}/p?${q.toString()}`,
     caption: payload.title,
     subcaption: payload.subtitle,
+    imageUrl: `${SITE}/og?${og.toString()}`,
   };
 }

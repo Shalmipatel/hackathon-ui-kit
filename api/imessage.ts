@@ -70,13 +70,22 @@ export async function POST(req: Request): Promise<Response> {
         const card = subject ? cardFor(subject) : null;
         if (card) {
           try {
+            // The customized-mini-app layout renders blank without an `image`
+            // — fetch the rendered 1200x630 PNG card and attach the bytes.
+            let image: Uint8Array | undefined;
+            try {
+              const imgRes = await fetch(card.imageUrl);
+              if (imgRes.ok) image = new Uint8Array(await imgRes.arrayBuffer());
+            } catch (imgErr) {
+              console.error('[imessage] card image fetch failed (non-fatal)', imgErr);
+            }
             await space.send(
               customizedMiniApp({
                 appName: card.appName,
                 extensionBundleId: card.extensionBundleId,
                 teamId: card.teamId,
                 url: card.url,
-                layout: { caption: card.caption, subcaption: card.subcaption },
+                layout: { caption: card.caption, subcaption: card.subcaption, image },
               }),
             );
           } catch (cardErr) {
