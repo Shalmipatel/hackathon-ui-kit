@@ -126,13 +126,19 @@ export async function POST(req: Request): Promise<Response> {
     }
   });
 
-  // Keep the serverless instance alive until the fire-and-forget handler
-  // finishes. Cap it so a webhook that never invokes the handler (verification
-  // pings, deduped/non-text messages) can't hold the function open.
-  waitUntil(Promise.race([
+  // Finish the reply INSIDE the request when we can. Spectrum acks the webhook
+  // with an empty body immediately (the handler is fire-and-forget); Photon's
+  // iMessage bridge, seeing no reply produced during the call, injects its own
+  // "Sorry, I hit an error. Try again?" before our async space.send lands — so
+  // the user gets a spurious error then the real reply. Awaiting the handler
+  // here means the reply is already sent by the time we return, so the bridge
+  // has nothing to fall back to. Cap the wait well under any webhook timeout;
+  // a slow agent (rare, web-search heavy) finishes under waitUntil instead.
+  await Promise.race([
     handlerDone,
-    new Promise<void>((resolve) => setTimeout(resolve, 45_000)),
-  ]));
+    new Promise<void>((resolve) => setTimeout(resolve, 25_000)),
+  ]);
+  waitUntil(handlerDone);
 
   console.log('[imessage] webhook result', result.status);
   return new Response(result.body, { status: result.status, headers: result.headers });
