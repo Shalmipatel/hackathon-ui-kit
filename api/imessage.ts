@@ -15,7 +15,7 @@ import { waitUntil } from '@vercel/functions';
 import { PNG } from 'pngjs';
 import jpeg from 'jpeg-js';
 import { runAgent } from '../server/agent.js';
-import { pickSubject, subjectFromReply, cardFor } from '../server/card.js';
+import { pickSubject, subjectFromReply, cardFor, viewCard } from '../server/card.js';
 
 export const config = { runtime: 'nodejs', maxDuration: 60 };
 
@@ -81,11 +81,12 @@ export async function POST(req: Request): Promise<Response> {
 
       try {
         await space.startTyping?.();
-        const { reply, tools } = await runAgent(text);
+        const { reply, tools, view } = await runAgent(text);
         await space.send(reply);
 
-        const subject = pickSubject(tools.touched) ?? subjectFromReply(reply, tools.trips);
-        const card = subject ? cardFor(subject) : null;
+        // A dynamic view (present_view) wins; otherwise the trip/booking card.
+        const subject = view ? null : (pickSubject(tools.touched) ?? subjectFromReply(reply, tools.trips));
+        const card = view ? viewCard(view) : (subject ? cardFor(subject) : null);
         if (card) {
           try {
             // The customized-mini-app layout renders blank without an `image`

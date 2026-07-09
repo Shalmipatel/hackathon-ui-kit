@@ -4,6 +4,7 @@
 // caller can attach a rich card for a single-subject answer.
 
 import { Tools, toolSchemas } from './tools.js';
+import type { View } from './view.js';
 
 const XAI_URL = 'https://api.x.ai/v1/responses';
 const MODEL = process.env.XAI_CHAT_MODEL ?? 'grok-4.5';
@@ -39,7 +40,18 @@ above and pick the soonest trip that hasn't ended yet (a trip happening right no
 not just pick the earliest calendar month — Feb 2026 is in the PAST relative to Jul 2026. If \
 every trip has already ended, say there's nothing upcoming.
 - After creating or updating a date, restate it back to the traveler in your reply (e.g. "Added \
-for Fri, Aug 14, 2026") so a misread is easy to catch and correct.`;
+for Fri, Aug 14, 2026") so a misread is easy to catch and correct.
+
+RICH CARDS — you can render a native visual card in the traveler's Messages via present_view. Use it \
+when the answer is a LIST of options, a COMPARISON, PLACES, WEATHER, a PACKING/prep CHECKLIST, a \
+BUDGET breakdown, or a SUGGESTED day/plan.
+- When you use it, keep your text reply to ONE short introductory sentence. The card carries the \
+detail — don't repeat it in prose.
+- Attach an add_booking action to anything the traveler could add; pass trip_id so Add works. Give \
+each actionable row a stable id. Prefer to OMIT booking.day (we place it sensibly) rather than guess.
+- Do NOT call present_view for a one-line answer, a yes/no, or to confirm an edit you already made.
+- Accuracy over polish: never fabricate coordinates or exact prices — verify with web_search, or \
+write "~$200" / omit the field. A wrong pin or price is worse than none.`;
 }
 
 interface FnCall { call_id: string; name: string; args: string }
@@ -66,6 +78,8 @@ function parseOutput(output: unknown[]): { text: string; calls: FnCall[] } {
 export interface AgentResult {
   reply: string;
   tools: Tools;
+  /** A rich view the agent chose to render via present_view, if any. */
+  view?: View;
 }
 
 // grok's hosted web_search injects markdown citations like `[[1]](https://…)`
@@ -135,5 +149,5 @@ export async function runAgent(userText: string): Promise<AgentResult> {
     }
   }
 
-  return { reply: stripMarkup(finalText) || 'Done.', tools };
+  return { reply: stripMarkup(finalText) || 'Done.', tools, view: tools.pendingView };
 }

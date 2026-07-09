@@ -7,6 +7,7 @@
 
 import type { Trip, Booking, Place } from '../src/features/travel/types';
 import type { Subject } from './tools';
+import { sceneFor, type View } from './view.js';
 
 const SITE = process.env.CARD_SITE ?? 'https://wanderbot-ai.vercel.app';
 
@@ -55,33 +56,9 @@ function base64url(s: string): string {
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** Landscape scene for a destination — mirrors WBScene.classify in the iOS
- *  extension (NightSkyScene.swift) so the chat-bubble PNG and the native
- *  extension hero always show the same world. Order matters. */
-export function sceneFor(text: string): string {
-  const s = text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  const hit = (words: string[]) => words.some((w) => s.includes(w));
-
-  if (hit(['beach', 'island', 'coast', 'maui', 'oahu', 'kauai', 'hawaii', 'honolulu',
-           'bali', 'cancun', 'tulum', 'cabo', 'playa', 'miami', 'caribbean', 'fiji',
-           'phuket', 'malibu', 'san diego', 'amalfi', 'santorini', 'riviera'])) return 'coast';
-  if (hit(['aurora', 'northern lights', 'iceland', 'reykjavik', 'tromso', 'alaska',
-           'fairbanks', 'lofoten', 'greenland'])) return 'aurora';
-  if (hit(['snow', 'ski ', 'skiing', 'aspen', 'whistler', 'vail', 'lapland', 'hokkaido',
-           'niseko', 'antarctica', 'arctic', 'chamonix'])) return 'snow';
-  if (hit(['desert', 'sahara', 'dubai', 'abu dhabi', 'phoenix', 'scottsdale', 'sedona',
-           'arizona', 'moab', 'joshua tree', 'palm springs', 'marrakech', 'morocco',
-           'atacama', 'mojave', 'death valley'])) return 'desert';
-  if (hit(['forest', 'jungle', 'rainforest', 'redwood', 'sequoia', 'yosemite', 'smoky',
-           'olympic national', 'costa rica', 'amazon', 'black forest'])) return 'forest';
-  if (hit(['river', 'lake', 'laguna', 'lagoon', 'venice', 'amsterdam', 'bangkok',
-           'atitlan', 'como', 'bled', 'mekong', 'danube'])) return 'river';
-  if (hit(['new york', 'nyc', 'manhattan', 'tokyo', 'london', 'paris', 'chicago',
-           'san francisco', 'seattle', 'berlin', 'barcelona', 'madrid', 'rome', 'milan',
-           'singapore', 'hong kong', 'seoul', 'toronto', 'boston', 'austin',
-           'las vegas', 'vegas', 'city'])) return 'city';
-  return 'mountain';
-}
+// sceneFor lives in view.ts (shared by the dynamic-view path); re-export so
+// existing importers of card.sceneFor keep working.
+export { sceneFor };
 
 function fmtRange(start: string, end: string): string {
   const s = new Date(start + 'T00:00:00Z');
@@ -197,6 +174,46 @@ export function cardFor(subject: Subject): CardSpec | null {
     url: `${SITE}/p?${q.toString()}`,
     caption: payload.title,
     subcaption: payload.subtitle,
+    imageUrl: `${SITE}/og?${og.toString()}`,
+  };
+}
+
+/** Card for a dynamic view: the cover payload (tiny — the full block tree
+ *  stays in RTDB, fetched by the extension via /view?id=) plus the /og bubble
+ *  image. The extension forks on cover.type === 'view'. */
+export function viewCard(view: View): CardSpec {
+  const cover = {
+    type: 'view',
+    viewId: view.id,
+    title: view.title,
+    subtitle: view.subtitle,
+    scene: view.scene,
+    accent: view.accent,
+    category: view.category,
+    href: view.tripId ? `/trip/${view.tripId}` : '/',
+  };
+
+  const q = new URLSearchParams();
+  q.set('type', 'view');
+  q.set('v', view.id);
+  q.set('title', view.title);
+  if (view.subtitle) q.set('subtitle', view.subtitle);
+  q.set('p', base64url(JSON.stringify(cover)));
+
+  const og = new URLSearchParams();
+  og.set('type', 'view');
+  og.set('category', view.category);
+  og.set('title', view.title);
+  if (view.subtitle) og.set('subtitle', view.subtitle);
+  if (view.scene) og.set('scene', view.scene);
+
+  return {
+    appName: 'Wanderbot',
+    extensionBundleId: EXTENSION_BUNDLE_ID,
+    teamId: TEAM_ID,
+    url: `${SITE}/p?${q.toString()}`,
+    caption: view.title,
+    subcaption: view.subtitle,
     imageUrl: `${SITE}/og?${og.toString()}`,
   };
 }

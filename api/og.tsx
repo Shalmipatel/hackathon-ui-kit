@@ -818,7 +818,16 @@ async function renderCard(req: Request) {
   const meta = (url.searchParams.get('meta') || '').slice(0, 80);
   const cta = (url.searchParams.get('cta') || 'Open in Wanderbot →').slice(0, 48);
   const rawType = url.searchParams.get('type') || 'trip';
-  const type: CardType = isCardType(rawType) ? rawType : 'trip';
+  // A dynamic "view" card reuses the trip night-shell hero but swaps the
+  // top-right badge from a booking type to the view's category.
+  const isView = rawType === 'view';
+  const type: CardType = isView ? 'trip' : (isCardType(rawType) ? rawType : 'trip');
+  const category = (url.searchParams.get('category') || '').slice(0, 20);
+  const CATEGORY_LABEL: Record<string, string> = {
+    dining: 'Dining', weather: 'Weather', packing: 'Packing', compare: 'Compare',
+    plan: 'Plan', budget: 'Budget', places: 'Places', generic: 'Wanderbot',
+  };
+  const badgeLabel = isView ? (CATEGORY_LABEL[category] ?? 'Wanderbot') : TYPE_LABEL[type];
   const rawScene = url.searchParams.get('scene') || (type === 'trip' ? 'mountain' : 'default');
   const scene: SceneName = isSceneName(rawScene) ? rawScene : 'mountain';
 
@@ -978,7 +987,7 @@ async function renderCard(req: Request) {
               textTransform: 'uppercase',
             }}
           >
-            {TYPE_LABEL[type]}
+            {badgeLabel}
           </div>
           {/* Bottom-left overlay: eyebrow + serif italic hero title. */}
           <div

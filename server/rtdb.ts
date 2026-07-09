@@ -5,6 +5,7 @@
 // token; today the rules are open so unauthenticated REST works.)
 
 import type { Trip, Booking } from '../src/features/travel/types';
+import type { View } from './view.js';
 
 const DB =
   process.env.FIREBASE_DATABASE_URL ??
@@ -71,5 +72,43 @@ export async function patchBooking(id: string, fields: Record<string, unknown>):
 
 export async function deleteBooking(id: string): Promise<boolean> {
   const r = await rest(`wanderbot/bookings/${id}`, { method: 'DELETE' });
+  return r.ok;
+}
+
+// ---- Dynamic view specs (wanderbot/views/<id>) --------------------------
+
+export async function putView(v: View): Promise<boolean> {
+  const r = await rest(`wanderbot/views/${v.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(v),
+  });
+  return r.ok;
+}
+
+/** Read a view by id, with a path-injection guard and read-time TTL (RTDB
+ *  has no native expiry). Returns null on bad id, miss, or expiry. */
+export async function loadView(id: string): Promise<View | null> {
+  if (!/^vw-[a-z0-9]{4,16}$/.test(id)) return null;
+  const r = await rest(`wanderbot/views/${id}`);
+  if (!r.ok) return null;
+  const v = (await r.json()) as View | null;
+  if (!v || (v.expiresAt && v.expiresAt < Date.now())) return null;
+  return v;
+}
+
+/** Mark an item as added (idempotency marker) at views/<id>/added/<itemId>. */
+export async function patchViewAdded(
+  id: string,
+  itemId: string,
+  marker: { bookingId: string; at: number },
+): Promise<boolean> {
+  if (!/^vw-[a-z0-9]{4,16}$/.test(id)) return false;
+  const key = itemId.replace(/[.#$/[\]]/g, '_');   // RTDB key-safe
+  const r = await rest(`wanderbot/views/${id}/added/${key}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(marker),
+  });
   return r.ok;
 }

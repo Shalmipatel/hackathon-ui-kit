@@ -4,6 +4,11 @@
 
 import type { Trip, Booking, BookingType, Place } from '../src/features/travel/types';
 import * as db from './rtdb.js';
+import { sanitizeView, uniqueTouchedTripId, type View } from './view.js';
+
+// Re-export the shared model types so sibling modules (view.ts) can import
+// them from one place without reaching into the app's src tree.
+export type { Trip, Booking, BookingType } from '../src/features/travel/types';
 
 const PALETTE = ['#FEEB29', '#F39C6B', '#7CC4A0', '#8FB7E8', '#C7A8E8'];
 const TYPES: BookingType[] = [
@@ -54,6 +59,41 @@ export const toolSchemas = [
   { type: 'function', name: 'add_booking', description: 'Add an itinerary item (hotel/flight/restaurant/attraction/activity/experience/event/transport).', parameters: { type: 'object', properties: { trip_id: str('The trip id'), type: { type: 'string', enum: TYPES }, title: str('Display title'), day: str('YYYY-MM-DD'), start_time: str('24h HH:MM'), end_time: str('24h HH:MM'), end_day: str('YYYY-MM-DD for multi-day items'), place_name: str('Venue name'), place_lat: num('Latitude'), place_lng: num('Longitude'), notes: str('Notes'), provider: str('Provider/operator'), link: str('URL'), nights: num('Hotel nights') }, required: ['trip_id', 'type', 'title', 'day'] } },
   { type: 'function', name: 'update_booking', description: 'Update fields on an itinerary item.', parameters: { type: 'object', properties: { booking_id: str('The booking id'), title: str('New title'), day: str('YYYY-MM-DD'), start_time: str('24h HH:MM'), notes: str('Notes'), link: str('URL') }, required: ['booking_id'] } },
   { type: 'function', name: 'delete_booking', description: 'Remove an itinerary item.', parameters: { type: 'object', properties: { booking_id: str('The booking id') }, required: ['booking_id'] } },
+  {
+    type: 'function',
+    name: 'present_view',
+    description:
+      "Render a rich, native visual card in the traveler's iMessage for answers that are a LIST of " +
+      "options, a COMPARISON, PLACES, WEATHER, a PACKING/prep CHECKLIST, a BUDGET breakdown, or a " +
+      "SUGGESTED day/plan — anything better shown than typed. Call this LAST, after any get_/web_search " +
+      "tools. When you call it, your text reply MUST be ONE short sentence introducing the card " +
+      "(e.g. \"Here are 3 dinner spots near your hotel:\") — do NOT restate the card in prose. Do NOT " +
+      "call it for a one-line factual answer, a yes/no, or to confirm an edit you just made. Attach an " +
+      "\"add_booking\" action to any row/option the traveler could realistically add to a real trip, and " +
+      "set trip_id so Add works. Give each actionable row a stable id. Prefer NOT to guess a day — omit " +
+      "booking.day and we'll place it sensibly. NEVER invent latitude/longitude or exact prices: omit " +
+      "place_lat/place_lng you haven't verified, and write uncertain prices as \"~$200\" in text. " +
+      "Block types: note {text,tone}; stats {items:[{value,label}]}; hero_stat {label,value,caption}; " +
+      "keyvalue {rows:[{label,value,icon}]}; list {id,style:'cards'|'checklist',rows:[{id,title,subtitle," +
+      "trailing,note,bookingType,action}]} (put add actions here); compare {columns:[{id,title,subtitle," +
+      "highlight,action}],rows:[{label,vals:[...]}]} (2-3 cols, vals length must equal columns); weather " +
+      "{unit:'F'|'C',days:[{day,symbol,hi,lo,rain}]}; map {pins:[{id,title,lat,lng,bookingType,action}]} " +
+      "REAL coords only; timeline {items:[{id,time,title,subtitle,bookingType,action}]}; budget " +
+      "{currency,total,items:[{label,amount,bookingType}]}; actions {buttons:[{type:'add_all'|'open_app'," +
+      "label,href}]}. An action is {type:'add_booking',label,booking:{type,title,start_time,place_name," +
+      "provider,notes,nights}}. Keep it tight: the best 3-5 options, not everything.",
+    parameters: {
+      type: 'object',
+      properties: {
+        title: str('Card headline, <= 60 chars'),
+        subtitle: str('Optional one-line context, <= 80 chars'),
+        trip_id: str('Trip these relate to — REQUIRED if any block has an add_booking action.'),
+        scene: { type: 'string', enum: ['mountain', 'city', 'coast', 'desert', 'forest', 'snow', 'aurora', 'river'], description: 'Optional hero landscape; omit to auto-pick.' },
+        blocks: { type: 'array', description: 'Ordered content blocks (max 12). See block types in the description.', items: { type: 'object' } },
+      },
+      required: ['title', 'blocks'],
+    },
+  },
 ];
 
 // ---- What a tool round can surface for a card (single subject) ----
@@ -68,6 +108,8 @@ export class Tools {
   bookings: Booking[] = [];
   /** Trips/bookings the agent read or touched — used to pick a card subject. */
   touched: Subject[] = [];
+  /** The rich view the agent last rendered via present_view (last one wins). */
+  pendingView?: View;
 
   async load() {
     [this.trips, this.bookings] = await Promise.all([db.loadTrips(), db.loadBookings()]);
@@ -85,6 +127,7 @@ export class Tools {
       case 'add_booking': return this.addBooking(args);
       case 'update_booking': return this.updateBooking(args);
       case 'delete_booking': return this.deleteBooking(args);
+      case 'present_view': return this.presentView(args);
       default: return `Unknown tool: ${name}`;
     }
   }
@@ -237,5 +280,24 @@ export class Tools {
     const ok = await db.deleteBooking(b.id);
     if (ok) this.bookings = this.bookings.filter((x) => x.id !== b.id);
     return ok ? `Removed "${b.title}" (${b.id}).` : 'Delete failed to sync.';
+  }
+
+  /** Store a rich view spec (sanitized) so the extension can render it. The
+   *  loose block tree the model passes is validated by sanitizeView — the only
+   *  trust boundary; the signed renderer just draws what survives. */
+  private async presentView(a: Record<string, unknown>): Promise<string> {
+    const { view, dropped } = sanitizeView(a, {
+      trips: this.trips,
+      touchedTripId: uniqueTouchedTripId(this.touched),
+    });
+    if (!view) return 'That view had no renderable content — answer in text instead.';
+    view.id = `vw-${Math.random().toString(16).slice(2, 10)}`;
+    view.createdAt = Date.now();
+    view.expiresAt = view.createdAt + 30 * 24 * 60 * 60 * 1000;
+    const ok = await db.putView(view);
+    if (ok) this.pendingView = view;
+    return ok
+      ? `Rendered a ${view.blocks.map((b) => b.type).join('/')} card.${dropped ? ` (dropped ${dropped} bad block(s))` : ''}`
+      : 'Card failed to store — answer in text.';
   }
 }
