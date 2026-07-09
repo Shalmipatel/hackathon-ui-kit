@@ -45,55 +45,26 @@ export function GET(): Response {
 export async function POST(req: Request): Promise<Response> {
   const app = await getApp();
 
-  // Spectrum invokes the handler fire-and-forget — processWebhookEvent() in
-  // @spectrum-ts/core calls deliverWebhookMessages(...) WITHOUT awaiting it and
-  // returns immediately. On a long-lived server the handler finishes in the
-  // background; on a Vercel serverless function the instance FREEZES the moment
-  // we return the Response, killing the in-flight agent before it can
-  // space.send() the reply (Photon then surfaces its own "I hit an error").
-  // So we capture the handler's completion and hand it to waitUntil(), which
-  // keeps the function warm until the reply is delivered — while still acking
-  // the webhook immediately.
+  // Spectrum invokes the handler fire-and-forget (docs: "runs after the HTTP
+  // response is sent"). On Vercel the instance FREEZES the moment we return, so
+  // we capture the handler's completion and hand it to waitUntil() to keep the
+  // function alive until the reply is delivered — the documented async model.
   let settle: () => void = () => {};
   const handlerDone = new Promise<void>((resolve) => { settle = resolve; });
 
   const result = await app.webhook(req, async (space, message) => {
     try {
-      console.log('[imessage] inbound', JSON.stringify({
-        id: message.id,
-        contentType: message.content?.type,
-        textPreview: (message.content as { text?: string })?.text?.slice(0, 80),
-      }));
-
-      if (message.content.type !== 'text') {
-        console.log('[imessage] skip: non-text content', message.content?.type);
-        return;
-      }
-      if (seen.has(message.id)) {
-        console.log('[imessage] skip: duplicate', message.id);
-        return;
-      }
+      if (message.content.type !== 'text') return;
+      if (seen.has(message.id)) return;
       seen.add(message.id);
 
       const text = message.content.text?.trim();
-      if (!text) {
-        console.log('[imessage] skip: empty text');
-        return;
-      }
+      if (!text) return;
 
       try {
         await space.startTyping?.();
-        console.log('[imessage] running agent for:', text.slice(0, 80));
         const { reply, tools } = await runAgent(text);
-        console.log('[imessage] agent reply len', reply.length, 'preview:', reply.slice(0, 120));
-
-        try {
-          await space.send(reply);
-          console.log('[imessage] reply sent OK');
-        } catch (sendErr) {
-          console.error('[imessage] reply send FAILED', sendErr);
-          throw sendErr;
-        }
+        await space.send(reply);
 
         const subject = pickSubject(tools.touched);
         const card = subject ? cardFor(subject) : null;
@@ -108,16 +79,15 @@ export async function POST(req: Request): Promise<Response> {
                 layout: { caption: card.caption, subcaption: card.subcaption },
               }),
             );
-            console.log('[imessage] card sent OK', card.caption);
           } catch (cardErr) {
             // A card failure must not sink the whole reply — prose already went out.
-            console.error('[imessage] card send FAILED (non-fatal)', cardErr);
+            console.error('[imessage] card send failed (non-fatal)', cardErr);
           }
         }
       } catch (err) {
         console.error('[imessage] agent error', err);
         try { await space.send("Sorry — I hit a snag pulling that up. Try again in a moment."); }
-        catch (e) { console.error('[imessage] fallback send FAILED', e); }
+        catch (e) { console.error('[imessage] fallback send failed', e); }
       } finally {
         await space.stopTyping?.();
       }
@@ -126,20 +96,7 @@ export async function POST(req: Request): Promise<Response> {
     }
   });
 
-  // Finish the reply INSIDE the request when we can. Spectrum acks the webhook
-  // with an empty body immediately (the handler is fire-and-forget); Photon's
-  // iMessage bridge, seeing no reply produced during the call, injects its own
-  // "Sorry, I hit an error. Try again?" before our async space.send lands — so
-  // the user gets a spurious error then the real reply. Awaiting the handler
-  // here means the reply is already sent by the time we return, so the bridge
-  // has nothing to fall back to. Cap the wait well under any webhook timeout;
-  // a slow agent (rare, web-search heavy) finishes under waitUntil instead.
-  await Promise.race([
-    handlerDone,
-    new Promise<void>((resolve) => setTimeout(resolve, 25_000)),
-  ]);
+  // Ack fast (documented model); the reply is delivered async under waitUntil.
   waitUntil(handlerDone);
-
-  console.log('[imessage] webhook result', result.status);
   return new Response(result.body, { status: result.status, headers: result.headers });
 }
