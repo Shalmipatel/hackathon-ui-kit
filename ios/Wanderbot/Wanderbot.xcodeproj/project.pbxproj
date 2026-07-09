@@ -15,6 +15,7 @@
 		3C82CDC7B9A17FE98F16D3B0 /* TripData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24143884FF3F3F0CEDC15433 /* TripData.swift */; };
 		4C1AB1E94B24F583E968E02A /* DebugExtensionPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C6179737B32F07D1F9B865 /* DebugExtensionPreview.swift */; };
 		58DF6BABC225C2B289C65CDF /* RichCardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90D7C4DD6FA5B33837F6623E /* RichCardViews.swift */; };
+		6080E6453891923473CE970A /* BookingType+UI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000012 /* BookingType+UI.swift */; };
 		6C358E06453041227111399E /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7E14B10E91697583F127C47B /* Foundation.framework */; };
 		A1000010000000000000001 /* WanderbotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001 /* WanderbotApp.swift */; };
 		A1000010000000000000002 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000002 /* RootView.swift */; };
@@ -63,7 +64,9 @@
 		A1000010000000000000041 /* WebLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000041 /* WebLoginView.swift */; };
 		A5F1ED7763AC167376167EBA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 89819501C13F8CF7E6037BBB /* Assets.xcassets */; };
 		BCCD877B09C3D8968CDB1080 /* TripData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24143884FF3F3F0CEDC15433 /* TripData.swift */; };
+		DC8E1CCB5DCE7A49C8E43341 /* NightSkyScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2937717790F3754BB1A17563 /* NightSkyScene.swift */; };
 		DF7CA050C084B564A76AA9DD /* DateFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000013 /* DateFormatters.swift */; };
+		E2D64F970E664AC323609D32 /* NightSkyScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2937717790F3754BB1A17563 /* NightSkyScene.swift */; };
 		F1C6926F5DA3C12EED364E5B /* WanderbotCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD5DA4C4A2CB38BC5257BA69 /* WanderbotCard.swift */; };
 /* End PBXBuildFile section */
 
@@ -93,6 +96,7 @@
 
 /* Begin PBXFileReference section */
 		24143884FF3F3F0CEDC15433 /* TripData.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TripData.swift; sourceTree = "<group>"; };
+		2937717790F3754BB1A17563 /* NightSkyScene.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NightSkyScene.swift; sourceTree = "<group>"; };
 		2FF1B60501B8E121AD6F6BEF /* WanderbotMessages.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WanderbotMessages.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		439B5F2C43834DB85C91A1D5 /* MessagesViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MessagesViewController.swift; sourceTree = "<group>"; };
 		7ACB806CAB2D32BCC502154D /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -177,6 +181,7 @@
 				7ACB806CAB2D32BCC502154D /* Info.plist */,
 				24143884FF3F3F0CEDC15433 /* TripData.swift */,
 				90D7C4DD6FA5B33837F6623E /* RichCardViews.swift */,
+				2937717790F3754BB1A17563 /* NightSkyScene.swift */,
 			);
 			name = WanderbotMessages;
 			path = WanderbotMessages;
@@ -398,6 +403,8 @@
 				2D591FFE4A943312E6CBB089 /* RichCardViews.swift in Sources */,
 				12060C05C11BB15277D002C3 /* Models.swift in Sources */,
 				DF7CA050C084B564A76AA9DD /* DateFormatters.swift in Sources */,
+				6080E6453891923473CE970A /* BookingType+UI.swift in Sources */,
+				E2D64F970E664AC323609D32 /* NightSkyScene.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -452,6 +459,7 @@
 				3C82CDC7B9A17FE98F16D3B0 /* TripData.swift in Sources */,
 				58DF6BABC225C2B289C65CDF /* RichCardViews.swift in Sources */,
 				4C1AB1E94B24F583E968E02A /* DebugExtensionPreview.swift in Sources */,
+				DC8E1CCB5DCE7A49C8E43341 /* NightSkyScene.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -96,24 +96,11 @@ private struct ExtensionRootView: View {
     }
 
     var body: some View {
-        switch store.phase {
-        case .idle, .loading:
-            if store.trips.isEmpty {
-                LoadingFallback()
-            } else {
-                content
-            }
-        case .failed where store.trips.isEmpty:
-            RetryFallback(store: store)
-        case .loaded where store.trips.isEmpty:
+        if store.phase == .loaded && store.trips.isEmpty {
             NoTripsFallback()
-        default:
-            content
-        }
-    }
-
-    @ViewBuilder private var content: some View {
-        if compact {
+        } else if compact {
+            // TripCompactCard renders the night shell even with no trip yet
+            // (payload title over the un-lerped scene) — never a gray box.
             let trip = store.trip(id: effectiveCard.resolvedTripID) ?? store.mostRelevantTrip
             TripCompactCard(
                 card: effectiveCard,
@@ -121,42 +108,41 @@ private struct ExtensionRootView: View {
                 bookingCount: trip.map { store.bookings(for: $0.id).count } ?? 0
             )
         } else {
+            // TripViewer owns its own loading / error / content states.
             TripViewer(store: store, card: effectiveCard, onOpen: onOpen)
         }
     }
 }
 
-private struct LoadingFallback: View {
-    var body: some View {
-        VStack(spacing: 10) {
-            ProgressView().controlSize(.large)
-            Text("Loading your trips…").font(.system(size: 13)).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct RetryFallback: View {
-    @ObservedObject var store: TripStore
-    var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "wifi.exclamationmark").font(.system(size: 26)).foregroundStyle(.secondary)
-            Text("Couldn't load your trips").font(.system(size: 14, weight: .semibold))
-            Button("Retry") { Task { await store.load() } }.buttonStyle(.bordered)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
 private struct NoTripsFallback: View {
     var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "suitcase.fill").font(.system(size: 28)).foregroundStyle(.secondary)
-            Text("No trips yet").font(.system(size: 15, weight: .semibold))
-            Text("Start planning in Wanderbot and it'll show up here.")
-                .font(.system(size: 12)).foregroundStyle(.tertiary).multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+        VStack(spacing: 14) {
+            ZStack {
+                Circle().fill(WBNight.nightDeep.color.opacity(0.08))
+                    .frame(width: 72, height: 72)
+                Image(systemName: "moon.stars")
+                    .font(.system(size: 26))
+                    .foregroundStyle(WBNight.nightMid.color)
+            }
+            VStack(spacing: 4) {
+                Text("No trips yet")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(WB.ink)
+                Text("Start planning in Wanderbot and it'll show up here.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(WB.ink.opacity(0.45))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+            }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(WB.surface))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(WB.ink.opacity(0.08), lineWidth: 1))
+        .shadow(color: WB.ink.opacity(0.07), radius: 10, y: 3)
+        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(WB.cream)
     }
 }

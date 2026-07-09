@@ -17,6 +17,25 @@ struct DebugExtensionPreviewView: View {
 
     enum Mode: String, CaseIterable { case compact = "Compact", expanded = "Expanded" }
 
+    /// Env-driven controls so simctl launches can capture specific states:
+    /// WB_PREVIEW_MODE=compact|expanded, WB_PREVIEW_TAB=itinerary|map|budget,
+    /// WB_PREVIEW_TRIP=<title/destination keyword>.
+    private var envTrip: Trip? {
+        guard let needle = ProcessInfo.processInfo.environment["WB_PREVIEW_TRIP"]?.lowercased(),
+              !needle.isEmpty else { return nil }
+        return store.trips.first { ($0.title + $0.destination).lowercased().contains(needle) }
+    }
+
+    private var envTab: TripTab? {
+        switch ProcessInfo.processInfo.environment["WB_PREVIEW_TAB"] {
+        case "itinerary": return .itinerary
+        case "map": return .map
+        case "budget": return .budget
+        case "overview": return .overview
+        default: return nil
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Picker("Mode", selection: $mode) {
@@ -28,7 +47,7 @@ struct DebugExtensionPreviewView: View {
                 .padding(.horizontal).padding(.vertical, 8)
 
             if store.phase == .loaded || !store.trips.isEmpty {
-                let trip = noCard ? nil : store.mostRelevantTrip
+                let trip = noCard ? nil : (envTrip ?? store.mostRelevantTrip)
                 let card = WanderbotCard(
                     type: "trip",
                     title: trip?.title ?? "Your Trips",
@@ -51,7 +70,7 @@ struct DebugExtensionPreviewView: View {
                     case .expanded:
                         TripViewer(store: store, card: card, onOpen: { href in
                             NSLog("[debugpreview] would open %@", href ?? "nil")
-                        })
+                        }, initialTab: envTab)
                     }
                 }
             } else if store.phase == .failed {
@@ -61,7 +80,10 @@ struct DebugExtensionPreviewView: View {
                     .frame(maxHeight: .infinity)
             }
         }
-        .task { await store.load() }
+        .task {
+            if ProcessInfo.processInfo.environment["WB_PREVIEW_MODE"] == "compact" { mode = .compact }
+            await store.load()
+        }
     }
 }
 #endif
