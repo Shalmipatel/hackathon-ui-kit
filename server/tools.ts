@@ -91,8 +91,17 @@ export class Tools {
 
   private getTrips(): string {
     if (!this.trips.length) return 'No trips yet.';
-    return this.trips
-      .map((t) => `${t.id}: "${t.title}" — ${t.destination} (${t.startDate} → ${t.endDate})`)
+    // Tag each trip PAST / ONGOING / UPCOMING against today, and sort
+    // chronologically, so the model never has to compute "which is next" —
+    // it just reads the first UPCOMING/ONGOING one. (YYYY-MM-DD strings
+    // compare lexicographically = chronologically.)
+    const today = new Date().toISOString().slice(0, 10);
+    return [...this.trips]
+      .sort((a, b) => a.startDate.localeCompare(b.startDate))
+      .map((t) => {
+        const status = t.endDate < today ? 'PAST' : t.startDate > today ? 'UPCOMING' : 'ONGOING';
+        return `${t.id}: "${t.title}" — ${t.destination} (${t.startDate} → ${t.endDate}) [${status}]`;
+      })
       .join('\n');
   }
 

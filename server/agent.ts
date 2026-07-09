@@ -33,6 +33,11 @@ the CURRENT year — UNLESS that month/day already passed this year, in which ca
 Trips get added before they happen.
 - For a multi-day item (hotel stay, overnight flight), end_day must be on or after day — check \
 this against nights/duration if given before writing it.
+- A trip is UPCOMING only if its end date is on or after today; otherwise it is PAST. For "next \
+trip" / "upcoming trip" questions, compare EVERY trip's start and end dates to today's date \
+above and pick the soonest trip that hasn't ended yet (a trip happening right now counts). Do \
+not just pick the earliest calendar month — Feb 2026 is in the PAST relative to Jul 2026. If \
+every trip has already ended, say there's nothing upcoming.
 - After creating or updating a date, restate it back to the traveler in your reply (e.g. "Added \
 for Fri, Aug 14, 2026") so a misread is easy to catch and correct.`;
 }

@@ -12,10 +12,28 @@
 import { Spectrum } from 'spectrum-ts';
 import { imessage, customizedMiniApp } from 'spectrum-ts/providers/imessage';
 import { waitUntil } from '@vercel/functions';
+import { PNG } from 'pngjs';
+import jpeg from 'jpeg-js';
 import { runAgent } from '../server/agent.js';
-import { pickSubject, cardFor } from '../server/card.js';
+import { pickSubject, subjectFromReply, cardFor } from '../server/card.js';
 
 export const config = { runtime: 'nodejs', maxDuration: 60 };
+
+/** Photon's iMessage backend requires the customized-mini-app layout image to
+ *  be JPEG ("layout.image must contain JPEG data"), but /og renders PNG (that's
+ *  all @vercel/og outputs). Transcode PNG→JPEG in-process — pure JS, no native
+ *  deps, safe on the Node serverless runtime. Returns undefined on any failure
+ *  so the card still sends (caption-only) rather than being dropped. */
+function pngToJpeg(pngBytes: Uint8Array): Uint8Array | undefined {
+  try {
+    const png = PNG.sync.read(Buffer.from(pngBytes));
+    const out = jpeg.encode({ data: png.data, width: png.width, height: png.height }, 82);
+    return new Uint8Array(out.data);
+  } catch (err) {
+    console.error('[imessage] png->jpeg transcode failed (non-fatal)', err);
+    return undefined;
+  }
+}
 
 // Deduplicate on message id — webhooks can redeliver.
 const seen = new Set<string>();
@@ -66,16 +84,20 @@ export async function POST(req: Request): Promise<Response> {
         const { reply, tools } = await runAgent(text);
         await space.send(reply);
 
-        const subject = pickSubject(tools.touched);
+        const subject = pickSubject(tools.touched) ?? subjectFromReply(reply, tools.trips);
         const card = subject ? cardFor(subject) : null;
         if (card) {
           try {
             // The customized-mini-app layout renders blank without an `image`
-            // — fetch the rendered 1200x630 PNG card and attach the bytes.
+            // — fetch the rendered 1200x630 PNG card and transcode to JPEG
+            // (Photon requires JPEG bytes).
             let image: Uint8Array | undefined;
             try {
               const imgRes = await fetch(card.imageUrl);
-              if (imgRes.ok) image = new Uint8Array(await imgRes.arrayBuffer());
+              if (imgRes.ok) {
+                const pngBytes = new Uint8Array(await imgRes.arrayBuffer());
+                image = pngToJpeg(pngBytes);
+              }
             } catch (imgErr) {
               console.error('[imessage] card image fetch failed (non-fatal)', imgErr);
             }
@@ -101,6 +123,7 @@ export async function POST(req: Request): Promise<Response> {
                   : { caption: card.caption, subcaption: card.subcaption },
               }),
             );
+            console.log('[imessage] card sent OK', card.caption, 'image:', image ? `${image.length}b jpeg` : 'none');
           } catch (cardErr) {
             // A card failure must not sink the whole reply — prose already went out.
             console.error('[imessage] card send failed (non-fatal)', cardErr);

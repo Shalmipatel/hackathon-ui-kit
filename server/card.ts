@@ -103,6 +103,29 @@ export function pickSubject(touched: Subject[]): Subject | null {
   return null;
 }
 
+/** Fallback subject when the agent didn't `touch` a single trip (e.g. it
+ *  answered "what's my next trip?" straight from get_trips): if the reply text
+ *  names exactly ONE of the traveler's trips by title, card that trip. Keeps a
+ *  tappable card on the common trip questions without over-firing on
+ *  multi-trip answers ("here are all your trips…"). */
+export function subjectFromReply(reply: string, trips: Trip[]): Subject | null {
+  const r = reply.toLowerCase();
+  const mentioned = new Map<string, Trip>();
+  for (const t of trips) {
+    const title = t.title.trim().toLowerCase();
+    // Word-ish boundary so "Oahu" doesn't match inside another word.
+    if (title.length >= 3 && new RegExp(`(^|[^a-z])${escapeRegExp(title)}([^a-z]|$)`).test(r)) {
+      mentioned.set(t.id, t);
+    }
+  }
+  if (mentioned.size === 1) return { kind: 'trip', trip: [...mentioned.values()][0] };
+  return null;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function payloadFor(subject: Subject): CardPayload | null {
   if (subject.kind === 'trip' && subject.trip) {
     const t = subject.trip;
