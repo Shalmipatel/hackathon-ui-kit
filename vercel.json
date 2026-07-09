@@ -41,6 +41,10 @@
       "destination": "/api/imessage"
     },
     {
+      "source": "/trips-data",
+      "destination": "/api/trips"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

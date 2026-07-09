@@ -26,6 +26,10 @@ interface CardPayload {
   lines?: string[];
   accent?: string;
   href?: string;
+  /** Trip the extension should load full itinerary/map/budget for. */
+  tripId?: string;
+  /** For a booking card, the specific booking to highlight in the viewer. */
+  bookingId?: string;
 }
 
 /** What the webhook needs to call customizedMiniApp(). */
@@ -73,6 +77,7 @@ function payloadFor(subject: Subject): CardPayload | null {
       lines: t.summary ? [t.summary] : undefined,
       accent: t.color || TYPE_ACCENT.trip,
       href: `/trip/${t.id}`,
+      tripId: t.id,
     };
   }
   if (subject.kind === 'booking' && subject.booking) {
@@ -91,6 +96,8 @@ function payloadFor(subject: Subject): CardPayload | null {
       lines: lines.length ? lines : undefined,
       accent: TYPE_ACCENT[b.type] ?? '#7CC4A0',
       href: `/trip/${b.tripId}`,
+      tripId: b.tripId,
+      bookingId: b.id,
     };
   }
   return null;

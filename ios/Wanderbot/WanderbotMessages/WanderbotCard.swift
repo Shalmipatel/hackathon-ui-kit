@@ -14,6 +14,19 @@ struct WanderbotCard: Codable {
     var accent: String?
     /// Deep link / path opened in the app when tapped (e.g. "/trip/<id>").
     var href: String?
+    /// Trip whose full itinerary/map/budget the extension loads live.
+    var tripId: String?
+    /// For a booking card, the booking to highlight in the viewer.
+    var bookingId: String?
+
+    /// Trip id, falling back to parsing it out of `href` ("/trip/<id>") for
+    /// older payloads that predate the explicit field.
+    var resolvedTripID: String? {
+        if let tripId, !tripId.isEmpty { return tripId }
+        guard let href, href.hasPrefix("/trip/") else { return nil }
+        let id = String(href.dropFirst("/trip/".count))
+        return id.isEmpty ? nil : id
+    }
 
     static func decode(from url: URL?) -> WanderbotCard? {
         guard let url,
