@@ -45,6 +45,25 @@ export interface AgentResult {
   tools: Tools;
 }
 
+// grok's hosted web_search injects markdown citations like `[[1]](https://…)`
+// and occasional **bold**/[label](url) links. iMessage renders none of it — the
+// user just sees the raw brackets and parens. Flatten it to clean plain text.
+export function stripMarkup(s: string): string {
+  return s
+    // Citation chips: `[[1]](url)` / ` [1](url)` → drop entirely.
+    .replace(/\s*\[\[?\d+\]?\]\((https?:[^)]+)\)/g, '')
+    // Inline links `[label](url)` → keep the label only.
+    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '$1')
+    // Bold/italic/code emphasis markers.
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/(?<!\w)[*_]([^*_]+)[*_](?!\w)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    // Collapse any doubled spaces the removals left behind.
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ +([.,!?])/g, '$1')
+    .trim();
+}
+
 export async function runAgent(userText: string): Promise<AgentResult> {
   const tools = new Tools();
   await tools.load();
@@ -93,5 +112,5 @@ export async function runAgent(userText: string): Promise<AgentResult> {
     }
   }
 
-  return { reply: finalText.trim() || 'Done.', tools };
+  return { reply: stripMarkup(finalText) || 'Done.', tools };
 }
