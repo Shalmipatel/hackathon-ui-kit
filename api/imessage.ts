@@ -79,13 +79,26 @@ export async function POST(req: Request): Promise<Response> {
             } catch (imgErr) {
               console.error('[imessage] card image fetch failed (non-fatal)', imgErr);
             }
+            // Spectrum's layout schema requires image + imageTitle together
+            // (and rejects imageSubtitle without image) — omitting imageTitle
+            // here throws inside space.send() and silently drops the card
+            // (caught below as "non-fatal"). Mirror caption/subcaption onto
+            // imageTitle/imageSubtitle only when we actually have image bytes.
             await space.send(
               customizedMiniApp({
                 appName: card.appName,
                 extensionBundleId: card.extensionBundleId,
                 teamId: card.teamId,
                 url: card.url,
-                layout: { caption: card.caption, subcaption: card.subcaption, image },
+                layout: image
+                  ? {
+                      caption: card.caption,
+                      subcaption: card.subcaption,
+                      image,
+                      imageTitle: card.caption,
+                      imageSubtitle: card.subcaption,
+                    }
+                  : { caption: card.caption, subcaption: card.subcaption },
               }),
             );
           } catch (cardErr) {
