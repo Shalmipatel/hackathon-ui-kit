@@ -209,7 +209,8 @@ struct TripCompactCard: View {
             ZStack {
                 NightSkyScene(variant: .compact,
                               accent: WB.accentRGB(trip),
-                              seedID: trip?.id ?? card.title)
+                              seedID: trip?.id ?? card.title,
+                              scene: WBScene.forTrip(trip))
                 VStack {
                     HStack {
                         HStack(spacing: 5) {
@@ -342,6 +343,7 @@ struct TripViewer: View {
             NightSkyScene(variant: .hero,
                           accent: WB.accentRGB(trip),
                           seedID: trip.id,
+                          scene: WBScene.forTrip(trip),
                           animated: true)
                 .frame(height: 208)
                 .overlay(alignment: .top) { heroTopRow(trip) }

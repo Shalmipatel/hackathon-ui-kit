@@ -32,6 +32,8 @@ interface CardPayload {
   tripId?: string;
   /** For a booking card, the specific booking to highlight in the viewer. */
   bookingId?: string;
+  /** Landscape scene for the /og hero (mirrors the extension's classifier). */
+  scene?: string;
 }
 
 /** What the webhook needs to call customizedMiniApp(). */
@@ -51,6 +53,34 @@ export interface CardSpec {
 function base64url(s: string): string {
   return Buffer.from(s, 'utf8').toString('base64')
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Landscape scene for a destination — mirrors WBScene.classify in the iOS
+ *  extension (NightSkyScene.swift) so the chat-bubble PNG and the native
+ *  extension hero always show the same world. Order matters. */
+export function sceneFor(text: string): string {
+  const s = text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const hit = (words: string[]) => words.some((w) => s.includes(w));
+
+  if (hit(['beach', 'island', 'coast', 'maui', 'oahu', 'kauai', 'hawaii', 'honolulu',
+           'bali', 'cancun', 'tulum', 'cabo', 'playa', 'miami', 'caribbean', 'fiji',
+           'phuket', 'malibu', 'san diego', 'amalfi', 'santorini', 'riviera'])) return 'coast';
+  if (hit(['aurora', 'northern lights', 'iceland', 'reykjavik', 'tromso', 'alaska',
+           'fairbanks', 'lofoten', 'greenland'])) return 'aurora';
+  if (hit(['snow', 'ski ', 'skiing', 'aspen', 'whistler', 'vail', 'lapland', 'hokkaido',
+           'niseko', 'antarctica', 'arctic', 'chamonix'])) return 'snow';
+  if (hit(['desert', 'sahara', 'dubai', 'abu dhabi', 'phoenix', 'scottsdale', 'sedona',
+           'arizona', 'moab', 'joshua tree', 'palm springs', 'marrakech', 'morocco',
+           'atacama', 'mojave', 'death valley'])) return 'desert';
+  if (hit(['forest', 'jungle', 'rainforest', 'redwood', 'sequoia', 'yosemite', 'smoky',
+           'olympic national', 'costa rica', 'amazon', 'black forest'])) return 'forest';
+  if (hit(['river', 'lake', 'laguna', 'lagoon', 'venice', 'amsterdam', 'bangkok',
+           'atitlan', 'como', 'bled', 'mekong', 'danube'])) return 'river';
+  if (hit(['new york', 'nyc', 'manhattan', 'tokyo', 'london', 'paris', 'chicago',
+           'san francisco', 'seattle', 'berlin', 'barcelona', 'madrid', 'rome', 'milan',
+           'singapore', 'hong kong', 'seoul', 'toronto', 'boston', 'austin',
+           'las vegas', 'vegas', 'city'])) return 'city';
+  return 'mountain';
 }
 
 function fmtRange(start: string, end: string): string {
@@ -85,6 +115,7 @@ function payloadFor(subject: Subject): CardPayload | null {
       accent: t.color || TYPE_ACCENT.trip,
       href: `/trip/${t.id}`,
       tripId: t.id,
+      scene: sceneFor(`${t.destination} ${t.title}`),
     };
   }
   if (subject.kind === 'booking' && subject.booking) {
@@ -106,6 +137,9 @@ function payloadFor(subject: Subject): CardPayload | null {
       href: `/trip/${b.tripId}`,
       tripId: b.tripId,
       bookingId: b.id,
+      scene: sceneFor(subject.trip
+        ? `${subject.trip.destination} ${subject.trip.title}`
+        : `${p?.name ?? ''} ${b.title}`),
     };
   }
   return null;
@@ -131,6 +165,7 @@ export function cardFor(subject: Subject): CardSpec | null {
   if (payload.subtitle) og.set('subtitle', payload.subtitle);
   if (payload.eyebrow) og.set('eyebrow', payload.eyebrow);
   og.set('type', payload.type);
+  if (payload.scene) og.set('scene', payload.scene);
 
   return {
     appName: 'Wanderbot',
